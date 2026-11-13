@@ -10,4 +10,9 @@ function App() {
   );
 }
 
-render(<App />, document.getElementById('app')!);
+const root = document.getElementById('app')!;
+if (import.meta.env.DEV && location.search.includes('arcade')) {
+  void import('./dev/arcadeTest').then(m => m.runArcadeTest(root));
+} else {
+  render(<App />, root);
+}
