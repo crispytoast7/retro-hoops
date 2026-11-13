@@ -137,6 +137,8 @@ export interface Team {
   strategy: 'contend' | 'middle' | 'rebuild';
   /** 0-100 market size/prestige; affects attendance and FA interest. */
   prestige: number;
+  /** Mid-level exception already used this season. */
+  mleUsed?: boolean;
 }
 
 export interface BoxLine extends StatLine { playerId: number; starter: boolean }

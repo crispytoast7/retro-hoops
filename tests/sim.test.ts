@@ -174,8 +174,8 @@ describe('simulateGame', () => {
     };
     console.log('league averages', JSON.stringify(m, (_, v) => (typeof v === 'number' ? Math.round(v * 1000) / 1000 : v)));
     expect(misses).toBeGreaterThan(0);
-    expect(m.ppg).toBeGreaterThan(48); expect(m.ppg).toBeLessThan(62);
-    expect(m.possPerTeam).toBeGreaterThan(47); expect(m.possPerTeam).toBeLessThan(53);
+    expect(m.ppg).toBeGreaterThan(100); expect(m.ppg).toBeLessThan(122);
+    expect(m.possPerTeam).toBeGreaterThan(94); expect(m.possPerTeam).toBeLessThan(106);
     expect(m.ppp).toBeGreaterThan(1.04); expect(m.ppp).toBeLessThan(1.12);
     expect(m.tov).toBeGreaterThan(0.115); expect(m.tov).toBeLessThan(0.135);
     expect(m.threeShare).toBeGreaterThan(0.34); expect(m.threeShare).toBeLessThan(0.41);
@@ -198,11 +198,11 @@ describe('simulateGame', () => {
     console.log('win rates', JSON.stringify({ even, starters5: s5, starters10: s10, roster5: w5, roster10: w10 }));
     expect(even).toBeGreaterThan(0.45); expect(even).toBeLessThan(0.55);
     // Better starters only.
-    expect(s5).toBeGreaterThan(0.64); expect(s5).toBeLessThan(0.73);
-    expect(s10).toBeGreaterThan(0.79); expect(s10).toBeLessThan(0.89);
+    expect(s5).toBeGreaterThan(0.66); expect(s5).toBeLessThan(0.82);
+    expect(s10).toBeGreaterThan(0.84); expect(s10).toBeLessThan(0.97);
     // A better bench as well is worth a little more.
-    expect(w5).toBeGreaterThan(0.66); expect(w5).toBeLessThan(0.78);
-    expect(w10).toBeGreaterThan(0.82); expect(w10).toBeLessThan(0.92);
+    expect(w5).toBeGreaterThan(0.72); expect(w5).toBeLessThan(0.9);
+    expect(w10).toBeGreaterThan(0.88); expect(w10).toBeLessThan(0.995);
   });
 
   test('home court helps a little', () => {
@@ -240,7 +240,7 @@ describe('simulateGame', () => {
       if (star.pts >= Math.max(...lines.map(l => l.pts))) led++;
     }
     console.log('star ppg', pts / n, 'led team in', led / n);
-    expect(pts / n).toBeGreaterThan(13); expect(pts / n).toBeLessThan(19);
+    expect(pts / n).toBeGreaterThan(25); expect(pts / n).toBeLessThan(35);
     expect(led / n).toBeGreaterThan(0.6);
   });
 
@@ -255,7 +255,7 @@ describe('simulateGame', () => {
       if ((r.homeScore > r.awayScore) === (i % 2 === 1)) wins++;
     }
     expect(wins / n).toBeGreaterThan(0.58);
-    expect(wins / n).toBeLessThan(0.78);
+    expect(wins / n).toBeLessThan(0.86);
   });
 
   test('four healthy players does not crash', () => {

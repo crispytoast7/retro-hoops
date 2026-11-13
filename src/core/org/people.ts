@@ -205,7 +205,7 @@ export function rollInjuries(save: Save, team: Team, lines: BoxLine[], rng: Rng)
     const p = save.players[l.playerId];
     if (!p || p.injury) continue;
     const ageK = p.age >= 32 ? 1.4 : 1;
-    if (!rng.chance(0.011 * (l.min / 20) * (1.25 - 0.17 * med) * ageK)) continue;
+    if (!rng.chance(0.011 * (l.min / 40) * (1.25 - 0.17 * med) * ageK)) continue;
     const inj = rng.pick(INJURIES);
     const weeks = Math.max(1, Math.round(rng.int(inj.min, inj.max) * (1.1 - 0.1 * med)));
     p.injury = { weeks, desc: inj.desc, fresh: true };

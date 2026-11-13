@@ -24,12 +24,12 @@ const END_PERIOD_SLACK = 4;
 const MAX_CHANCES = 4;
 
 /** Rotation: each backup plays two stints of this length, staggered slot by slot. */
-const BENCH_STINT_SECONDS = 200;
-const BENCH_STINT_STARTS = [250, 970]; // game seconds elapsed
-const BENCH_STAGGER_SECONDS = 20;
+const BENCH_STINT_SECONDS = 400;
+const BENCH_STINT_STARTS = [500, 1940]; // game seconds elapsed
+const BENCH_STAGGER_SECONDS = 40;
 
 /** Shot usage: scorer composite to this power. */
-const USAGE_POWER = 1.7;
+const USAGE_POWER = 1.6;
 
 /** Turnovers. */
 const BASE_TURNOVER = 0.11;

@@ -14,7 +14,7 @@ import type { GameSetup, LiveGame, SideInput } from '../sim/api';
 import type { GameResult, PlayoffSeries, Save, ScheduledGame, Team } from '../types';
 import { gamesInWeek, standings, userGame } from './schedule';
 
-export const CONTROLLED_POSSESSIONS = 12;
+export const CONTROLLED_POSSESSIONS = 16;
 
 export function sideInput(save: Save, teamId: number): SideInput {
   const team = save.teams[teamId];

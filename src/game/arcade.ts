@@ -413,7 +413,7 @@ export class Arcade {
     const q = late ? 0 : off <= hw ? 3 : off <= hw * 2.2 ? 2 : off <= hw * 4 ? 1 : 0;
     const three = this.meter.three;
     const dist = Math.hypot(h.x - HOOP.x, h.y - HOOP.y);
-    let p = (three ? 0.2 + 0.3 * sht : 0.28 + 0.3 * sht) + [-0.25, -0.08, 0.06, 0.22][q];
+    let p = (three ? 0.17 + 0.28 * sht : 0.27 + 0.28 * sht) + [-0.22, -0.08, 0.04, 0.18][q];
     if (dist > 135) p -= 0.12 + (dist - 135) * 0.004;
     if (dist < 40) p += 0.06;
     p -= 0.2 * c;
@@ -453,13 +453,13 @@ export class Arcade {
     const h = this.off[this.handler];
     const fin = h.p.ratings.fin / 100;
     const near = this.def.filter(d => d.stun <= 0).map(d => ({ d, dist: Math.hypot(d.x - h.x, d.y - h.y) })).filter(o => o.dist < 17).sort((a, b) => a.dist - b.dist);
-    const cv = (o?: { d: Ent; dist: number }) => (o ? (1 - o.dist / 17) * (0.4 + 0.6 * o.d.p.ratings.def / 100) + 0.25 : 0);
+    const cv = (o?: { d: Ent; dist: number }) => (o ? (1 - o.dist / 17) * (0.4 + 0.6 * o.d.p.ratings.def / 100) + 0.15 : 0);
     const c1 = cv(near[0]), c2 = cv(near[1]);
     const open = near.length === 0 || near[0].dist > 13;
     const dunk = h.p.ratings.fin >= 68 && (open || (h.p.ratings.fin >= 86 && c1 < 0.6));
     let p = dunk
       ? (open ? 0.96 : 0.6 + 0.3 * fin - 0.3 * c1)
-      : 0.5 + 0.42 * fin - 0.36 * c1 - 0.15 * c2;
+      : 0.56 + 0.4 * fin - 0.3 * c1 - 0.12 * c2;
     p = clamp(p + this.diff.make, 0.08, 0.97);
     const made = Math.random() < p;
     const foul = !open && Math.random() < 0.09 + 0.1 * c1;
@@ -636,8 +636,8 @@ export class Arcade {
         const dx = h.x - d.x, dy = h.y - d.y, dd = Math.hypot(dx, dy);
         if (dd < BODY && dd > 0.01) {
           const push = BODY - dd;
-          h.x += (dx / dd) * push * 0.8; h.y += (dy / dd) * push * 0.8;
-          d.x -= (dx / dd) * push * 0.2; d.y -= (dy / dd) * push * 0.2;
+          h.x += (dx / dd) * push * 0.65; h.y += (dy / dd) * push * 0.65;
+          d.x -= (dx / dd) * push * 0.35; d.y -= (dy / dd) * push * 0.35;
         }
         // reach-in steals
         if (dd < 9 && this.grace <= 0) {
@@ -686,6 +686,7 @@ export class Arcade {
         }
         this.assist = { id: from.p.id, t: this.time };
         this.handler = ps.to;
+        this.def[ps.to].slow = 0.45; // the closeout arrives a beat late: catch-and-shoot is worth it
         this.dribbleT = 0;
         this.grace = 0.35;
         this.lag = { x: to.x, y: to.y };
@@ -794,7 +795,9 @@ export class Arcade {
       }
       const closing = (this.phase === 'charge' || this.phase === 'shot') && i === this.handler;
       if (closing) { const m = this.off[i]; t = { x: m.x + (HOOP.x - m.x) * 0.07, y: m.y + (HOOP.y - m.y) * 0.07 }; if (Math.hypot(d.x - m.x, d.y - m.y) < 14) { d.armsUp = 0.2; if (this.phase === 'shot') d.lift = 3; } }
-      this.steer(d, t.x, t.y, this.speed(d) * this.diff.dspd * (i === this.handler ? 0.98 : 0.9), dt);
+      d.slow = Math.max(0, d.slow - dt);
+      // sliding with the ball is slower than sprinting, so a quicker handler can turn the corner
+      this.steer(d, t.x, t.y, this.speed(d) * this.diff.dspd * (i === this.handler ? 0.9 : 0.9) * (d.slow > 0 ? 0.45 : 1), dt);
       const sp = Math.hypot(d.vx, d.vy);
       d.run = sp > 5 ? (d.run < 0 ? 0 : d.run + dt * 5) : -1;
       d.face = Math.abs(d.vx) > 4 ? (d.vx > 0 ? 1 : -1) : 0;

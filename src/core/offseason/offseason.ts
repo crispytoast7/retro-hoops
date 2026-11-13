@@ -127,7 +127,7 @@ function archiveSeasons(save: Save): void {
 
 function ageAndRetire(save: Save, rng: Rng): void {
   const off = save.offseason!;
-  const minutesOf = (p: Player): number => { const last = p.seasons[p.seasons.length - 1]; return last && last.year === save.year ? last.stats.min / Math.max(1, last.stats.gp) / 24 : 0; };
+  const minutesOf = (p: Player): number => { const last = p.seasons[p.seasons.length - 1]; return last && last.year === save.year ? last.stats.min / Math.max(1, last.stats.gp) / 48 : 0; };
   for (const team of save.teams) {
     const training = effLevel(team.facilities.training);
     for (const id of team.roster) progressPlayer(save.players[id], rng, training, clamp(minutesOf(save.players[id]), 0, 1));
