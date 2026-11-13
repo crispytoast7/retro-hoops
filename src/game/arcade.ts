@@ -815,7 +815,7 @@ export class Arcade {
     drawCrowd(g, this.time, this.crowd, this.theme.crowdA, this.theme.crowdB, this.theme.banners ? 12 + Math.min(this.theme.banners, 12) * 9 : 0);
     if (this.shake > 0) g.translate(Math.round((Math.random() - 0.5) * this.shake * 10), Math.round((Math.random() - 0.5) * this.shake * 10));
     drawHoop(g, this.netKick);
-    if (this.phase !== 'idle') {
+    if (this.off.length) {
       const s = this.s;
       const clash = colorDist(s.offColors.primary, s.defColors.primary) < 110;
       const dj = clash ? s.defColors.secondary : s.defColors.primary;
@@ -834,7 +834,7 @@ export class Arcade {
         drawPlayer(g, {
           x: e.x, y: e.y, player: e.p, jersey: e.off ? s.offColors.primary : dj, trim: e.off ? s.offColors.secondary : dt,
           run: e.run, face: e.face, armsUp: e.armsUp > 0, lift: e.lift,
-          ring: isH && this.phase !== 'pass' ? PAL.yellow : this.ptr.mode === 'mate' && e.off && this.off[this.ptr.mate] === e ? PAL.white : undefined,
+          ring: isH && this.phase !== 'pass' && this.phase !== 'idle' ? PAL.yellow : this.ptr.mode === 'mate' && e.off && this.off[this.ptr.mate] === e ? PAL.white : undefined,
           dizzy: e.stun > 0 ? this.time : 0,
         });
       }
@@ -849,7 +849,7 @@ export class Arcade {
           drawText(g, this.usedKeys ? String(n) : POSITIONS[e.slot], e.x, top, open ? PAL.green : '#e8e0d0', { align: 'center', outline: PAL.ink });
         });
       }
-      drawBall(g, this.ball.x, this.ball.y, this.ball.z);
+      if (this.phase !== 'idle') drawBall(g, this.ball.x, this.ball.y, this.ball.z);
       if (this.phase === 'charge') this.drawMeter();
       // joystick
       if (this.ptr.down && this.ptr.mode === 'drag' && this.phase === 'live') {
@@ -861,7 +861,7 @@ export class Arcade {
         g.fillRect(Math.round(x0 + (dx / d) * m) - 1, Math.round(y0 + (dy / d) * m) - 1, 3, 3);
       }
       // shot clock
-      if (this.phase !== 'over' && !this.periodEnds) {
+      if (this.phase !== 'over' && this.phase !== 'idle' && !this.periodEnds) {
         const sc = Math.ceil(this.shotClock);
         g.fillStyle = PAL.ink; g.fillRect(W - 23, BASE_Y + 3, 19, 14);
         drawText(g, String(sc).padStart(2, '0'), W - 21, BASE_Y + 5, sc <= 5 ? PAL.red : PAL.yellow, { scale: 2 });
