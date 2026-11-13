@@ -314,4 +314,8 @@ export interface Save {
   scoutPoints: number;
   /** Milestones already paid out, e.g. 'wins10'. */
   milestones: string[];
+  /** Next draft's prospects (player ids); scoutable during the season. */
+  draftClass: number[];
+  /** A trade an AI team has put to the user, waiting for an answer. */
+  tradeOffer: { aId: number; bId: number; aGives: { players: number[]; picks: DraftPick[] }; bGives: { players: number[]; picks: DraftPick[] } } | null;
 }

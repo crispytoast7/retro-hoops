@@ -56,7 +56,7 @@ function mkSave(seed = 1): Save {
     credits: 0, owner: { name: 'Owner', approval: 50, goals: [] }, fans: 50, captainId: null,
     news: [], pendingEvent: null, seenEvents: [], history: [], records: {}, hallOfFame: [],
     offseason: null, settings: { sound: false, difficulty: 'normal', haptics: false },
-    tradeDemands: [], scoutPoints: 0, milestones: [],
+    tradeDemands: [], scoutPoints: 0, milestones: [], draftClass: [], tradeOffer: null,
   };
   const starters = [84, 77, 73, 70, 68];
   const bench = [65, 63, 61, 58, 55];

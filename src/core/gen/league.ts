@@ -127,7 +127,7 @@ export function newLeague(opts: NewGameOpts): Save {
     credits: 10,
     owner: { name: rng.pick(OWNER_NAMES), approval: 60, goals: [] },
     fans: 50, captainId: null, news: [], pendingEvent: null, seenEvents: [], history: [], records: {},
-    hallOfFame: [], offseason: null, settings: opts.settings, fired: null, tradeDemands: [], scoutPoints: 0, milestones: [],
+    hallOfFame: [], offseason: null, settings: opts.settings, fired: null, tradeDemands: [], scoutPoints: 0, milestones: [], draftClass: [], tradeOffer: null,
   };
   const templates = rng.shuffle(TEAM_TEMPLATES.slice()).slice(0, NUM_TEAMS);
   // spread of team strength: a few contenders, a few bottom-feeders
@@ -174,6 +174,7 @@ export function newLeague(opts: NewGameOpts): Save {
   });
   genFreeAgents(save, rng, 24);
   save.staffPool = genStaffPool(save, rng);
+  save.draftClass = genProspects(save, rng);
   save.rng = rng.state;
   return save;
 }
