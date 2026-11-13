@@ -1,7 +1,7 @@
-import { DEAD_CAP_RATE, ROSTER_MIN } from '../core/constants';
+import { ROSTER_MIN } from '../core/constants';
 import { marketSalary } from '../core/gm/value';
 import { upgradeCost, upgradeRating, UPGRADE_POINTS } from '../core/org/economy';
-import { releasePlayer } from '../core/org/roster';
+import { releaseDeadCap, releasePlayer } from '../core/org/roster';
 import { careerStats, emptyStats, ovr } from '../core/ratings';
 import { RATING_KEYS, RATING_NAMES } from '../core/types';
 import type { StatLine, Trait } from '../core/types';
@@ -43,7 +43,7 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
   const team = p.teamId !== null ? save.teams[p.teamId] : null;
   const mine = p.teamId === save.userTeamId;
   const prospect = p.scouted === false;
-  const dead = p.contract.years > 0 ? Math.round(p.contract.salary * DEAD_CAP_RATE * 10) / 10 : 0;
+  const dead = releaseDeadCap(p);
   const career = careerStats(p);
   const upgrade = (k: (typeof RATING_KEYS)[number]) => {
     const err = act(s => upgradeRating(s, p.id, k));

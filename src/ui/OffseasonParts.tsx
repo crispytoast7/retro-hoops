@@ -3,7 +3,7 @@ import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { DEAD_CAP_RATE, ROSTER_MIN } from '../core/constants';
 import { scoutProspect, scoutedRating } from '../core/org/economy';
-import { releasePlayer } from '../core/org/roster';
+import { releaseDeadCap, releasePlayer } from '../core/org/roster';
 import { overallOf, ovr, round1, stars } from '../core/ratings';
 import type { DraftPick, Player, Pos, RatingKey, Ratings, Save } from '../core/types';
 import { POSITIONS, RATING_KEYS } from '../core/types';
@@ -165,18 +165,17 @@ export function FreeAgentList(p: { save: Save; onPick: (pl: Player) => void; rig
 }
 
 // ---- releasing -----------------------------------------------------------------------
-/** Same rule as the player screen: dead money in season, none in the offseason. */
-export function deadCapFor(save: Save, p: Player): number {
-  if (save.phase === 'offseason') return 0;
-  return Math.min(p.contract.salary, round1(p.contract.salary * Math.max(1, p.contract.years) * DEAD_CAP_RATE * 0.5));
+/** Same rule as the player screen: half a season's salary while the deal is live. */
+export function deadCapFor(_save: Save, p: Player): number {
+  return releaseDeadCap(p);
 }
 export async function releaseWithConfirm(save: Save, p: Player): Promise<boolean> {
   const me = save.teams[save.userTeamId];
   if (me.roster.length <= ROSTER_MIN) { toast(`You need at least ${ROSTER_MIN} players.`); return false; }
   const dead = deadCapFor(save, p);
-  const ok = await confirmDialog(`Release ${p.name}? ${dead > 0 ? `${money(dead)} stays on your cap this season as dead money.` : 'No dead money in the offseason.'}`, 'Release');
+  const ok = await confirmDialog(`Release ${p.name}? ${dead > 0 ? `${money(dead)} stays on your cap as dead money until next offseason.` : ''}`, 'Release');
   if (!ok) return false;
-  act(s => { releasePlayer(s, p.id, { deadCap: s.phase !== 'offseason' }); });
+  act(s => { releasePlayer(s, p.id, { deadCap: true }); });
   toast(`${p.name} released.`, true);
   return true;
 }

@@ -255,7 +255,7 @@ function RetirementsStep({ save }: { save: Save }) {
                 <span class="ox-cup sm">♛</span>
                 <div class="grow">
                   <div class="nowrap"><NameLink id={h.playerId} name={h.name} /></div>
-                  <div class="row dim ox-sub"><span>{h.pos}</span><span>{h.seasons} seasons</span><span>{h.career.pts} pts</span>{h.awards.length > 0 && <span>{h.awards.length} awards</span>}</div>
+                  <div class="row dim ox-sub"><span>{h.pos}</span><span>{h.seasons} season{h.seasons === 1 ? "" : "s"}</span><span>{h.career.pts} pts</span>{h.awards.length > 0 && <span>{h.awards.length} award{h.awards.length === 1 ? "" : "s"}</span>}</div>
                 </div>
                 <Stars v={h.peakOvr} />
               </div>
@@ -274,7 +274,7 @@ function RetirementsStep({ save }: { save: Save }) {
                   <span class="tag pos">{p.pos}</span>
                   <div class="grow">
                     <div class="nowrap"><NameLink id={p.id} name={p.name} /></div>
-                    <div class="row dim ox-sub"><span>Age {p.age}</span><span>{p.seasons.length} seasons</span>{tid !== null && save.teams[tid] && <span>{save.teams[tid].abbr}</span>}</div>
+                    <div class="row dim ox-sub"><span>Age {p.age}</span><span>{p.seasons.length} season{p.seasons.length === 1 ? "" : "s"}</span>{tid !== null && save.teams[tid] && <span>{save.teams[tid].abbr}</span>}</div>
                   </div>
                   {wasMine && <span class="tag gold">YOURS</span>}
                 </div>
