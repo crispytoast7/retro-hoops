@@ -47,7 +47,7 @@ export function aiResignPhase(save: Save, rng: Rng): void {
         committed += ask.salary;
         kept++;
         if (o >= 80) {
-          save.news.push({
+          save.news.unshift({
             year: save.year, week: save.week, kind: 'signing',
             text: `${p.name} re-signs with ${team.city} (${ask.years} yr${ask.years === 1 ? '' : 's'}, $${ask.salary}M).`,
           });

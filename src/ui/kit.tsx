@@ -152,6 +152,6 @@ export function Tabs<T extends string>(p: { tabs: readonly T[]; value: T; onChan
   );
 }
 
-/** Team strength as stars: 62 overall = 1 star, 70 = 3, 78 = 5. */
-export const teamStarCount = (teamOvr: number): number => Math.max(0.5, Math.min(5, Math.round(((teamOvr - 58) / 4) * 2) / 2));
+/** Team strength as stars: 64 overall = 1 star, 72 = 3, 80 = 5. */
+export const teamStarCount = (teamOvr: number): number => Math.max(0.5, Math.min(5, Math.round(((teamOvr - 60) / 4) * 2) / 2));
 export const confName = (c: number): string => (c === 0 ? 'East' : 'West');

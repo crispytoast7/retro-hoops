@@ -119,7 +119,8 @@ export function beginOffseason(save: Save, rng: Rng): void {
 function archiveSeasons(save: Save): void {
   for (const id in save.players) {
     const p = save.players[id];
-    if (p.season.gp > 0 && p.teamId !== null) p.seasons.push({ year: save.year, teamId: p.teamId, age: p.age, ovr: ovr(p), stats: p.season });
+    const lastTeam = p.teamId ?? p.seasons[p.seasons.length - 1]?.teamId ?? p.draft?.teamId ?? 0;
+    if (p.season.gp > 0) p.seasons.push({ year: save.year, teamId: lastTeam, age: p.age, ovr: ovr(p), stats: p.season });
     p.season = emptyStats();
   }
 }
@@ -241,8 +242,7 @@ export function resignPlayer(save: Save, playerId: number): string | null {
   const team = save.teams[save.userTeamId];
   const ask = askingContract(save, p, team.id);
   if (ask.refuses) return `${shortName(p.name)} is not interested in returning.`;
-  // his old salary is no longer on the books (years = 0), so compare against the space without him
-  const space = round1(capSpace(save, team) + p.contract.salary);
+  const space = capSpace(save, team);
   if (ask.salary > space) return `Not enough cap space ($${ask.salary}M needed, $${space}M free).`;
   p.contract = { salary: ask.salary, years: ask.years };
   p.morale = clamp(p.morale + 8, 0, 100);
@@ -283,7 +283,9 @@ export function advanceOffseason(save: Save, rng: Rng): void {
     for (const id of save.freeAgents) { const p = save.players[id]; p.contract = { salary: marketSalary(p), years: 0 }; }
     off.log = [];
     buildDraftOrder(save);
+    off.step = 'draft';
     runDraftUntilUser(save, rng);
+    return;
   } else if (off.step === 'draft') {
     // anyone left on the board becomes a free agent
     for (const id of off.prospects) { const p = save.players[id]; p.scouted = true; p.contract = { salary: MIN_SALARY, years: 0 }; save.freeAgents.push(id); }
@@ -313,6 +315,7 @@ export function startNewSeason(save: Save, rng: Rng): void {
   aiFillRosters(save, rng);
   aiMaintainRosters(save, rng);
   updateStrategies(save);
+  for (const f of Object.values(me.facilities)) if (f.pending) { f.level = f.pending; delete f.pending; f.condition = 100; }
   save.year++;
   save.week = 1;
   save.phase = 'regular';
@@ -326,7 +329,7 @@ export function startNewSeason(save: Save, rng: Rng): void {
     for (const id of t.roster) { const p = save.players[id]; p.injury = null; p.morale = clamp(Math.round(p.morale + (62 - p.morale) * 0.4), 0, 100); }
     fixLineup(save, t);
     // AI clubs slowly invest
-    if (t.id !== me.id && rng.chance(0.25)) { const k = rng.pick(['arena', 'training', 'medical', 'scouting'] as const); t.facilities[k].level = clamp(t.facilities[k].level + (rng.chance(0.7) ? 1 : -1), 1, 5); }
+    if (t.id !== me.id && rng.chance(0.25)) { const k = rng.pick(['arena', 'training', 'medical', 'scouting'] as const); t.facilities[k].level = clamp(t.facilities[k].level + (rng.chance(t.facilities[k].level < 3 ? 0.7 : 0.35) ? 1 : -1), 1, 5); }
     if (t.id !== me.id) t.prestige = clamp(Math.round(t.prestige * 0.9 + (t.history[t.history.length - 1]?.w ?? 7) * 0.9 + (t.titles.includes(save.year - 1) ? 8 : 0)), 5, 99);
   }
   // prune: retired players nobody references, and the dregs of free agency

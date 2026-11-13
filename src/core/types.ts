@@ -34,7 +34,7 @@ export interface Contract {
   years: number;
 }
 
-export interface Injury { weeks: number; desc: string }
+export interface Injury { weeks: number; desc: string; /** Picked up this week: the first weekly heal is skipped. */ fresh?: boolean }
 
 export interface PlayerSeason { year: number; teamId: number; age: number; ovr: number; stats: StatLine }
 

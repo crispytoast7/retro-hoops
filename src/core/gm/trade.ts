@@ -276,7 +276,7 @@ export function executeTrade(save: Save, offer: TradeOffer): void {
   setLineup(save, b);
 
   const mine = a.id === save.userTeamId || b.id === save.userTeamId;
-  save.news.push({
+  save.news.unshift({
     year: save.year, week: save.week, kind: 'trade',
     text: `Trade: ${a.city} sends ${joinList(aParts)} to ${b.city} for ${joinList(bParts)}.`,
     ...(mine ? { mine: true } : {}),

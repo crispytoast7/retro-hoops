@@ -15,15 +15,14 @@ export function signPlayer(save: Save, playerId: number, teamId: number, contrac
   fixLineup(save, team);
 }
 
-/** Remove a player from his team into free agency. Returns dead cap charged ($M). */
+/** Remove a player from his team into free agency. Dead cap = half a season's salary, charged until the next offseason. Returns it ($M). */
 export function releasePlayer(save: Save, playerId: number, opts: { deadCap: boolean }): number {
   const p = save.players[playerId];
   if (p.teamId === null) return 0;
   const team = save.teams[p.teamId];
   let dead = 0;
   if (opts.deadCap) {
-    dead = round1(p.contract.salary * Math.max(1, p.contract.years) * DEAD_CAP_RATE * 0.5);
-    dead = Math.min(dead, p.contract.salary);
+    dead = p.contract.years > 0 ? round1(p.contract.salary * DEAD_CAP_RATE) : 0;
     team.deadCap = round1(team.deadCap + dead);
   }
   team.roster = team.roster.filter(id => id !== playerId);

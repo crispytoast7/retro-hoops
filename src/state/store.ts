@@ -36,11 +36,13 @@ export function useSave(): Save {
 /** Run a change against the save with the seeded RNG, then notify and auto-save. */
 export function act<T>(fn: (save: Save, rng: Rng) => T): T {
   const rng = new Rng(save!.rng);
-  const out = fn(save!, rng);
-  save!.rng = rng.state;
-  notify();
-  scheduleSave();
-  return out;
+  try {
+    return fn(save!, rng);
+  } finally {
+    save!.rng = rng.state;
+    notify();
+    scheduleSave();
+  }
 }
 /** A change that needs no randomness. */
 export function touch(fn?: (save: Save) => void): void {

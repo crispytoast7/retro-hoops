@@ -199,6 +199,7 @@ export function endWeek(save: Save, rng: Rng): PostGame | null {
       rollEvent(save, rng);
     }
   } else if (save.phase === 'playoffs') {
+    weeklyFacilities(save, rng);
     advancePlayoffs(save, rng);
     if (save.playoffs!.championId !== undefined) beginOffseason(save, rng);
     else save.week++;

@@ -208,17 +208,19 @@ export function rollInjuries(save: Save, team: Team, lines: BoxLine[], rng: Rng)
     if (!rng.chance(0.011 * (l.min / 20) * (1.25 - 0.17 * med) * ageK)) continue;
     const inj = rng.pick(INJURIES);
     const weeks = Math.max(1, Math.round(rng.int(inj.min, inj.max) * (1.1 - 0.1 * med)));
-    p.injury = { weeks, desc: inj.desc };
+    p.injury = { weeks, desc: inj.desc, fresh: true };
     const mine = team.id === save.userTeamId;
     if (mine || ovr(p) >= 80) pushNews(save, 'injury', headline(rng, 'injury', { player: p.name, team: team.name, desc: inj.desc, weeks }), mine);
   }
   fixLineup(save, team);
 }
 export function healWeek(save: Save, rng: Rng): void {
+  for (const id of save.freeAgents) { const p = save.players[id]; if (p?.injury && --p.injury.weeks <= 0) p.injury = null; }
   for (const team of save.teams) {
     for (const id of team.roster) {
       const p = save.players[id];
       if (!p.injury) continue;
+      if (p.injury.fresh) { delete p.injury.fresh; continue; }
       p.injury.weeks--;
       if (p.injury.weeks <= 0) {
         p.injury = null;
@@ -234,11 +236,11 @@ const ATHLETIC: RatingKey[] = ['spd', 'fin', 'def'];
 export function progressPlayer(p: Player, rng: Rng, training: number, minShare: number): number {
   const before = overallOf(p.ratings, p.pos);
   const a = p.age;
-  let mean = a <= 21 ? 3.2 : a <= 23 ? 2.3 : a <= 25 ? 1.2 : a <= 28 ? 0.2 : a <= 30 ? -0.7 : a <= 32 ? -1.7 : a <= 34 ? -2.8 : -4;
+  let mean = a <= 21 ? 2.6 : a <= 23 ? 1.8 : a <= 25 ? 0.9 : a <= 28 ? 0 : a <= 30 ? -0.8 : a <= 32 ? -1.7 : a <= 34 ? -2.8 : -4;
   const room = p.potential - before;
-  if (mean > 0) mean *= clamp(0.35 + room / 12, 0.2, 1.6);
-  mean += (training - 2) * (a <= 26 ? 0.45 : 0.25);
-  mean += (minShare - 0.4) * (a <= 25 ? 1.6 : 0.4);
+  if (mean > 0) mean *= clamp(room / 9, 0.1, 1.4);
+  mean += (training - 3) * (a <= 26 ? 0.35 : 0.2);
+  mean += (minShare - 0.55) * (a <= 25 ? 1.4 : 0.4);
   if (p.trait === 'Hard Worker') mean += 0.8;
   if (p.trait === 'Lazy') mean -= 0.8;
   const delta = mean + rng.gauss() * 1.4;

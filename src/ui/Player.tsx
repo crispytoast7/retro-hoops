@@ -43,7 +43,7 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
   const team = p.teamId !== null ? save.teams[p.teamId] : null;
   const mine = p.teamId === save.userTeamId;
   const prospect = p.scouted === false;
-  const dead = Math.min(p.contract.salary, Math.round(p.contract.salary * Math.max(1, p.contract.years) * DEAD_CAP_RATE * 0.5 * 10) / 10);
+  const dead = p.contract.years > 0 ? Math.round(p.contract.salary * DEAD_CAP_RATE * 10) / 10 : 0;
   const career = careerStats(p);
   const upgrade = (k: (typeof RATING_KEYS)[number]) => {
     const err = act(s => upgradeRating(s, p.id, k));
@@ -51,8 +51,8 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
   };
   const release = async () => {
     if (save.teams[save.userTeamId].roster.length <= ROSTER_MIN) return toast(`You need at least ${ROSTER_MIN} players.`);
-    if (!(await confirmDialog(`Release ${p.name}? ${dead > 0 ? `${money(dead)} stays on your cap this season as dead money.` : ''}`, 'Release'))) return;
-    act(s => { releasePlayer(s, p.id, { deadCap: s.phase !== 'offseason' }); });
+    if (!(await confirmDialog(`Release ${p.name}? ${dead > 0 ? `${money(dead)} stays on your cap as dead money until next offseason.` : ''}`, 'Release'))) return;
+    act(s => { releasePlayer(s, p.id, { deadCap: true }); });
     toast(`${p.name} released.`, true);
     back();
   };

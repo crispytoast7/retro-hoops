@@ -230,7 +230,10 @@ export class Arcade {
     if (!this.ptr.down || e.pointerId !== this.ptr.id) return;
     const p = this.toLogical(e);
     this.ptr.x = p.x; this.ptr.y = p.y;
-    if (this.ptr.mode === 'press' && this.phase === 'live' && Math.hypot(p.x - this.ptr.x0, p.y - this.ptr.y0) > DRAG_START) this.ptr.mode = 'drag';
+    const moved = Math.hypot(p.x - this.ptr.x0, p.y - this.ptr.y0);
+    if (this.ptr.mode === 'press' && this.phase === 'live' && moved > DRAG_START) this.ptr.mode = 'drag';
+    // dragging away early in the meter cancels the shot (a pump fake) and goes back to dribbling
+    else if (this.ptr.mode === 'press' && this.phase === 'charge' && moved > 12 && this.meter.v < 0.5) { this.phase = 'live'; this.ptr.mode = 'drag'; }
   };
   private onUp = (e: PointerEvent) => {
     if (!this.ptr.down || e.pointerId !== this.ptr.id) return;

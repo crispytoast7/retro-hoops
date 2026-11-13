@@ -4,7 +4,8 @@ import type { Save, Team } from '../types';
 
 export function payroll(save: Save, team: Team): number {
   let t = team.deadCap;
-  for (const id of team.roster) t += save.players[id].contract.salary;
+  // a deal with no years left has expired (offseason) and is off the books
+  for (const id of team.roster) { const c = save.players[id].contract; if (c.years > 0) t += c.salary; }
   return round1(t);
 }
 export const capSpace = (save: Save, team: Team): number => round1(SALARY_CAP - payroll(save, team));

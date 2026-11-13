@@ -1,0 +1,130 @@
+import { useState } from 'preact/hooks';
+import { NUM_TEAMS, ROSTER_MAX } from '../core/constants';
+import { rookieContract } from '../core/gm/draft';
+import { draftDone, runDraftUntilUser, userDraftPick, userOnClock } from '../core/offseason/offseason';
+import { capSpace } from '../core/org/finance';
+import type { Player, Save } from '../core/types';
+import { act } from '../state/store';
+import { Btn, Modal, Panel, confirmDialog, money, toast } from './kit';
+import { PlayerLine, ProspectBoard, ProspectRow, ReleaseModal, dealText } from './OffseasonParts';
+
+export function DraftStep({ save }: { save: Save }) {
+  const off = save.offseason!;
+  const me = save.teams[save.userTeamId];
+  const [sel, setSel] = useState<number | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const [releasing, setReleasing] = useState(false);
+  const onClock = userOnClock(save);
+  const done = draftDone(save);
+  const slot = off.draftOrder[off.draftIdx];
+  const full = me.roster.length >= ROSTER_MAX;
+
+  const draft = (id: number) => {
+    const p = save.players[id];
+    const err = act((s, rng) => userDraftPick(s, id, rng));
+    if (err) { toast(err); return; }
+    setSel(null);
+    toast(`You drafted ${p?.name ?? 'your man'}!`, true);
+  };
+  const pass = async () => {
+    if (!(await confirmDialog('Pass on this pick? It is gone for good.', 'Pass'))) return;
+    const err = act((s, rng) => userDraftPick(s, null, rng));
+    if (err) toast(err);
+  };
+
+  const upcoming = off.draftOrder.slice(off.draftIdx, off.draftIdx + 8);
+  const log = off.log.slice().reverse();
+  const myClass = Object.values(save.players)
+    .filter(p => p.draft && p.draft.year === save.year && p.draft.teamId === me.id && p.teamId === me.id)
+    .sort((a, b) => (a.draft!.round - b.draft!.round) || (a.draft!.pick - b.draft!.pick));
+  const pickPlayer: Player | null = sel !== null ? save.players[sel] ?? null : null;
+
+  return (
+    <>
+      {onClock && slot && (
+        <>
+          <div class="ox-clock">YOU ARE ON THE CLOCK: ROUND {slot.round}, PICK {slot.pick}</div>
+          <div class="row">
+            <span class="grow dim" style={{ fontSize: '18px' }}>Tap a prospect to draft him. Rookie deal: {dealText(rookieContract(slot.round, slot.pick).salary, rookieContract(slot.round, slot.pick).years)}.</span>
+            <Btn onClick={() => { void pass(); }}>Pass</Btn>
+          </div>
+          {full && (
+            <div class="panel ox-warn">
+              <div class="bad">Your roster is full ({ROSTER_MAX}). Release someone to make this pick, or pass.</div>
+              <div style={{ height: '6px' }} />
+              <Btn class="block" onClick={() => setReleasing(true)}>Release a player</Btn>
+            </div>
+          )}
+        </>
+      )}
+      {!onClock && !done && (
+        <Panel>
+          <div class="dim">The other teams are picking.</div>
+          <Btn class="block" onClick={() => act((s, rng) => runDraftUntilUser(s, rng))}>Run the next picks</Btn>
+        </Panel>
+      )}
+      {done && (
+        <Panel team title="THE DRAFT IS DONE">
+          {myClass.length ? (
+            <>
+              <div class="dim" style={{ fontSize: '18px' }}>Your new rookies:</div>
+              <div class="list">
+                {myClass.map(p => <PlayerLine save={save} player={p} sub={<span>R{p.draft!.round} #{p.draft!.pick} · {money(p.contract.salary)}</span>} />)}
+              </div>
+            </>
+          ) : <div class="dim">You did not draft anyone this year.</div>}
+          <div class="dim" style={{ fontSize: '18px', marginTop: '6px' }}>Undrafted prospects join the free-agent pool. Continue to free agency.</div>
+        </Panel>
+      )}
+
+      {!done && upcoming.length > 0 && (
+        <Panel title="ON THE CLOCK NEXT">
+          <div class="list">
+            {upcoming.map((s, i) => {
+              const t = save.teams[s.teamId];
+              const mine = s.teamId === me.id;
+              return (
+                <div class={`item ${mine ? 'sel' : ''}`} style={{ minHeight: '34px' }}>
+                  <span class="head dim" style={{ width: '62px' }}>R{s.round} #{s.pick}</span>
+                  <span class="swatch" style={{ background: t.colors.primary }} />
+                  <span class="grow nowrap">{t.city}</span>
+                  {mine ? <span class="tag gold">YOU</span> : i === 0 ? <span class="tag">NOW</span> : null}
+                </div>
+              );
+            })}
+          </div>
+        </Panel>
+      )}
+
+      {log.length > 0 && (
+        <Panel title="DRAFT LOG">
+          <div class="list ox-log">
+            {(showAll ? log : log.slice(0, 6)).map(l => <div class={`item ${l.includes(` ${me.abbr}:`) || l.startsWith(`${me.abbr} `) ? 'gold' : ''}`}>{l}</div>)}
+          </div>
+          {log.length > 6 && <Btn class="block" onClick={() => setShowAll(!showAll)}>{showAll ? 'Show fewer' : `Show all ${log.length}`}</Btn>}
+        </Panel>
+      )}
+
+      {off.prospects.length > 0 && (
+        <>
+          <h3>THE BOARD ({off.prospects.length} LEFT)</h3>
+          <ProspectBoard save={save} ids={off.prospects} onPick={onClock ? setSel : undefined} />
+        </>
+      )}
+
+      {pickPlayer && slot && onClock && (
+        <Modal onClose={() => setSel(null)}>
+          <h3>ROUND {slot.round}, PICK {slot.pick} · #{(slot.round - 1) * NUM_TEAMS + slot.pick} OVERALL</h3>
+          <div class="list"><ProspectRow save={save} player={pickPlayer} /></div>
+          <div class="row between"><span class="dim">Rookie deal</span><span class="gold">{dealText(rookieContract(slot.round, slot.pick).salary, rookieContract(slot.round, slot.pick).years)}</span></div>
+          <div class="row between"><span class="dim">Cap space · roster</span><span>{money(capSpace(save, me))} · {me.roster.length}/{ROSTER_MAX}</span></div>
+          <div class="row">
+            <Btn class="grow" onClick={() => setSel(null)}>Cancel</Btn>
+            <Btn class="grow" kind="primary" onClick={() => draft(pickPlayer.id)}>Draft</Btn>
+          </div>
+        </Modal>
+      )}
+      {releasing && <ReleaseModal save={save} onClose={() => setReleasing(false)} text={`Roster ${me.roster.length}/${ROSTER_MAX}. Releasing in the offseason costs no dead money.`} />}
+    </>
+  );
+}

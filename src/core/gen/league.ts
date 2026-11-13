@@ -43,7 +43,7 @@ export function genRatings(rng: Rng, pos: Pos, target: number): Ratings {
 export function genPlayer(save: { nextId: number }, rng: Rng, pos: Pos, target: number, age: number): Player {
   const ratings = genRatings(rng, pos, clamp(target, 30, 97));
   const o = overallOf(ratings, pos);
-  const room = age <= 20 ? rng.int(6, 24) : age <= 23 ? rng.int(3, 15) : age <= 26 ? rng.int(0, 6) : 0;
+  const room = age <= 20 ? rng.int(4, 16) : age <= 23 ? rng.int(2, 10) : age <= 26 ? rng.int(0, 4) : 0;
   const p: Player = {
     id: save.nextId++,
     name: genName(rng), pos, age, ratings,
@@ -91,7 +91,8 @@ export function genProspects(save: Save, rng: Rng): number[] {
     const tier = i / PROSPECTS;
     const target = Math.round(70 - tier * 22 + rng.gauss() * 4);
     const p = genPlayer(save, rng, pos, target, rng.int(19, 22));
-    p.potential = clamp(overallOf(p.ratings, pos) + rng.int(4, 26) - Math.round(tier * 6), overallOf(p.ratings, pos), 99);
+    // most prospects top out as role players; a few each year have star ceilings
+    p.potential = clamp(overallOf(p.ratings, pos) + 3 + Math.round(Math.abs(rng.gauss()) * 8 * (1 - tier * 0.4)), overallOf(p.ratings, pos), 99);
     p.scouted = false;
     save.players[p.id] = p;
     ids.push(p.id);
@@ -131,10 +132,10 @@ export function newLeague(opts: NewGameOpts): Save {
   };
   const templates = rng.shuffle(TEAM_TEMPLATES.slice()).slice(0, NUM_TEAMS);
   // spread of team strength: a few contenders, a few bottom-feeders
-  const bases = rng.shuffle(Array.from({ length: NUM_TEAMS }, (_, i) => 63.5 + (i / (NUM_TEAMS - 1)) * 9 + rng.gauss() * 0.8));
+  const bases = rng.shuffle(Array.from({ length: NUM_TEAMS }, (_, i) => 66 + (i / (NUM_TEAMS - 1)) * 9 + rng.gauss() * 0.8));
   templates.forEach((t, id) => {
     const base = bases[id];
-    const facLevel = () => clamp(Math.round(1 + (base - 62) / 5 + rng.gauss() * 0.7), 1, 4);
+    const facLevel = () => clamp(Math.round(1 + (base - 64.5) / 5 + rng.gauss() * 0.7), 1, 4);
     const team: Team = {
       id, city: t.city, name: t.name, abbr: t.abbr, conf: id % 2,
       colors: { primary: t.primary, secondary: t.secondary },
@@ -144,7 +145,7 @@ export function newLeague(opts: NewGameOpts): Save {
       picks: [],
       record: { w: 0, l: 0, pf: 0, pa: 0, confW: 0, confL: 0, streak: 0 },
       deadCap: 0, history: [], titles: [], strategy: 'middle',
-      prestige: clamp(Math.round(50 + (base - 68) * 5 + rng.gauss() * 10), 10, 95),
+      prestige: clamp(Math.round(50 + (base - 70.5) * 5 + rng.gauss() * 10), 10, 95),
     };
     for (const year of [1, 2, 3]) for (const round of [1, 2] as const) team.picks.push({ year, round, origTeamId: id });
     // five starters (one per position) then five bench
@@ -157,7 +158,7 @@ export function newLeague(opts: NewGameOpts): Save {
       team.roster.push(p.id);
     };
     POSITIONS.forEach((pos, i) => add(pos, base + startBoost[i] + rng.gauss() * 2, genAge(rng)));
-    benchPos.forEach((pos, i) => add(pos, base - 8 - i * 1.6 + rng.gauss() * 2.5, i >= 3 ? rng.int(20, 23) : genAge(rng)));
+    benchPos.forEach((pos, i) => add(pos, base - 6 - i * 1.5 + rng.gauss() * 2.5, i >= 3 ? rng.int(20, 23) : genAge(rng)));
     // contracts
     for (const pid of team.roster) {
       const p = save.players[pid];

@@ -148,7 +148,7 @@ export function runFreeAgencyDay(save: Save, rng: Rng): string[] {
       const isUser = team.id === userId;
       log.push(`${p.name} signs with ${team.city} ${dealText(years, salary)}`);
       if (isUser || ovr(p) >= 76) {
-        save.news.push({
+        save.news.unshift({
           year: save.year, week: save.week, kind: 'signing',
           text: `${p.name} signs with ${team.city} ${dealText(years, salary)}.`,
           ...(isUser ? { mine: true } : {}),
