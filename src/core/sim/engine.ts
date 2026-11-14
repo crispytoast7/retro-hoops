@@ -73,7 +73,7 @@ const PASSER_POWER = 3;
 /** Rebounds. */
 const BASE_OREB = 0.26;
 const K_OREB = 0.0032; // per point of rebounding edge
-const REBOUNDER_POWER = 3;
+const REBOUNDER_POWER = 2.2;
 
 /** Coaching (at five stars, scaled linearly). */
 const DC_MAKE = 0.04;

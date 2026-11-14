@@ -6,6 +6,7 @@ import { Feature, checklist, gamesToUnlock, isUnlocked, perkPoints, rankName, xp
 import { cal, ROUND_NAMES } from '../core/season/calendar';
 import { advance } from '../core/season/flow';
 import { gamesInWeek, userGame, userGamesInWeek } from '../core/season/schedule';
+import { readyToLevel } from '../core/org/xp';
 import { teamRatings } from '../core/sim/engine';
 import type { Effect, Save } from '../core/types';
 import { sfx } from '../audio/sfx';
@@ -19,6 +20,13 @@ const TILES: [string, string, string][] = [
   ['finances', 'Finances', '$'], ['trades', 'Trades', '⇄'], ['scouting', 'Scouting', '◎'], ['standings', 'Standings', '▤'],
   ['schedule', 'Schedule', '▦'], ['stats', 'Stats', '%'], ['history', 'History', '♛'], ['news', 'News', '✉'],
   ['coach', 'Coach', '★'], ['practice', 'Practice', '◉'],
+];
+/** The hub's four areas. */
+const GROUPS: [string, string[]][] = [
+  ['TEAM', ['roster', 'lineup', 'coach']],
+  ['FRONT OFFICE', ['staff', 'facilities', 'finances']],
+  ['PLAYER MARKET', ['trades', 'scouting', 'practice']],
+  ['LEAGUE', ['standings', 'schedule', 'stats', 'news', 'history']],
 ];
 const EFFECT_LABEL: Record<Effect['k'], string> = {
   morale: 'Player morale', teamMorale: 'Team morale', fans: 'Fans', owner: 'Owner', credits: 'Credits', rep: 'Reputation',
@@ -69,6 +77,7 @@ export function HubScreen(_p: { params: Record<string, any> }) {
   const rundown = Object.values(me.facilities).filter(f => f.condition < 50).length;
   const c = cal(save);
   const xp = xpBar(save);
+  const levelers = readyToLevel(save);
   const steps = checklist(save);
   const todo = steps.filter(x => !x.done);
   const REG_WEEKS = c.regWeeks, TRADE_DEADLINE_WEEK = c.deadlineWeek;
@@ -152,9 +161,10 @@ export function HubScreen(_p: { params: Record<string, any> }) {
           </Panel>
         )}
 
-        {(save.tradeOffer || injuredStarters > 0 || rundown > 0 || save.tradeDemands.length > 0 || me.roster.length < 8) && (
+        {(save.tradeOffer || levelers.length > 0 || injuredStarters > 0 || rundown > 0 || save.tradeDemands.length > 0 || me.roster.length < 8) && (
           <Panel title="NEEDS ATTENTION">
             <div class="list">
+              {levelers.length > 0 && <div class="item tap" onClick={() => nav('player', { id: levelers[0].id })}><span class="grow">{levelers.length === 1 ? `${levelers[0].name} levelled up` : `${levelers.length} players levelled up`}: choose what improves</span><span class="tag gold">LEVEL UP</span></div>}
               {save.tradeOffer && isUnlocked(save, 'trades') && <div class="item tap" onClick={() => nav('trades')}><span class="grow">Trade offer from {save.teams[save.tradeOffer.aId].name}</span><span class="tag gold">VIEW</span></div>}
               {injuredStarters > 0 && <div class="item tap" onClick={() => nav('lineup')}><span class="grow">{injuredStarters} injured starter{injuredStarters > 1 ? 's' : ''}</span><span class="tag bad">LINEUP</span></div>}
               {save.tradeDemands.filter(id => me.roster.includes(id)).map(id => <div class="item tap" onClick={() => nav('player', { id })}><span class="grow">{save.players[id].name} wants a trade</span><span class="tag bad">UNHAPPY</span></div>)}
@@ -164,22 +174,27 @@ export function HubScreen(_p: { params: Record<string, any> }) {
           </Panel>
         )}
 
-        <div class="grid3">
-          {TILES.map(([name, label, ico]) => {
-            const open = name === 'practice' || isUnlocked(save, name as Feature);
-            const left = open ? 0 : gamesToUnlock(save, name as Feature);
-            if (!open) return (
-              <Btn class="tile locked" onClick={() => toast(`${label} unlocks after ${left} more game${left === 1 ? '' : 's'}.`)} silent>
-                <span class="ico">▣</span><span>{label}</span><span class="dim" style={{ fontSize: '7px' }}>{left} GAME{left === 1 ? '' : 'S'}</span>
-              </Btn>
-            );
-            return (
-              <Btn class="tile" onClick={() => nav(name)}>
-                <span class="ico">{ico}</span><span>{label}{name === 'trades' && save.tradeOffer ? <span class="badge">1</span> : null}{name === 'coach' && perkPoints(save) > 0 ? <span class="badge">{perkPoints(save)}</span> : null}</span>
-              </Btn>
-            );
-          })}
-        </div>
+        {GROUPS.map(([title, names]) => (
+          <div class="col" style={{ gap: '5px' }}>
+            <h3>{title}</h3>
+            <div class="grid3">
+          {TILES.filter(t => names.includes(t[0])).map(([name, label, ico]) => {
+              const open = name === 'practice' || isUnlocked(save, name as Feature);
+              const left = open ? 0 : gamesToUnlock(save, name as Feature);
+              if (!open) return (
+                <Btn class="tile locked" onClick={() => toast(`${label} unlocks after ${left} more game${left === 1 ? '' : 's'}.`)} silent>
+                  <span class="ico">▣</span><span>{label}</span><span class="dim" style={{ fontSize: '7px' }}>{left} GAME{left === 1 ? '' : 'S'}</span>
+                </Btn>
+              );
+              return (
+                <Btn class="tile" onClick={() => nav(name)}>
+                  <span class="ico">{ico}</span><span>{label}{name === 'trades' && save.tradeOffer ? <span class="badge">1</span> : null}{name === 'coach' && perkPoints(save) > 0 ? <span class="badge">{perkPoints(save)}</span> : null}</span>
+                </Btn>
+              );
+            })}
+            </div>
+          </div>
+        ))}
 
         <Panel title="OWNER'S GOALS">
           <div class="list">

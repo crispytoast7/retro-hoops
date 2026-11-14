@@ -18,9 +18,11 @@ iPhone) to play offline.
 | Shoot | Press and hold still, release in the green | Hold Space |
 | Layup / dunk | Drive at the rim with a lane | same |
 
-You play about sixteen of your team's possessions each game (more late in close games);
-defense and the rest are simulated from ratings. Games are full length: 12-minute quarters,
-scores around 110.
+You play about a dozen key moments each game, each a different situation: fast break,
+pick-and-roll, post-up, isolation, open look, late shot clock, free throws, the last shot.
+Scoring in a moment starts a run for your team in the simulated play that follows; wasting
+one hands the run to the opponent. Games are full length (12-minute quarters, scores around
+110) and take three to four minutes to play.
 
 ## Features
 
@@ -38,7 +40,9 @@ scores around 110.
 - Team Hub: roster, lineup, staff, facilities, finances, trades, scouting, standings,
   schedule, stats, history, news.
 - Players: seven star ratings, age curve, contracts, morale, personality traits, injuries,
-  credit-funded rating upgrades, a team captain.
+  a team captain. Your players earn XP in games and level up; you choose which rating
+  improves. Star players are marked on the court and in every list.
+- A choice after every game (praise the players, salute the fans, or back to work).
 - Organization: a $150M salary cap (go over it only to re-sign your own players, for minimum
   deals and for draft picks) under a $190M hard limit, coordinators to hire (and lose), four upgradable
   facilities that wear down, credits economy, owner goals and approval, fan support,

@@ -2,6 +2,8 @@
 // rebounds. Reads player ratings, returns a list of PlayEvents for the sim to score.
 import type { Difficulty, Player } from '../core/types';
 import type { PlayEvent, ShotType, UserPossessionOutcome, UserPossessionSetup } from '../core/sim/api';
+import { STAR_OVR } from '../core/org/xp';
+import { ovr } from '../core/ratings';
 import { POSITIONS } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { drawText } from './font';
@@ -1239,6 +1241,13 @@ export class Arcade {
         });
       }
       if (!hoopDrawn) drawHoop(g, this.netKick, this.rimShake, this.time, this.rimGlow);
+      // star players wear a small gold star over their heads
+      for (const e of ents) {
+        if (ovr(e.p) < STAR_OVR) continue;
+        const sx = Math.round(e.x), sy = Math.round(e.y - e.lift - spriteHeight(e.p) - (e.off && this.off[this.handler] !== e && live ? 16 : 7));
+        g.fillStyle = PAL.ink; g.fillRect(sx - 3, sy - 1, 7, 3); g.fillRect(sx - 1, sy - 3, 3, 7);
+        g.fillStyle = PAL.yellow; g.fillRect(sx - 2, sy, 5, 1); g.fillRect(sx, sy - 2, 1, 5); g.fillRect(sx - 1, sy - 1, 3, 3);
+      }
       // labels
       if (live) {
         let n = 0;

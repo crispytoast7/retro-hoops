@@ -2,6 +2,7 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { sfx } from '../audio/sfx';
+import { isStar, pointsOf, atCeiling } from '../core/org/xp';
 import { ovr, stars } from '../core/ratings';
 import type { Player, Save, Team } from '../core/types';
 import { drawPlayer } from '../game/render';
@@ -136,7 +137,7 @@ export function PlayerRow(p: { save: Save; player: Player; onClick?: () => void;
     <div class={`item ${p.onClick ? 'tap' : ''} ${p.sel ? 'sel' : ''}`} onClick={p.onClick}>
       <span class="tag pos">{pl.pos}</span>
       <div class="grow">
-        <div class="nowrap">{pl.name}{pl.injury && <span class="badge">{pl.injury.desc === 'suspended' ? 'SUS' : 'INJ'} {pl.injury.weeks}W</span>}{p.save.captainId === pl.id && <span class="tag gold" style={{ marginLeft: '4px' }}>C</span>}</div>
+        <div class="nowrap">{pl.scouted !== false && isStar(pl) && <span class="gold" title="Star player">★ </span>}{pl.name}{pl.teamId === p.save.userTeamId && pointsOf(pl) > 0 && !atCeiling(pl) && <span class="badge" style={{ background: 'var(--gold)', color: '#1a0d04' }}>LEVEL UP</span>}{pl.injury && <span class="badge">{pl.injury.desc === 'suspended' ? 'SUS' : 'INJ'} {pl.injury.weeks}W</span>}{p.save.captainId === pl.id && <span class="tag gold" style={{ marginLeft: '4px' }}>C</span>}</div>
         <div class="row dim" style={{ gap: '6px', fontSize: '17px' }}><Stars v={ovr(pl)} /><span>Age {pl.age}</span>{p.note}</div>
       </div>
       {p.right}

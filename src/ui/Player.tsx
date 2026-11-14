@@ -1,6 +1,6 @@
 import { ROSTER_MIN } from '../core/constants';
 import { marketSalary } from '../core/gm/value';
-import { upgradeCost, upgradeRating, UPGRADE_POINTS } from '../core/org/economy';
+import { POINT_GAIN, atCeiling, isStar, levelOfPlayer, pointsOf, spendPoint, xpNeed, xpOfPlayer } from '../core/org/xp';
 import { releaseDeadCap, releasePlayer } from '../core/org/roster';
 import { careerStats, emptyStats, ovr } from '../core/ratings';
 import { RATING_KEYS, RATING_NAMES } from '../core/types';
@@ -45,8 +45,9 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
   const prospect = p.scouted === false;
   const dead = releaseDeadCap(p);
   const career = careerStats(p);
+  const pts = pointsOf(p), capped = atCeiling(p);
   const upgrade = (k: (typeof RATING_KEYS)[number]) => {
-    const err = act(s => upgradeRating(s, p.id, k));
+    const err = act(s => spendPoint(s, p.id, k));
     if (err) toast(err); else sfx.coin();
   };
   const release = async () => {
@@ -63,7 +64,7 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
           <Sprite player={p} team={team} scale={3} />
           <div class="col grow" style={{ gap: '4px' }}>
             <div class="row wrap"><span class="tag pos">{p.pos}</span><span>#{p.num}</span><span class="dim">Age {p.age}</span></div>
-            <div class="row">{prospect ? <span class="dim">Unscouted prospect</span> : <Stars v={ovr(p)} big />}</div>
+            <div class="row">{prospect ? <span class="dim">Unscouted prospect</span> : <Stars v={ovr(p)} big />}{!prospect && isStar(p) && <span class="tag gold">STAR</span>}</div>
             <div class="dim nowrap">{team ? fullName(team) : p.retired ? 'Retired' : prospect || save.draftClass.includes(p.id) ? 'Draft prospect' : 'Free agent'}</div>
             {p.injury && <div class="bad">{p.injury.desc === 'suspended' ? 'Suspended' : `Injured: ${p.injury.desc}`}, {p.injury.weeks} wk</div>}
             {save.tradeDemands.includes(p.id) && <div class="bad">Has asked for a trade</div>}
@@ -78,11 +79,20 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
               <div class="item">
                 <div class="grow"><div>{RATING_NAMES[k]}</div><div class="dim" style={{ fontSize: '16px' }}>{RATING_DESC[k]}</div></div>
                 <Stars v={p.ratings[k]} />
-                {mine && <Btn kind="small" disabled={p.ratings[k] >= 99 || save.credits < upgradeCost(save, p, k)} onClick={() => upgrade(k)} silent>+ ◉{upgradeCost(save, p, k)}</Btn>}
+                {mine && pts > 0 && !capped && <Btn kind="small primary" disabled={p.ratings[k] >= 99} onClick={() => upgrade(k)} silent>+{POINT_GAIN}</Btn>}
               </div>
             ))}
           </div>
-          {mine && <div class="dim" style={{ fontSize: '16px', marginTop: '6px' }}>Spend credits to train a rating (+{UPGRADE_POINTS} points; half a star is about 6). You have ◉ {save.credits}. Cost rises with each star.</div>}
+          {mine && (
+            <div style={{ marginTop: '8px' }}>
+              <Meter label={`LEVEL ${levelOfPlayer(p)}`} value={(xpOfPlayer(p) / xpNeed(levelOfPlayer(p))) * 100} color="var(--gold)" text={`${xpOfPlayer(p)}/${xpNeed(levelOfPlayer(p))} XP`} />
+              <div class={pts > 0 && !capped ? 'gold' : 'dim'} style={{ fontSize: '18px', marginTop: '6px' }}>
+                {capped ? 'He has reached his ceiling. Further level-ups pay you a credit each.'
+                  : pts > 0 ? `${pts} level-up point${pts === 1 ? '' : 's'} to spend: tap + on a rating (+${POINT_GAIN} points, about half a star).`
+                    : 'He earns XP by playing. Each level-up lets you raise one rating.'}
+              </div>
+            </div>
+          )}
         </Panel>
       )}
 
