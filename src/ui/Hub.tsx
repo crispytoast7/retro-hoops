@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
+import { SALARY_CAP } from '../core/constants';
 import { capStatus, payroll } from '../core/org/finance';
 import { EventOutcome, currentEvent, eventText, resolveEvent, teamMorale } from '../core/org/people';
 import { Feature, checklist, gamesToUnlock, isUnlocked, perkPoints, rankName, xpBar } from '../core/org/progress';
@@ -185,7 +186,7 @@ export function HubScreen(_p: { params: Record<string, any> }) {
             {save.owner.goals.map(gl => <div class="item"><span class="grow">{gl.text}</span>{gl.done ? <span class="tag good">MET</span> : gl.failed ? <span class="tag bad">MISSED</span> : null}</div>)}
           </div>
           <div class="dim" style={{ fontSize: '17px', marginTop: '4px' }}>
-            Payroll {money(payroll(save, me))} ({capStatus(save, me)}) · {expiring} contract{expiring === 1 ? '' : 's'} in final year
+            Payroll {money(payroll(save, me))} vs {money(SALARY_CAP)} cap ({capStatus(save, me)}) · {expiring} contract{expiring === 1 ? '' : 's'} in final year
             {save.phase === 'regular' && save.week <= TRADE_DEADLINE_WEEK ? ` · Trade deadline after week ${TRADE_DEADLINE_WEEK}` : ''}
           </div>
         </Panel>

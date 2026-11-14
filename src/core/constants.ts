@@ -10,23 +10,13 @@ export const ROSTER_NORMAL = 10;
 export const ROSTER_MAX = 12;
 export const ROSTER_MIN = 8;
 
-/** Soft cap, $M. Teams may go over it with their own free agents, minimum deals and the mid-level exception. */
+/** Salary cap, $M. Signing a free agent from another team needs room under it. A team may pass it only to re-sign its own players, for minimum deals and for draft picks. */
 export const SALARY_CAP = 150;
-/** Payroll above this at season end is taxed (credits and owner approval). */
-export const LUXURY_TAX = 180;
-/** Above this: no full mid-level, and trades may not bring back more salary than they send. */
-export const FIRST_APRON = 190;
-/** Above this: no mid-level at all, one player per trade, no trading first-round picks. */
-export const SECOND_APRON = 200;
+/** No payroll may pass this, not even to re-sign the team's own players. Only minimum deals and draft picks can take a team beyond it. */
+export const HARD_LIMIT = 190;
 export const MIN_SALARY = 1.5;
 /** 30% of the cap. */
 export const MAX_SALARY = 45;
-/** 35% of the cap: own team only, for a player with an MVP or All-League award. */
-export const SUPERMAX_SALARY = 52.5;
-/** Mid-level exception: one signing a season up to this, for a team that stays at or under the first apron. */
-export const MLE = 13;
-/** Taxpayer mid-level: the smaller version for a team that stays at or under the second apron. */
-export const TAX_MLE = 6;
 /** Longest deal when re-signing with his own team. */
 export const MAX_CONTRACT_YEARS = 5;
 /** Longest deal with any other team. */

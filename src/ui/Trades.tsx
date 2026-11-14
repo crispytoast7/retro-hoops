@@ -1,5 +1,5 @@
 import { useRef, useState } from 'preact/hooks';
-import { FIRST_APRON, MIN_SALARY, ROSTER_MAX, SECOND_APRON } from '../core/constants';
+import { MIN_SALARY, ROSTER_MAX, SALARY_CAP } from '../core/constants';
 import { instantSigning } from '../core/gm/freeAgency';
 import { evaluateTrade, executeTrade, suggestSweetener, tradeMatch, validateTrade } from '../core/gm/trade';
 import type { TradeMatch, TradeOffer, TradeSide } from '../core/gm/trade';
@@ -15,6 +15,8 @@ import { POSITIONS } from '../core/types';
 import { act, useSave } from '../state/store';
 import { Btn, Modal, Panel, Screen, Stars, Tabs, confirmDialog, fullName, money, recordStr, toast } from './kit';
 import { CapTag, FreeAgentList, PlayerLine, STATUS_CLASS, STRATEGY_HINT, VIA_TEXT, contractText, dealText, pickText } from './OffseasonParts';
+
+const r1 = (v: number): number => Math.round(v * 10) / 10;
 import { nav } from './router';
 
 type Tab = 'Propose' | 'Offers' | 'Free Agents';
@@ -23,29 +25,27 @@ const TABS: readonly Tab[] = ['Propose', 'Offers', 'Free Agents'];
 const samePick = (a: DraftPick, b: DraftPick): boolean => a.year === b.year && a.round === b.round && a.origTeamId === b.origTeamId;
 const sortPicks = (ps: DraftPick[]): DraftPick[] => ps.slice().sort((a, b) => a.year - b.year || a.round - b.round || a.origTeamId - b.origTeamId);
 
-/** The matching rule one team is under in a deal, with the numbers filled in. Judged on its payroll after the trade. */
+/** How the trade rule applies to one team, with the numbers filled in. Judged on its payroll after the trade. */
 function matchText(m: TradeMatch): string {
-  if (m.status === 'under cap') return 'Under the cap after the deal: any salary fits.';
-  if (m.status === 'over cap' || m.status === 'taxpayer') return `Over the cap: may take back 125% of what it sends plus $0.25M, here ${money(m.limit)}.`;
-  if (m.status === 'first apron') return `Over the first apron: may not take back more than it sends (${money(m.out)}).`;
-  return `Over the second apron: no more salary back than it sends (${money(m.out)}), one player out, no first-round picks out.`;
+  if (m.payAfter <= SALARY_CAP) return `At or under the ${money(SALARY_CAP)} cap after the deal: fine.`;
+  if (m.inn < m.out) return `Still over the cap after the deal, but its payroll goes down: fine.`;
+  return `Over the cap after the deal: it takes back no more salary than it sends (${money(m.inn)} for ${money(m.out)}): fine.`;
 }
-/** One line per team: does its side of the money pass, and under which rule. */
+/** One line per team: does its side of the money pass, and why. */
 function MatchLine({ abbr, m }: { abbr: string; m: TradeMatch }) {
   return (
     <div class="cap-match">
-      <span class={`tag ${m.problem ? 'bad' : 'good'}`}>{abbr} {m.problem ? '✗' : '✓'}</span>
+      <span class={`tag ${m.problem ? 'bad' : 'good'}`}>{abbr} {m.problem ? 'NO' : 'OK'}</span>
       <span class={m.problem ? 'bad' : 'dim'}>{m.problem ?? matchText(m)}</span>
     </div>
   );
 }
-/** What the aprons already stop a team doing, before any deal is built. */
-function apronNote(save: Save, team: Team, mine: boolean): string | null {
-  const st = capStatus(save, team);
-  const who = mine ? 'You are' : `${team.city} are`;
-  if (st === 'second apron') return `${who} over the second apron (${money(SECOND_APRON)}): only one player can go out in a deal, no first-round picks can go out, and no more salary can come back than goes out. A deal that ends at or under the apron lifts the first two limits.`;
-  if (st === 'first apron') return `${who} over the first apron (${money(FIRST_APRON)}): no more salary can come back than goes out.`;
-  return null;
+/** Payroll against the cap, as "$12.0M under" or "$8.5M over". */
+const vsCap = (pay: number): string => (pay <= SALARY_CAP ? `${money(r1(SALARY_CAP - pay))} under` : `${money(r1(pay - SALARY_CAP))} over`);
+/** What the cap already means for a team in any trade, before a deal is built. */
+function capNote(save: Save, team: Team, mine: boolean): string | null {
+  if (capStatus(save, team) === 'under the cap') return null;
+  return `${mine ? 'You are' : `${team.city} are`} over the cap: ${mine ? 'you' : 'they'} cannot take back more salary than ${mine ? 'you send' : 'they send'}, unless the deal leaves ${mine ? 'you' : 'them'} at or under ${money(SALARY_CAP)}.`;
 }
 
 /** Whether trades are open, and a line explaining the deadline. */
@@ -158,9 +158,9 @@ function ProposeTab({ save }: { save: Save }) {
     return (
       <div class="col grow" style={{ gap: '6px' }}>
         <div class="ox-sum">
-          <span class="h" /><span class="h">OUT</span><span class="h">IN</span><span class="h">PAYROLL AFTER</span>
-          <span class="head">{me.abbr}</span><span>{money(mine.out)}</span><span>{money(mine.inn)}</span><span class={STATUS_CLASS[mine.status]}>{money(mine.payAfter)}</span>
-          <span class="head">{them.abbr}</span><span>{money(theirs.out)}</span><span>{money(theirs.inn)}</span><span class={STATUS_CLASS[theirs.status]}>{money(theirs.payAfter)}</span>
+          <span class="h" /><span class="h">PAYROLL NOW</span><span class="h">AFTER</span><span class="h">VS {money(SALARY_CAP)} CAP</span>
+          <span class="head">{me.abbr}</span><span>{money(mine.payBefore)}</span><span class={STATUS_CLASS[mine.status]}>{money(mine.payAfter)}</span><span class={STATUS_CLASS[mine.status]}>{vsCap(mine.payAfter)}</span>
+          <span class="head">{them.abbr}</span><span>{money(theirs.payBefore)}</span><span class={STATUS_CLASS[theirs.status]}>{money(theirs.payAfter)}</span><span class={STATUS_CLASS[theirs.status]}>{vsCap(theirs.payAfter)}</span>
         </div>
         {!empty && <MatchLine abbr={me.abbr} m={mine} />}
         {!empty && <MatchLine abbr={them.abbr} m={theirs} />}
@@ -190,9 +190,11 @@ function ProposeTab({ save }: { save: Save }) {
         <PartnerBar save={save} team={them} onChange={() => choose(null)} />
       )}
 
-      {them && [apronNote(save, me, true), apronNote(save, them, false)].filter(Boolean).map(t => (
-        <div class="panel ox-warn cap-note"><span class="gold">{t}</span></div>
-      ))}
+      {them && (capNote(save, me, true) || capNote(save, them, false)) && (
+        <div class="panel cap-note col" style={{ gap: '4px' }}>
+          {[capNote(save, me, true), capNote(save, them, false)].filter(Boolean).map(t => <span class="dim">{t}</span>)}
+        </div>
+      )}
 
       {them && reply && (
         <Panel title={`${them.abbr} GM SAYS`} class="ox-reply">
@@ -303,7 +305,7 @@ function OffersTab({ save }: { save: Save }) {
             <SideList save={save} side={o.bGives} empty="Nothing." />
             <h3 style={{ marginTop: '10px' }}>YOU GET</h3>
             <SideList save={save} side={o.aGives} empty="Nothing." />
-            <div class="row between" style={{ margin: '8px 0 4px' }}><span class="dim">Your payroll after</span><span class={STATUS_CLASS[mine.status]}>{money(mine.payAfter)}</span></div>
+            <div class="row between" style={{ margin: '8px 0 4px' }}><span class="dim">Your payroll</span><span>{money(mine.payBefore)} → <b class={STATUS_CLASS[mine.status]}>{money(mine.payAfter)}</b> ({vsCap(mine.payAfter)} the cap)</span></div>
             <div class="col" style={{ gap: '4px' }}>
               <MatchLine abbr={me.abbr} m={mine} />
               <MatchLine abbr={from.abbr} m={theirs} />
@@ -354,8 +356,7 @@ function FreeAgentsTab({ save }: { save: Save }) {
           </div>
           <div class="dim cap-note">
             {best.via === 'space' ? `You can sign anyone asking up to ${money(best.salary)}: that is your cap space.`
-              : best.via === 'min' ? `Over the cap with no exception left: minimum deals only (${money(MIN_SALARY)}). Players on the fringe will take one.`
-              : `Over the cap: one signing up to ${money(best.salary)} with your ${VIA_TEXT[best.via].toLowerCase()}, then minimum deals (${money(MIN_SALARY)}).`}
+              : `No cap space: minimum deals only (${money(MIN_SALARY)}). Players on the fringe will take one.`}
           </div>
         </div>
       )}
@@ -372,7 +373,7 @@ function SignModal({ save, player: p, onClose }: { save: Save; player: Player; o
   const space = capSpace(save, me);
   const step = save.phase === 'offseason' ? save.offseason?.step : null;
   const preFa = step === 'awards' || step === 'retirements' || step === 'contracts' || step === 'draft';
-  // the same paths as summer free agency: cap space, the mid-level, or a minimum deal
+  // the same rules as summer free agency: it has to fit under the cap, or be a minimum deal
   const deal = instantSigning(save, p, me.id);
   const reason = !save.freeAgents.includes(p.id) ? `${p.name} is no longer a free agent.`
     : step === 'freeAgency' ? 'Free agency is running: make offers on the Offseason screen.'
@@ -383,7 +384,7 @@ function SignModal({ save, player: p, onClose }: { save: Save; player: Player; o
   const sign = () => {
     if (!deal.ok) return;
     act(s => {
-      signPlayer(s, p.id, me.id, { salary: deal.salary, years: deal.years }, deal.via);
+      signPlayer(s, p.id, me.id, { salary: deal.salary, years: deal.years });
       pushNews(s, 'signing', `${p.name} signs with the ${teamName(me)} (${deal.years} yr${deal.years === 1 ? '' : 's'}, $${deal.salary}M).`, true);
     });
     toast(`${p.name} signed!`, true);
@@ -397,13 +398,12 @@ function SignModal({ save, player: p, onClose }: { save: Save; player: Player; o
       <div class="list">
         <div class="item"><span class="grow">He asks</span><span class={`head ${deal.ok && deal.settled ? 'dim' : 'gold'}`}>{dealText(ask.salary, ask.years)}</span></div>
         {deal.ok && deal.settled && <div class="item"><span class="grow">He will take</span><span class="head gold">{dealText(deal.salary, deal.years)}</span></div>}
-        {deal.ok && <div class="item"><span class="grow">Signed with</span><span class="good">{VIA_TEXT[deal.via]}</span></div>}
+        {deal.ok && <div class="item"><span class="grow">The deal</span><span class="good">{VIA_TEXT[deal.via]}</span></div>}
         <div class="item"><span class="grow">Your payroll</span><span class="row" style={{ gap: '6px' }}>{money(payroll(save, me))} <CapTag status={capStatus(save, me)} /></span></div>
         {space > 0 && <div class="item"><span class="grow">Your cap space</span><span class={space >= ask.salary ? 'good' : ''}>{money(space)}</span></div>}
         <div class="item"><span class="grow">Your roster</span><span class={me.roster.length >= ROSTER_MAX ? 'bad' : ''}>{me.roster.length}/{ROSTER_MAX}</span></div>
       </div>
-      {!reason && deal.ok && deal.settled && <div class="dim cap-note">The rules do not let you pay what he asks, and nobody else has called: he will sign a one-year minimum deal.</div>}
-      {!reason && deal.ok && (deal.via === 'mle' || deal.via === 'taxMle') && <div class="gold cap-note">This uses your mid-level exception for the season.</div>}
+      {!reason && deal.ok && deal.settled && <div class="dim cap-note">You do not have the cap space for what he asks, and nobody else has called: he will sign a one-year minimum deal.</div>}
       {reason && <div class="bad">{reason}</div>}
       <div class="row">
         <Btn class="grow" onClick={() => nav('player', { id: p.id })}>Profile</Btn>

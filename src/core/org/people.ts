@@ -9,7 +9,7 @@ import { INJURIES } from '../../data/names';
 import { teamStrength } from '../gm/value';
 import { effLevel, headline, pushNews, teamName } from './economy';
 import { payroll } from './finance';
-import { LUXURY_TAX } from '../constants';
+import { HARD_LIMIT } from '../constants';
 import { shortName } from '../gen/league';
 import { perk } from './progress';
 
@@ -27,7 +27,7 @@ export function afterUserGame(save: Save, won: boolean, margin: number, playoff:
   bumpOwner(save, scale * (won ? (playoff ? 5 : 2) : (-3 - (streak <= -3 ? 2 : 0)) * (1 - 0.2 * perk(save, 'trust'))));
   bumpFans(save, scale * (won ? 2 + (arena >= 3 ? 1 : 0) + (margin <= 3 ? 1 : 0) : -2 - (streak <= -3 ? 1 : 0)));
   bumpRep(save, scale * (won ? (playoff ? 2 : 0.6) : -0.3));
-  if (!won && payroll(save, team) > LUXURY_TAX && team.record.w < team.record.l) bumpOwner(save, -1 * scale); // paying the luxury tax to lose
+  if (!won && payroll(save, team) > HARD_LIMIT - 6 && team.record.w < team.record.l) bumpOwner(save, -1 * scale); // paying a lot to lose
   // morale
   const captain = save.captainId !== null ? save.players[save.captainId] : null;
   const capBoost = captain && team.roster.includes(captain.id) ? (captain.trait === 'Leader' ? 2 : 1) : 0;

@@ -7,6 +7,7 @@ import { boot } from './state/store';
 import { App } from './ui/App';
 
 const root = document.getElementById('app')!;
+try { if (localStorage.getItem('retro-hoops-text') === 'large') document.documentElement.dataset.text = 'large'; } catch { /* default size */ }
 if (import.meta.env.DEV && location.search.includes('arcade')) {
   void import('./dev/arcadeTest').then(m => m.runArcadeTest(root));
 } else {

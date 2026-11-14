@@ -1,4 +1,4 @@
-import { useRef } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import type { Difficulty } from '../core/types';
 import { setMusic } from '../audio/music';
 import { setSound, sfx } from '../audio/sfx';
@@ -50,10 +50,20 @@ export function SettingsScreen(_p: { params: Record<string, any> }) {
     await resetSave();
     reset('title');
   };
+  const [big, setBig] = useState(document.documentElement.dataset.text === 'large');
+  const setText = (v: 'Normal' | 'Large') => {
+    const large = v === 'Large';
+    if (large) document.documentElement.dataset.text = 'large'; else delete document.documentElement.dataset.text;
+    try { localStorage.setItem('retro-hoops-text', large ? 'large' : 'normal'); } catch { /* not saved */ }
+    setBig(large);
+  };
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const standalone = window.matchMedia?.('(display-mode: standalone)').matches || (navigator as any).standalone;
   return (
     <Screen title="Settings">
+      <Panel title="TEXT SIZE">
+        <Tabs tabs={['Normal', 'Large'] as const} value={big ? 'Large' : 'Normal'} onChange={setText} />
+      </Panel>
       {has && <SaveSettings />}
       <Panel title="YOUR SAVE">
         <div class="dim" style={{ fontSize: '17px', marginBottom: '8px' }}>The game saves automatically on this device. Export a copy now and then: it is the only backup, and the way to move to another device.</div>

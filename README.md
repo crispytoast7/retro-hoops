@@ -39,8 +39,8 @@ scores around 110.
   schedule, stats, history, news.
 - Players: seven star ratings, age curve, contracts, morale, personality traits, injuries,
   credit-funded rating upgrades, a team captain.
-- Organization: an NBA-style soft salary cap (luxury tax, two aprons, mid-level and
-  minimum exceptions, salary matching in trades), coordinators to hire (and lose), four upgradable
+- Organization: a $150M salary cap (go over it only to re-sign your own players, for minimum
+  deals and for draft picks) under a $190M hard limit, coordinators to hire (and lose), four upgradable
   facilities that wear down, credits economy, owner goals and approval, fan support,
   weekly events with choices, getting fired and taking a new job.
 - Trades with AI teams that value age, contract, needs and picks; AI-to-AI trades; a

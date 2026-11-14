@@ -1,86 +1,64 @@
-import { FIRST_APRON, LUXURY_TAX, MAX_CONTRACT_YEARS, MIN_DEAL_YEARS, MIN_SALARY, SALARY_CAP, SECOND_APRON } from '../core/constants';
-import { capSpace, luxuryTax, mleStatus, payroll, statusOf } from '../core/org/finance';
-import type { Save, Team } from '../core/types';
+import { HARD_LIMIT, MAX_CONTRACT_YEARS, MIN_DEAL_YEARS, MIN_SALARY, SALARY_CAP } from '../core/constants';
+import { capSpace, limitSpace, payroll, statusOf } from '../core/org/finance';
 import { useSave } from '../state/store';
 import { Panel, Screen, money } from './kit';
 import { CapBar, CapTag } from './OffseasonParts';
 import { nav } from './router';
 
-/** What the league rules let this team do, and stop it doing, at its current payroll. One line each. */
-function capRules(save: Save, team: Team): { ok: boolean; text: string }[] {
-  const pay = payroll(save, team), status = statusOf(pay);
-  const space = capSpace(save, team), mle = mleStatus(save, team);
-  const out: { ok: boolean; text: string }[] = [];
-  out.push(space >= MIN_SALARY
-    ? { ok: true, text: `Sign free agents into your ${money(space)} of cap space.` }
-    : { ok: false, text: 'Sign free agents with cap space: your payroll is over the cap.' });
-  out.push(mle.available
-    ? { ok: true, text: `Sign one free agent for up to ${money(mle.amount)} with the ${mle.kind === 'mle' ? 'mid-level exception' : 'taxpayer mid-level exception'}. Once a season.` }
-    : { ok: false, text: team.mleUsed ? 'Use the mid-level exception: you already used it this season.'
-      : status === 'second apron' ? 'Use a mid-level exception: there is none above the second apron.'
-      : 'Use a mid-level exception: it would push you past the second apron.' });
-  out.push({ ok: true, text: `Sign anyone to a minimum deal: ${money(MIN_SALARY)} for 1 or ${MIN_DEAL_YEARS} years.` });
-  out.push({ ok: true, text: `Re-sign your own players when their deals end, for up to ${MAX_CONTRACT_YEARS} years, however high your payroll.` });
-  if (status === 'under cap') out.push({ ok: true, text: `Take back any salary in a trade that fits under the cap. Past it: up to 125% of what you send, plus $0.25M.` });
-  else if (status === 'over cap' || status === 'taxpayer') out.push({ ok: true, text: `Take back up to 125% of the salary you send in a trade, plus $0.25M, while you stay at or under the first apron (${money(FIRST_APRON)}).` });
-  else out.push({ ok: false, text: 'Take back more salary in a trade than you send out.' });
-  if (status === 'second apron') {
-    out.push({ ok: false, text: 'Send out more than one player in the same trade.' });
-    out.push({ ok: false, text: 'Trade away a first-round pick.' });
-  } else {
-    out.push({ ok: true, text: `Combine players in a trade and trade first-round picks. Both stop above the second apron (${money(SECOND_APRON)}).` });
-  }
-  return out;
-}
+/** The whole rulebook, in plain words. */
+const RULES: string[] = [
+  `The salary cap is ${money(SALARY_CAP)}. To sign a free agent from another team you need room under it.`,
+  `You may go over the cap only to re-sign your own players (up to ${MAX_CONTRACT_YEARS} years), for minimum deals (${money(MIN_SALARY)}, 1 or ${MIN_DEAL_YEARS} years) and for draft picks.`,
+  `The hard limit is ${money(HARD_LIMIT)}. No payroll may pass it, not even to re-sign your own players.`,
+  'Trades: end at or under the cap and anything goes. End over the cap and you cannot take back more salary than you send out.',
+];
 
 export function FinancesScreen(_p: { params: Record<string, any> }) {
   const save = useSave();
   const me = save.teams[save.userTeamId];
   const pay = payroll(save, me);
   const status = statusOf(pay);
-  const space = capSpace(save, me);
-  const tax = luxuryTax(save, me);
-  const mle = mleStatus(save, me);
+  const space = capSpace(save, me), toLimit = limitSpace(save, me);
   const players = me.roster.map(id => save.players[id]).sort((a, b) => b.contract.salary - a.contract.salary);
   const nextYear = Math.round(players.filter(p => p.contract.years >= 2).reduce((s, p) => s + p.contract.salary, 0) * 10) / 10;
+  const finalYear = players.filter(p => p.contract.years === 1);
+  const finalTotal = Math.round(finalYear.reduce((s, p) => s + p.contract.salary, 0) * 10) / 10;
 
   return (
     <Screen title="Finances" right={<div class="head gold">◉ {save.credits}</div>}>
       <Panel title="PAYROLL AND THE CAP" team>
         <div class="row between"><span>Payroll <b>{money(pay)}</b></span><CapTag status={status} /></div>
         <CapBar pay={pay} />
-        <div class="row between wrap cap-note">
-          {space >= 0
-            ? <span>Cap space <b class="good">{money(space)}</b></span>
-            : <span>Over the cap by <b>{money(-space)}</b></span>}
-          <span>Dead cap <b class={me.deadCap > 0 ? 'bad' : 'dim'}>{money(me.deadCap)}</b></span>
-        </div>
         <div class="list" style={{ marginTop: '6px' }}>
           <div class="item" style={{ minHeight: '34px' }}>
-            <span class="grow">Tax bill today</span>
-            {tax.over > 0
-              ? <span class="bad right">◉ {tax.credits} and −{tax.ownerHit} owner approval</span>
-              : <span class="good right">None: {money(Math.round((LUXURY_TAX - pay) * 10) / 10)} under the line</span>}
+            <span class="grow">{space >= 0 ? 'Cap space' : 'Over the cap by'}</span>
+            <span class={space >= MIN_SALARY ? 'good' : ''}>{money(Math.abs(space))}</span>
           </div>
           <div class="item" style={{ minHeight: '34px' }}>
-            <span class="grow">Mid-level exception</span>
-            {mle.available
-              ? <span class="good right">{mle.kind === 'taxMle' ? 'Taxpayer size: ' : 'Available: '}up to {money(mle.amount)}</span>
-              : <span class="dim right">{me.mleUsed ? 'Used this season' : 'Not available'}</span>}
+            <span class="grow">Room under the hard limit</span>
+            <span class={toLimit < 2 ? 'bad' : ''}>{money(Math.max(0, toLimit))}</span>
+          </div>
+          <div class="item" style={{ minHeight: '34px' }}>
+            <span class="grow">Dead money</span>
+            <span class={me.deadCap > 0 ? 'bad' : 'dim'}>{money(me.deadCap)}</span>
+          </div>
+          <div class="item" style={{ minHeight: '34px' }}>
+            <span class="grow">Contracts in their final year</span>
+            <span class={finalYear.length ? 'gold' : 'dim'}>{finalYear.length} ({money(finalTotal)})</span>
           </div>
         </div>
         <div class="dim cap-note" style={{ marginTop: '6px' }}>
-          {tax.over > 0
-            ? `You are ${money(tax.over)} over the tax line. If the season ended today it would cost that bill: 1 credit per $3M over and 1 owner approval per $4M over (at least 2).`
-            : `The cap (${money(SALARY_CAP)}) is soft: you may pass it by re-signing your own players, with minimum deals and with the mid-level exception. Finish a season above ${money(LUXURY_TAX)} and you pay luxury tax.`}
+          {space >= MIN_SALARY
+            ? `You can offer another team's free agent up to ${money(Math.min(space, 45))} a season.`
+            : toLimit < 2
+              ? 'You are at the hard limit: minimum deals and draft picks only until salary comes off.'
+              : `You are over the cap: no room for another team's free agents beyond minimum deals. You can still re-sign your own players, up to ${money(toLimit)} more.`}
         </div>
       </Panel>
 
-      <Panel title="LEAGUE RULES FOR YOU RIGHT NOW">
+      <Panel title="LEAGUE RULES">
         <div class="list cap-rules">
-          {capRules(save, me).map(r => (
-            <div class="item"><span class={`tag ${r.ok ? 'good' : 'bad'}`}>{r.ok ? 'CAN' : "CAN'T"}</span><span class="grow">{r.text}</span></div>
-          ))}
+          {RULES.map((r, i) => <div class="item"><span class="n">{i + 1}</span><span class="grow">{r}</span></div>)}
         </div>
       </Panel>
 
@@ -98,7 +76,7 @@ export function FinancesScreen(_p: { params: Record<string, any> }) {
                   <td class={p.contract.years <= 1 ? 'gold' : ''}>{p.contract.years}{p.contract.years <= 1 ? '!' : ''}</td>
                 </tr>
               ))}
-              {me.deadCap > 0 && <tr class="dim"><td>Dead cap</td><td /><td /><td>{money(me.deadCap)}</td><td /></tr>}
+              {me.deadCap > 0 && <tr class="dim"><td>Dead money</td><td /><td /><td>{money(me.deadCap)}</td><td /></tr>}
             </tbody>
           </table>
         </div>

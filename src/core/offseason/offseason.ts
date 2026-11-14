@@ -7,7 +7,7 @@ import { aiMakeRoom, aiMaintainRosters, aiResignPhase, updateStrategies } from '
 import { askingContract, marketSalary } from '../gm/value';
 import { fixLineup } from '../lineup';
 import { effLevel, headline, maybePoach, pushNews, scoutPointsPerSeason, teamName } from '../org/economy';
-import { luxuryTax, signingPath } from '../org/finance';
+import { signingPath } from '../org/finance';
 import { bumpFans, bumpOwner, bumpRep, checkFired, evaluateGoals, progressPlayer, setOwnerGoals } from '../org/people';
 import { releasePlayer, signPlayer } from '../org/roster';
 import { careerStats, clamp, emptyStats, gameScore, ovr, round1 } from '../ratings';
@@ -106,16 +106,6 @@ export function beginOffseason(save: Save, rng: Rng): void {
   else if (myFinish === 'R1') bumpRep(save, 1);
   else if (me.record.w < me.record.l) bumpRep(save, -3);
   const log = evaluateGoals(save);
-  // luxury tax: the user's payroll as the season ends
-  const tax = luxuryTax(save, me);
-  if (tax.over > 0) {
-    const paid = Math.min(save.credits, tax.credits);
-    save.credits -= paid;
-    bumpOwner(save, -tax.ownerHit);
-    const text = `Luxury tax: ${me.city} finished $${tax.over}M over the tax line. It cost ${paid} credit${paid === 1 ? '' : 's'} and ${tax.ownerHit} owner approval.`;
-    log.push(text);
-    pushNews(save, 'owner', text, true);
-  }
   updateSeasonRecords(save);
   save.phase = 'offseason';
   save.pendingEvent = null; save.tradeOffer = null;
@@ -288,7 +278,7 @@ export function userDraftPick(save: Save, playerId: number | null, rng: Rng): st
   return null;
 }
 
-/** Re-sign one of the user's expiring players at his asking price. A team may always re-sign its own player, over the cap and over both aprons; only the roster limit can stop it. */
+/** Re-sign one of the user's expiring players at his asking price. A team may go over the cap to keep its own player, but not past the hard limit. */
 export function resignPlayer(save: Save, playerId: number): string | null {
   const p = save.players[playerId];
   const team = save.teams[save.userTeamId];
@@ -364,7 +354,7 @@ export function startNewSeason(save: Save, rng: Rng): void {
   while (me.roster.length < ROSTER_MIN) {
     const fa = pool()[0];
     if (!fa) break;
-    signPlayer(save, fa.id, me.id, { salary: MIN_SALARY, years: 1 }, 'min');
+    signPlayer(save, fa.id, me.id, { salary: MIN_SALARY, years: 1 });
     pushNews(save, 'signing', `${fa.name} joins ${me.name} on a minimum deal to fill out the roster.`, true);
   }
   // plans first, then payrolls: a team that is no longer contending gets under the tax before tip-off
@@ -381,7 +371,6 @@ export function startNewSeason(save: Save, rng: Rng): void {
   save.tradeOffer = null;
   for (const t of save.teams) {
     t.record = { w: 0, l: 0, pf: 0, pa: 0, confW: 0, confL: 0, streak: 0 };
-    t.mleUsed = false; // the mid-level exception comes back at tip-off
     for (const round of [1, 2] as const) if (!save.teams.some(x => x.picks.some(p => p.year === save.year + 2 && p.round === round && p.origTeamId === t.id))) t.picks.push({ year: save.year + 2, round, origTeamId: t.id });
     for (const id of t.roster) { const p = save.players[id]; p.injury = null; p.morale = clamp(Math.round(p.morale + (62 - p.morale) * 0.4), 0, 100); }
     fixLineup(save, t);

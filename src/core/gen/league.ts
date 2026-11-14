@@ -1,5 +1,5 @@
 // League, team and player generation.
-import { MAX_SALARY, MIN_SALARY, NUM_TEAMS, PROSPECTS, SAVE_VERSION, SECOND_APRON } from '../constants';
+import { HARD_LIMIT, MAX_SALARY, MIN_SALARY, NUM_TEAMS, PROSPECTS, SAVE_VERSION } from '../constants';
 import { marketSalary } from '../gm/value';
 import { autoLineup } from '../lineup';
 import { payroll } from '../org/finance';
@@ -113,7 +113,7 @@ export function genFreeAgents(save: Save, rng: Rng, n: number): void {
 }
 
 /** Starting contracts vs market value: the league-wide level, and how much it leans against team strength. */
-const DEAL_BASE = 1.07;
+const DEAL_BASE = 1.14;
 const DEAL_SLOPE = 0.03;
 
 export interface NewGameOpts {
@@ -174,11 +174,12 @@ export function newLeague(opts: NewGameOpts): Save {
       const p = save.players[pid];
       p.contract = { salary: round1(clamp(marketSalary(p) * dealMood * rng.range(0.88, 1.12), MIN_SALARY, MAX_SALARY)), years: rng.int(1, 4) };
     }
-    // nobody starts above the second apron: the rare team that would trims its two biggest deals
+    // nobody starts over the hard limit: the strongest teams have spent right up to it, a few million short
+    const ceiling = HARD_LIMIT - 1 - ((id * 5) % 7);
     let guard = 0;
-    while (payroll(save, team) > SECOND_APRON - 2 && guard++ < 20) {
-      const top = team.roster.map(pid => save.players[pid]).sort((a, b) => b.contract.salary - a.contract.salary).slice(0, 2);
-      for (const p of top) p.contract.salary = round1(Math.max(MIN_SALARY, p.contract.salary * 0.95));
+    while (payroll(save, team) > ceiling && guard++ < 40) {
+      const f = Math.max(0.9, ceiling / payroll(save, team));
+      for (const pid of team.roster) { const p = save.players[pid]; p.contract.salary = round1(Math.max(MIN_SALARY, p.contract.salary * f - 0.05)); }
     }
     team.lineup = autoLineup(team.roster.map(pid => save.players[pid]));
     const used = new Set<number>();

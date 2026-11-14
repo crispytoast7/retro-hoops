@@ -1,4 +1,4 @@
-import { LUXURY_TAX, MAX_CONTRACT_YEARS, MAX_FA_YEARS, MAX_SALARY, MIN_SALARY, SALARY_CAP, SECOND_APRON, SUPERMAX_SALARY } from '../constants';
+import { HARD_LIMIT, MAX_CONTRACT_YEARS, MAX_FA_YEARS, MAX_SALARY, MIN_SALARY } from '../constants';
 import { resignDiscount } from '../org/progress';
 import { clamp, ovr, round1 } from '../ratings';
 import type { Contract, DraftPick, Player, Pos, Save, Team } from '../types';
@@ -24,7 +24,7 @@ const VALUE_CURVE: Curve = [
   [40, 0], [50, 1], [55, 2.5], [58, 5], [62, 10], [66, 18], [70, 30],
   [75, 45], [80, 62], [85, 80], [90, 105], [93, 122], [99, 150],
 ];
-/** Overall -> fair $M per season at prime age. Runs past the max salary at the top: only a supermax can pay that part. */
+/** Overall -> fair $M per season at prime age. It runs past the max salary at the top, so the very best still ask for the max after a discount. */
 const SALARY_CURVE: Curve = [
   [50, 1.5], [55, 3.2], [60, 5.5], [65, 8.5], [70, 15], [75, 23.5],
   [80, 33], [82, 37], [86, 42], [90, 46], [95, 52.5],
@@ -71,7 +71,7 @@ function marketSalaryAt(p: Player, age: number): number {
   return round1(clamp(rawSalaryAt(p, age), MIN_SALARY, MAX_SALARY));
 }
 
-/** Fair $M per season for this player on the open market (ovr and age driven; the minimum for a 50, about 8 for a 65, 14 for a 70, 22 for a 75, 36 for an 82, the max for a 90+). With 10-man rosters a typical team's payroll built from this lands a little over the soft cap. */
+/** Fair $M per season for this player on the open market (ovr and age driven; the minimum for a 50, about 8 for a 65, 14 for a 70, 22 for a 75, 36 for an 82, the max for a 90+). With 10-man rosters a typical team's payroll built from this lands a little over the cap. */
 export function marketSalary(p: Player): number {
   return marketSalaryAt(p, p.age);
 }
@@ -144,12 +144,8 @@ function desiredYears(p: Player, own: boolean): number {
   return clamp(y, 1, own ? MAX_CONTRACT_YEARS : MAX_FA_YEARS);
 }
 
-/** Supermax rule: an MVP or All-League award at any point in his career. Only his own team can offer it. */
-export const supermaxEligible = (p: Player): boolean =>
-  p.awards.some(a => a.startsWith('MVP') || a.startsWith('All-League'));
-
-/** What the player asks for from a given team. Rises with ratings, prime age and the team's success (win pct this season, titles); 'Loyal' and long tenure discount for his own team, 'Mercenary' and 'Diva' ask more, low morale asks more or refuses (refuses = true) to re-sign with his current team. Capped at the max salary, or the supermax from his own team when he is eligible (`supermax` = the ask is above the normal max). His own team may offer up to 5 years, anyone else 4. */
-export function askingContract(save: Save, p: Player, teamId: number): { salary: number; years: number; refuses: boolean; supermax: boolean } {
+/** What the player asks for from a given team. Rises with ratings, prime age and the team's success (win pct this season, titles); 'Loyal' and long tenure discount for his own team, 'Mercenary' and 'Diva' ask more, low morale asks more or refuses (refuses = true) to re-sign with his current team. Capped at the max salary. His own team may offer up to 5 years, anyone else 4. */
+export function askingContract(save: Save, p: Player, teamId: number): { salary: number; years: number; refuses: boolean } {
   const team = save.teams[teamId];
   let f = 1;
   if (p.age >= 25 && p.age <= 29) f += 0.04;
@@ -173,16 +169,15 @@ export function askingContract(save: Save, p: Player, teamId: number): { salary:
   }
   // the user's Negotiator perk
   if (own && teamId === save.userTeamId) f *= resignDiscount(save);
-  const top = own && supermaxEligible(p) ? SUPERMAX_SALARY : MAX_SALARY;
-  const salary = round1(clamp(rawSalaryAt(p, p.age) * f, MIN_SALARY, top));
-  return { salary, years: desiredYears(p, own), refuses, supermax: salary > MAX_SALARY };
+  const salary = round1(clamp(rawSalaryAt(p, p.age) * f, MIN_SALARY, MAX_SALARY));
+  return { salary, years: desiredYears(p, own), refuses };
 }
 
-/** How high an AI team lets its payroll run when it keeps its own players: contenders pay the tax up to the second apron, everyone else stops at the tax line. */
-export const keepCeiling = (team: Team): number => (team.strategy === 'contend' ? SECOND_APRON : LUXURY_TAX);
-/** How high an AI team will go to add a player from outside: contenders up to the second apron, middle teams up to the tax line, rebuilders only into cap space. */
-export const addCeiling = (team: Team): number =>
-  team.strategy === 'contend' ? SECOND_APRON : team.strategy === 'middle' ? LUXURY_TAX : SALARY_CAP;
+/** How high an AI team lets its payroll run to keep its own players (it may pass the cap for them, never the hard limit): contenders spend to the limit, middle teams stop short of it, rebuilders stay near the cap so they have room to sign people. */
+export const KEEP_CEILING: Record<Team['strategy'], number> = { contend: HARD_LIMIT, middle: HARD_LIMIT - 22, rebuild: HARD_LIMIT - 40 };
+export const keepCeiling = (team: Team): number => KEEP_CEILING[team.strategy];
+/** A player good enough that his team keeps him whatever its plan (up to the hard limit), and clears room for him if it must. */
+export const CORE_OVR = 82;
 
 /** Roster quality as one number on the overall scale: starters count fully, the next three half. */
 export function teamStrength(save: Save, team: Team): number {

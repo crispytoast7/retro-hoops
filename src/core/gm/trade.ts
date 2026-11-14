@@ -1,4 +1,4 @@
-import { FIRST_APRON, LUXURY_TAX, ROSTER_MAX, ROSTER_MIN, ROSTER_NORMAL, SALARY_CAP, SECOND_APRON } from '../constants';
+import { HARD_LIMIT, ROSTER_MAX, ROSTER_MIN, ROSTER_NORMAL, SALARY_CAP } from '../constants';
 import { cal } from '../season/calendar';
 import { autoLineup, fixLineup } from '../lineup';
 import { matchLimit, payroll, statusOf } from '../org/finance';
@@ -46,31 +46,21 @@ function checkSide(save: Save, team: Team, side: TradeSide): string | null {
 const salaryOf = (save: Save, ids: readonly number[]): number =>
   round1(ids.reduce((s, id) => s + (save.players[id].contract.years > 0 ? save.players[id].contract.salary : 0), 0));
 
-/** The salary-matching rule in force at each payroll level (judged on the payroll after the trade). */
-export const MATCH_RULE: Record<CapStatus, string> = {
-  'under cap': 'Under the cap: any salary that fits.',
-  'over cap': 'Over the cap: take back up to 125% of the salary sent, plus $0.25M.',
-  taxpayer: 'Over the cap: take back up to 125% of the salary sent, plus $0.25M.',
-  'first apron': 'Over the first apron: no more salary back than is sent.',
-  'second apron': 'Over the second apron: no more salary back than is sent, one player out per deal, no first-round picks out.',
-};
-
 /** One team's side of the money in a trade. */
 export interface TradeMatch {
   teamId: number;
   /** Salary sent and received, $M. */
   out: number; inn: number;
   payBefore: number; payAfter: number;
-  /** Where the payroll would stand after the trade: this decides the rule. */
+  /** Where the payroll would stand after the trade. */
   status: CapStatus;
   /** The most salary this team may take back for what it sends. */
   limit: number;
-  rule: string;
   /** null when this side is within the rules, else which rule it breaks. */
   problem: string | null;
 }
 
-/** How the salary-matching rules apply to one team in an offer. Does not check ownership, roster size or the deadline. */
+/** How the trade rule applies to one team in an offer: at or under the cap afterwards anything goes; over the cap afterwards it may not take back more salary than it sends (so a trade never lifts a payroll past the hard limit). Does not check ownership, roster size or the deadline. */
 export function tradeMatch(save: Save, offer: TradeOffer, teamId: number): TradeMatch {
   const team = save.teams[teamId];
   const isA = teamId === offer.aId;
@@ -78,21 +68,17 @@ export function tradeMatch(save: Save, offer: TradeOffer, teamId: number): Trade
   const out = salaryOf(save, gives.players), inn = salaryOf(save, gets.players);
   const payBefore = payroll(save, team);
   const payAfter = round1(payBefore - out + inn);
-  const status = statusOf(payAfter);
   const limit = matchLimit(save, team, out);
   let problem: string | null = null;
   if (inn > limit + 1e-9) {
-    problem = payAfter > SECOND_APRON ? `Over the second apron ${team.city} cannot take back more salary than it sends.`
-      : payAfter > FIRST_APRON ? `Over the first apron ${team.city} cannot take back more salary than it sends.`
-      : `Over the cap ${team.city} can take back at most 125% of the salary it sends plus $0.25M.`;
-  } else if (status === 'second apron') {
-    if (gives.players.length > 1) problem = `Over the second apron ${team.city} cannot combine players in a trade.`;
-    else if (gives.picks.some(pk => pk.round === 1)) problem = `Over the second apron ${team.city} cannot trade first-round picks.`;
+    problem = payAfter > HARD_LIMIT
+      ? `${team.city} would end up over the hard limit ($${HARD_LIMIT}M).`
+      : `${team.city} would be over the cap, so it cannot take back more salary than it sends.`;
   }
-  return { teamId, out, inn, payBefore, payAfter, status, limit, rule: MATCH_RULE[status], problem };
+  return { teamId, out, inn, payBefore, payAfter, status: statusOf(payAfter), limit, problem };
 }
 
-/** null if legal, else a short human reason. Checks: deadline (save.phase === 'regular' && save.week > cal(save).deadlineWeek blocks trades; playoffs block; offseason allows), players/picks actually owned, at least one asset moving, both rosters within ROSTER_MIN..ROSTER_MAX after, and salary matching for each team by its payroll after the trade: at or under the cap anything goes; over the cap incoming salary <= 125% of outgoing + 0.25; over the first apron incoming <= outgoing; over the second apron also at most one player out and no first-round picks out. */
+/** null if legal, else a short human reason. Checks: deadline (save.phase === 'regular' && save.week > cal(save).deadlineWeek blocks trades; playoffs block; offseason allows), players/picks actually owned, at least one asset moving, both rosters within ROSTER_MIN..ROSTER_MAX after, and the money for each team by its payroll after the trade: at or under the cap anything goes; over the cap it may not take back more salary than it sends, which also means no trade can push a payroll past the hard limit. */
 export function validateTrade(save: Save, offer: TradeOffer): string | null {
   const a = save.teams[offer.aId], b = save.teams[offer.bId];
   if (!a || !b || a.id === b.id) return 'A trade needs two different teams.';
@@ -111,16 +97,6 @@ export function validateTrade(save: Save, offer: TradeOffer): string | null {
     if (size < ROSTER_MIN) return `${t.city} would have too few players (min ${ROSTER_MIN}).`;
   }
   return tradeMatch(save, offer, a.id).problem ?? tradeMatch(save, offer, b.id).problem;
-}
-
-/** What a payroll level costs an AI team in trade-value points. Contenders shrug at the tax until the second apron; middle teams hate the tax; rebuilders would rather keep their cap space too. */
-function payrollPain(strategy: Team['strategy'], pay: number): number {
-  const overCap = Math.max(0, Math.min(pay, LUXURY_TAX) - SALARY_CAP);
-  const overTax = Math.max(0, Math.min(pay, SECOND_APRON) - LUXURY_TAX);
-  const overApron = Math.max(0, pay - SECOND_APRON);
-  if (strategy === 'contend') return overTax * 0.25 + overApron * 3;
-  if (strategy === 'middle') return overTax * 1.5 + overApron * 3;
-  return overCap * 0.3 + overTax * 2 + overApron * 3;
 }
 
 /** Strategy lens on a player's value. Applied the same way to players coming and going. */
@@ -160,10 +136,8 @@ interface Breakdown {
   /** Negative value taken on with bad contracts. */
   dumpLoss: number;
   rosterPenalty: number;
-  /** Extra payroll pain the deal brings (negative = relief). */
-  taxPenalty: number;
-  /** Set when the deal would push the payroll past a line this team will not cross. */
-  taxBlocked: string | null;
+  /** What the cap space the deal uses up is worth to a team that is saving it. */
+  spaceCost: number;
   sellsBest: boolean;
   mostlyPicks: boolean;
   mainIn: Player | null; mainInNeed: number;
@@ -234,19 +208,14 @@ function breakdown(save: Save, offer: TradeOffer, teamId: number): Breakdown {
   if (sizeAfter > sizeBefore) rosterPenalty += Math.max(0, sizeAfter - ROSTER_NORMAL) * 4;
   if (sizeAfter < sizeBefore) rosterPenalty += Math.max(0, ROSTER_NORMAL - sizeAfter) * 2;
 
-  // Tax position. Relief counts for less than new pain, and only so far.
-  const pain = payrollPain(strat, payAfter) - payrollPain(strat, payBefore);
-  const taxPenalty = pain >= 0 ? pain : Math.max(-10, pain * 0.6);
-  let taxBlocked: string | null = null;
-  if (payAfter > payBefore) {
-    if (payAfter > SECOND_APRON) taxBlocked = "That would put us over the second apron. We can't do it.";
-    else if (payAfter > LUXURY_TAX && strat !== 'contend') taxBlocked = "We are not paying the luxury tax for that.";
-  }
+  // Cap space is how a team signs other teams' players: a rebuilder does not spend it lightly.
+  const spaceUsed = Math.max(0, Math.min(payAfter, SALARY_CAP) - Math.min(payBefore, SALARY_CAP));
+  const spaceCost = strat === 'rebuild' ? spaceUsed * 0.06 : 0;
 
-  const score = inTotal - outTotal - rosterPenalty - taxPenalty;
+  const score = inTotal - outTotal - rosterPenalty - spaceCost;
   const margin = Math.max(1, 0.04 * Math.max(0, outTotal));
   return {
-    inTotal, outTotal, score, margin, needLoss, dumpLoss, rosterPenalty, taxPenalty, taxBlocked, sellsBest,
+    inTotal, outTotal, score, margin, needLoss, dumpLoss, rosterPenalty, spaceCost, sellsBest,
     mostlyPicks: inPicks > Math.max(0, inPlayers),
     mainIn, mainInNeed, mainOut,
   };
@@ -261,7 +230,7 @@ function vary(lines: readonly string[], offer: TradeOffer): string {
   return lines[Math.abs(h) % lines.length];
 }
 
-/** Would AI team `teamId` say yes? Values what it receives vs gives with playerValue/pickValue, adjusted by its needs (teamNeeds), strategy (contenders discount picks and prize current overall; rebuilders prize youth and picks and discount players 29+), roster-spot consequences, its tax position (contenders pay the tax up to the second apron, middle teams will not go into the tax, rebuilders guard their cap space but rent it out for a bad contract at a discount), and a small margin it wants to win the trade by. Returns a message the UI can show ("We'd need more for him.", "Deal.", "We have no use for another center."). `score` = value in minus value out from its point of view. */
+/** Would AI team `teamId` say yes? Values what it receives vs gives with playerValue/pickValue, adjusted by its needs (teamNeeds), strategy (contenders discount picks and prize current overall; rebuilders prize youth and picks and discount players 29+), roster-spot consequences, cap space (a rebuilder guards its room, but rents it out for a bad contract at a discount), and a small margin it wants to win the trade by. Returns a message the UI can show ("We'd need more for him.", "Deal.", "We have no use for another center."). `score` = value in minus value out from its point of view. */
 export function evaluateTrade(save: Save, offer: TradeOffer, teamId: number): { accept: boolean; score: number; message: string } {
   const invalid = validateTrade(save, offer);
   if (invalid) return { accept: false, score: 0, message: invalid };
@@ -270,7 +239,6 @@ export function evaluateTrade(save: Save, offer: TradeOffer, teamId: number): { 
   const team = save.teams[teamId];
   const b = breakdown(save, offer, teamId);
   const score = round1(b.score);
-  if (b.taxBlocked) return { accept: false, score, message: b.taxBlocked };
 
   if (b.score >= b.margin) {
     const big = b.score > 10 + 0.3 * Math.max(0, b.outTotal);
@@ -284,8 +252,8 @@ export function evaluateTrade(save: Save, offer: TradeOffer, teamId: number): { 
   let message: string;
   if (b.sellsBest && team.strategy === 'contend' && b.mostlyPicks) {
     message = vary(["We're trying to win now. He's not going anywhere for picks.", "Picks don't help us this year. He stays."], offer);
-  } else if (b.taxPenalty > 0 && b.taxPenalty >= short * 0.6) {
-    message = vary(['That adds too much to our tax bill. Take some salary back.', "The money doesn't work for us: it pushes our payroll too high."], offer);
+  } else if (b.spaceCost > 0 && b.spaceCost >= short * 0.6) {
+    message = vary(['That eats our cap space. Take some salary back, or add something.', "We're saving our cap room. Make it worth using."], offer);
   } else if (b.dumpLoss > 0 && b.dumpLoss >= short * 0.5) {
     message = vary(["We're not taking on that contract without something extra.", "That contract is your problem. Make it worth our while."], offer);
   } else if (b.mainIn && b.mainInNeed < 0.25 && b.needLoss >= short * 0.5) {

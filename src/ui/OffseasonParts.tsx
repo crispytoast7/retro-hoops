@@ -1,7 +1,7 @@
 // Pieces shared by the Trades, Scouting and Offseason screens.
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
-import { DEAD_CAP_RATE, FIRST_APRON, LUXURY_TAX, ROSTER_MIN, SALARY_CAP, SECOND_APRON } from '../core/constants';
+import { DEAD_CAP_RATE, HARD_LIMIT, ROSTER_MIN, SALARY_CAP } from '../core/constants';
 import { scoutProspect, scoutedRating } from '../core/org/economy';
 import { statusOf } from '../core/org/finance';
 import type { CapStatus, SigningVia } from '../core/org/finance';
@@ -204,15 +204,14 @@ export function ReleaseModal(p: { save: Save; onClose: () => void; text?: string
 
 // ---- cap status ----------------------------------------------------------------------
 export const STATUS_LABEL: Record<CapStatus, string> = {
-  'under cap': 'UNDER THE CAP', 'over cap': 'OVER THE CAP', taxpayer: 'TAXPAYER', 'first apron': 'OVER APRON 1', 'second apron': 'OVER APRON 2',
+  'under the cap': 'UNDER THE CAP', 'over the cap': 'OVER THE CAP', 'at the hard limit': 'AT THE HARD LIMIT',
 };
 export const STATUS_CLASS: Record<CapStatus, string> = {
-  'under cap': 'good', 'over cap': '', taxpayer: 'gold', 'first apron': 'bad', 'second apron': 'bad',
+  'under the cap': 'good', 'over the cap': 'gold', 'at the hard limit': 'bad',
 };
 /** "This signing ..." for a move that changes the status. */
 export const STATUS_PUSH: Record<CapStatus, string> = {
-  'under cap': 'keeps you under the cap', 'over cap': 'puts you over the cap', taxpayer: 'puts you in the luxury tax',
-  'first apron': 'puts you over the first apron', 'second apron': 'puts you over the second apron',
+  'under the cap': 'keeps you under the cap', 'over the cap': 'puts you over the cap', 'at the hard limit': 'takes you to the hard limit',
 };
 /** A team's cap status as a tag. */
 export function CapTag(p: { status: CapStatus }) {
@@ -220,22 +219,21 @@ export function CapTag(p: { status: CapStatus }) {
 }
 /** How a signing gets done, in the words the screens use. */
 export const VIA_TEXT: Record<SigningVia, string> = {
-  space: 'Cap space', bird: 'Own free agent', mle: 'Mid-level exception', taxMle: 'Taxpayer mid-level', min: 'Minimum deal',
+  space: 'Fits under the cap', own: 'Your own free agent', min: 'Minimum deal',
 };
 
 const CAP_LINES: { key: string; name: string; at: number }[] = [
-  { key: 'cap', name: 'CAP', at: SALARY_CAP }, { key: 'tax', name: 'TAX', at: LUXURY_TAX },
-  { key: 'a1', name: 'APRON 1', at: FIRST_APRON }, { key: 'a2', name: 'APRON 2', at: SECOND_APRON },
+  { key: 'cap', name: 'CAP', at: SALARY_CAP }, { key: 'limit', name: 'HARD LIMIT', at: HARD_LIMIT },
 ];
-const BAR_LO = 100, BAR_HI = 215;
+const BAR_LO = 100, BAR_HI = 200;
 const barPct = (v: number): number => Math.max(0, Math.min(100, ((v - BAR_LO) / (BAR_HI - BAR_LO)) * 100));
-/** One payroll bar with the four lines marked on it, and a legend that shows which have been crossed. */
+/** One payroll bar with the cap and the hard limit marked on it. */
 export function CapBar(p: { pay: number }) {
   const status = statusOf(p.pay);
   return (
     <div class="cap-bar-wrap">
       <div class="cap-bar" role="img" aria-label={`Payroll ${money(p.pay)}: ${status}`}>
-        <div class={`cap-fill ${STATUS_CLASS[status] || 'plain'}`} style={{ width: `${Math.max(2, barPct(p.pay))}%` }} />
+        <div class={`cap-fill ${STATUS_CLASS[status]}`} style={{ width: `${Math.max(2, barPct(p.pay))}%` }} />
         {CAP_LINES.map(l => <i class={`cap-mark ${l.key}`} style={{ left: `${barPct(l.at)}%` }} />)}
       </div>
       <div class="cap-legend">

@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FA_DAYS, FIRST_APRON, LUXURY_TAX, MAX_FA_YEARS, MAX_SALARY, MIN_SALARY, MLE, NUM_TEAMS, ROSTER_MAX, ROSTER_MIN, ROSTER_NORMAL, SALARY_CAP,
-  SAVE_VERSION, SECOND_APRON, SUPERMAX_SALARY, TAX_MLE,
+  FA_DAYS, HARD_LIMIT, MAX_CONTRACT_YEARS, MAX_FA_YEARS, MAX_SALARY, MIN_SALARY, NUM_TEAMS, ROSTER_MAX, ROSTER_MIN, ROSTER_NORMAL, SALARY_CAP,
+  SAVE_VERSION,
 } from '../src/core/constants';
-import { aiDraftChoice, rookieContract } from '../src/core/gm/draft';
-import { aiFillRosters, instantSigning, interestLevel, offerScore, runFreeAgencyDay } from '../src/core/gm/freeAgency';
-import { aiMaintainRosters, aiResignPhase, updateStrategies } from '../src/core/gm/teamAi';
+import { aiDraftChoice, onRookieDeal, rookieContract } from '../src/core/gm/draft';
+import { FRINGE_ASK, aiFillRosters, instantSigning, interestLevel, isOwnFreeAgent, offerScore, runFreeAgencyDay } from '../src/core/gm/freeAgency';
+import { aiMaintainRosters, aiResignPhase, exemptSalary, updateStrategies } from '../src/core/gm/teamAi';
 import type { TradeOffer } from '../src/core/gm/trade';
 import { aiDumpSalary, aiOfferToUser, aiTradesWeek, evaluateTrade, executeTrade, suggestSweetener, tradeMatch, validateTrade } from '../src/core/gm/trade';
-import { askingContract, marketSalary, pickValue, playerValue, supermaxEligible, teamNeeds } from '../src/core/gm/value';
+import { CORE_OVR, askingContract, keepCeiling, marketSalary, pickValue, playerValue, teamNeeds } from '../src/core/gm/value';
 import { autoLineup } from '../src/core/lineup';
-import { capSpace, capStatus, luxuryTax, matchLimit, maxOffer, mleStatus, payroll, signingPath } from '../src/core/org/finance';
+import { capSpace, matchLimit, payroll, signingPath } from '../src/core/org/finance';
 import { releasePlayer } from '../src/core/org/roster';
 import { emptyStats, ovr, round1 } from '../src/core/ratings';
 import { Rng } from '../src/core/rng';
@@ -80,13 +80,13 @@ function mkSave(seed = 1): Save {
     starters.forEach((o, i) => {
       const age = rng.int(22, 32);
       const p = mkPlayer(save, sPos[i], o + q, age);
-      addToTeam(save, p, team, { salary: round1(marketSalary(p) * rng.range(0.8, 1)), years: rng.int(1, 4) });
+      addToTeam(save, p, team, { salary: round1(marketSalary(p) * rng.range(0.76, 0.96)), years: rng.int(1, 4) });
     });
     bench.forEach((o, i) => {
       const age = rng.int(20, 34);
       const ov = o + Math.round(q / 2);
       const p = mkPlayer(save, bPos[i], ov, age, { potential: age <= 23 ? ov + rng.int(2, 12) : ov });
-      addToTeam(save, p, team, { salary: round1(marketSalary(p) * rng.range(0.8, 1)), years: rng.int(1, 3) });
+      addToTeam(save, p, team, { salary: round1(marketSalary(p) * rng.range(0.76, 0.96)), years: rng.int(1, 3) });
     });
     for (const year of [1, 2]) for (const round of [1, 2] as const) team.picks.push({ year, round, origTeamId: t });
     team.lineup = autoLineup(team.roster.map(id => save.players[id]));
@@ -99,7 +99,8 @@ function assertLegal(save: Save, opts: { minRoster?: number } = {}): void {
   for (const team of save.teams) {
     expect(team.roster.length).toBeGreaterThanOrEqual(opts.minRoster ?? ROSTER_MIN);
     expect(team.roster.length).toBeLessThanOrEqual(ROSTER_MAX);
-    expect(payroll(save, team)).toBeLessThanOrEqual(SECOND_APRON);
+    // nothing but minimum deals and rookie contracts can carry a payroll past the hard limit
+    expect(payroll(save, team) - exemptSalary(save, team)).toBeLessThanOrEqual(HARD_LIMIT);
     expect(team.lineup.length).toBe(5);
     expect(new Set(team.lineup).size).toBe(5);
     for (const id of team.lineup) expect(team.roster).toContain(id);
@@ -203,49 +204,34 @@ describe('value', () => {
     expect(playerValue(save, hurt)).toBeLessThan(playerValue(save, fair));
   });
 
-  it('prices a typical ten-man roster around the soft cap, a strong one in the tax, a weak one well under', () => {
+  it('prices a typical ten-man roster around the cap, a strong one near the hard limit, a weak one well under the cap', () => {
     const save = mkSave();
     const cost = (os: number[]) => os.reduce((s, o) => s + marketSalary(mkPlayer(save, 'SF', o, 27)), 0);
     const typical = cost([82, 77, 74, 71, 69, 65, 63, 62, 60, 59]);
     expect(typical).toBeGreaterThan(SALARY_CAP - 12);
     expect(typical).toBeLessThan(SALARY_CAP + 20);
     const strong = cost([86, 81, 78, 75, 73, 69, 68, 66, 65, 63]);
-    expect(strong).toBeGreaterThan(LUXURY_TAX);
+    expect(strong).toBeGreaterThan(HARD_LIMIT - 10);
+    expect(strong).toBeLessThan(HARD_LIMIT + 20);
     const weak = cost([77, 72, 69, 66, 64, 60, 59, 57, 56, 54]);
     expect(weak).toBeLessThan(SALARY_CAP - 30);
   });
 
-  it('asks for up to 5 years and the supermax only from his own team, and only with the award', () => {
+  it('asks for up to 5 years only from his own team, and never for more than the max', () => {
     const save = mkSave();
     const team = save.teams[3];
     const star = byOvr(save, team)[0];
     for (const k of Object.keys(star.ratings) as (keyof Player['ratings'])[]) star.ratings[k] = 94;
     star.age = 27; star.morale = 70; star.trait = 'Quiet Pro'; star.tenure = 0;
-    expect(supermaxEligible(star)).toBe(false);
-    const plain = askingContract(save, star, team.id);
-    expect(plain.salary).toBe(MAX_SALARY);
-    expect(plain.supermax).toBe(false);
-    expect(plain.years).toBe(5);
-    star.awards.push('Sixth Man (Y1)');
-    expect(supermaxEligible(star)).toBe(false);
-    star.awards.push('All-League (Y2)');
-    expect(supermaxEligible(star)).toBe(true);
+    star.awards.push('MVP (Y1)', 'All-League (Y2)');
     const own = askingContract(save, star, team.id);
-    expect(own.supermax).toBe(true);
-    expect(own.salary).toBeGreaterThan(MAX_SALARY);
-    expect(own.salary).toBeLessThanOrEqual(SUPERMAX_SALARY);
-    // another team can only offer the normal max, and 4 years
+    expect(own.salary).toBe(MAX_SALARY);
+    expect(own.years).toBe(MAX_CONTRACT_YEARS);
     const other = askingContract(save, star, 5);
     expect(other.salary).toBe(MAX_SALARY);
-    expect(other.supermax).toBe(false);
-    expect(other.years).toBeLessThanOrEqual(MAX_FA_YEARS);
-    // an MVP counts too; an eligible player who is not worth the max does not get it
-    star.awards = ['MVP (Y3)'];
-    expect(supermaxEligible(star)).toBe(true);
-    const role = byOvr(save, team)[4];
-    role.awards.push('All-League (Y1)');
-    expect(askingContract(save, role, team.id).supermax).toBe(false);
-    expect(askingContract(save, role, team.id).salary).toBeLessThan(MAX_SALARY);
+    expect(other.years).toBe(MAX_FA_YEARS);
+    star.trait = 'Diva';
+    expect(askingContract(save, star, team.id).salary).toBe(MAX_SALARY);
   });
 
   it('prices asking contracts by trait, tenure and morale', () => {
@@ -321,7 +307,7 @@ describe('validateTrade', () => {
     const big = theirs[5];
     const keep = big.contract.salary;
     big.contract.salary = keep + capSpace(save, user) + mine[5].contract.salary + 1;
-    expect(validateTrade(save, swap)).toMatch(/over the cap/i);
+    expect(validateTrade(save, swap)).toMatch(/would be over the cap/i);
     big.contract.salary = keep;
 
     // A player whose deal has run out cannot be traded.
@@ -368,72 +354,48 @@ describe('validateTrade', () => {
     const { save, user, at } = matchFixture();
     expect(at(120, 10, 40)).toBeNull(); // lands exactly on the cap
     expect(matchLimit(save, user, 10)).toBe(40);
-    expect(at(120, 10, 40.1)).toMatch(/Over the cap City0 can take back at most 125%/);
+    expect(at(120, 10, 40.1)).toBe('City0 would be over the cap, so it cannot take back more salary than it sends.');
     expect(at(60, 10, 45)).toBeNull();
+    // a team over the cap can trade its way back under it
+    expect(at(160, 30, 20)).toBeNull();
   });
 
-  it('holds a team over the cap to 125% of outgoing salary plus 0.25', () => {
+  it('stops a team that ends over the cap taking back more salary than it sends', () => {
     const { save, user, deal, at } = matchFixture();
-    expect(at(170, 10, 12.7)).toBeNull();
-    expect(matchLimit(save, user, 10)).toBe(12.8); // 12.75, to one decimal
-    expect(at(170, 10, 12.9)).toMatch(/125%/);
+    expect(at(170, 10, 10)).toBeNull();
+    expect(matchLimit(save, user, 10)).toBe(10);
+    expect(at(170, 10, 10.1)).toBe('City0 would be over the cap, so it cannot take back more salary than it sends.');
     expect(at(170, 10, 3)).toBeNull(); // taking back less is always fine
-    // the same rule for a taxpayer still under the first apron
-    expect(at(184, 20, 25.2)).toBeNull();
-    expect(at(184, 20, 25.4)).toMatch(/125%/);
+    // from under the cap to over it is the same thing: the part above the cap has to be matched
+    expect(at(140, 10, 20)).toBeNull();
+    expect(at(140, 10, 20.1)).toMatch(/would be over the cap/);
     const m = tradeMatch(save, deal(), USER);
-    expect(m.out).toBe(20); expect(m.inn).toBe(25.4);
-    expect(m.payAfter).toBeCloseTo(189.4, 1);
-    expect(m.status).toBe('taxpayer');
+    expect(m).toMatchObject({ out: 10, inn: 20.1, payBefore: 140, limit: 20, status: 'over the cap' });
+    expect(m.payAfter).toBeCloseTo(150.1, 1);
     expect(m.problem).not.toBeNull();
-    expect(tradeMatch(save, deal(), 1).problem).toBeNull();
-    expect(tradeMatch(save, deal(), 1).status).toBe('under cap');
+    expect(tradeMatch(save, deal(), 1)).toMatchObject({ problem: null, status: 'under the cap' });
+    // there are no other matching rules: two players and a first-round pick can go out in one deal
+    expect(at(170, 10, 15)).not.toBeNull();
   });
 
-  it('stops a team over the first apron taking back more than it sends', () => {
-    const { save, user, at } = matchFixture();
-    // 125% would allow 25.25, but that would cross the apron: the limit is what keeps it at the line
-    expect(at(186, 20, 24)).toBeNull();
-    expect(matchLimit(save, user, 20)).toBe(24);
-    expect(at(186, 20, 24.1)).toBe('Over the first apron City0 cannot take back more salary than it sends.');
-    expect(at(195, 20, 20)).toBeNull();
-    expect(matchLimit(save, user, 20)).toBe(20);
-    expect(at(195, 20, 20.1)).toMatch(/first apron/);
-    expect(at(195, 20, 5)).toBeNull();
-  });
-
-  it('adds the second-apron limits: no extra salary, no combining players, no first-round picks out', () => {
+  it('never lets a trade take a payroll past the hard limit; a team already past it can only shed', () => {
     const { save, user, other, out, out2, back, deal, at } = matchFixture();
-    expect(at(215, 10, 10)).toBeNull();
-    expect(at(215, 10, 10.1)).toBe('Over the second apron City0 cannot take back more salary than it sends.');
-
-    // two players out while still over the second apron afterwards
-    expect(at(215, 10, 15)).toMatch(/second apron/);
-    const two: TradeOffer = { ...deal(), aGives: { players: [out.id, out2.id], picks: [] } };
-    expect(validateTrade(save, two)).toBe('Over the second apron City0 cannot combine players in a trade.');
-    // the same two-for-one is fine when it ends at or under the second apron
-    back.contract.salary = 9; setPayroll(save, user, 206);
-    expect(validateTrade(save, two)).toBeNull();
-    expect(tradeMatch(save, two, USER).status).toBe('first apron');
-
-    // picks
-    expect(at(215, 10, 10)).toBeNull();
-    const r1 = user.picks.find(p => p.round === 1)!, r2 = user.picks.find(p => p.round === 2)!;
-    expect(validateTrade(save, { ...deal(), aGives: { players: [out.id], picks: [r1] } })).toBe('Over the second apron City0 cannot trade first-round picks.');
-    expect(validateTrade(save, { aId: USER, bId: 1, aGives: { players: [], picks: [r1] }, bGives: empty() })).toMatch(/first-round/);
-    expect(validateTrade(save, { ...deal(), aGives: { players: [out.id], picks: [r2] } })).toBeNull();
-    const theirR1 = other.picks.find(p => p.round === 1)!;
-    expect(validateTrade(save, { ...deal(), bGives: { players: [back.id], picks: [theirR1] } })).toBeNull(); // receiving one is fine
-    // under the second apron the pick can go
-    expect(at(199, 10, 10)).toBeNull();
-    expect(validateTrade(save, { ...deal(), aGives: { players: [out.id], picks: [r1] } })).toBeNull();
-
-    // the rules bind the other team just the same
-    out.contract.salary = 10; back.contract.salary = 10;
-    setPayroll(save, user, 90); setPayroll(save, other, 215);
-    expect(validateTrade(save, { ...deal(), bGives: { players: [back.id], picks: [theirR1] } })).toBe('Over the second apron City1 cannot trade first-round picks.');
-    out.contract.salary = 12;
-    expect(validateTrade(save, deal())).toBe('Over the second apron City1 cannot take back more salary than it sends.');
+    expect(at(HARD_LIMIT - 1, 10, 10)).toBeNull();
+    expect(at(HARD_LIMIT - 1, 10, 11.5)).toBe(`City0 would end up over the hard limit ($${HARD_LIMIT}M).`);
+    // past the limit already (minimum deals and rookies can do that): it may trade, but only downwards
+    expect(at(HARD_LIMIT + 5, 20, 5)).toBeNull();
+    expect(at(HARD_LIMIT + 5, 20, 20)).toBeNull();
+    expect(at(HARD_LIMIT + 5, 20, 20.1)).toMatch(/hard limit/);
+    // combining players and trading first-round picks is never a problem in itself
+    expect(at(HARD_LIMIT + 5, 10, 15)).toMatch(/hard limit/);
+    const r1 = user.picks.find(p => p.round === 1)!;
+    expect(validateTrade(save, { ...deal(), aGives: { players: [out.id, out2.id], picks: [r1] } })).toBeNull();
+    // the rule binds the other team just the same
+    out.contract.salary = 12; back.contract.salary = 10;
+    setPayroll(save, user, 90); setPayroll(save, other, 170);
+    expect(validateTrade(save, deal())).toBe('City1 would be over the cap, so it cannot take back more salary than it sends.');
+    out.contract.salary = 10;
+    expect(validateTrade(save, deal())).toBeNull();
   });
 });
 
@@ -525,41 +487,38 @@ describe('evaluateTrade', () => {
     expect(asRebuild).toBeLessThan(0);
   });
 
-  it('weighs its tax position: contenders pay up to the second apron, the rest stay out of the tax', () => {
+  it('cannot be talked into a deal that breaks the cap, and a rebuilder charges for its cap space', () => {
     const save = mkSave();
     const user = save.teams[USER], other = save.teams[5];
     cheapen(save, user);
-    // The user sends a good player on a big deal for a lesser one on a small deal: fine on talent, heavy on payroll.
-    const good = mkPlayer(save, 'SF', 80, 26);
-    addToTeam(save, good, user, { salary: 24, years: 2 });
+    // The user sends a good player on a big deal for a lesser one on a smaller deal: the AI gains talent and payroll.
+    const good = addToTeam(save, mkPlayer(save, 'SF', 80, 26), user, { salary: 24, years: 2 });
     const lesser = byOvr(save, other).find(p => ovr(p) <= 72 && ovr(p) >= 66)!;
     lesser.contract = { salary: 20, years: 2 };
     const offer: TradeOffer = { aId: USER, bId: other.id, aGives: { players: [good.id], picks: [] }, bGives: { players: [lesser.id], picks: [] } };
 
     other.strategy = 'middle';
-    setPayroll(save, other, 160);
+    setPayroll(save, other, 130);
     expect(validateTrade(save, offer)).toBeNull();
-    expect(evaluateTrade(save, offer, other.id).accept).toBe(true);
+    const asMiddle = evaluateTrade(save, offer, other.id);
+    expect(asMiddle.accept).toBe(true);
+    // a rebuilder likes the same deal a little less: it uses up cap space
+    other.strategy = 'rebuild';
+    good.age = 23;
+    const young = evaluateTrade(save, offer, other.id).score;
+    setPayroll(save, other, 160); // over the cap already, so no cap space is spent... and the deal is not legal either
+    expect(evaluateTrade(save, offer, other.id)).toMatchObject({ accept: false, score: 0 });
+    setPayroll(save, other, 130);
+    lesser.contract.salary = 24; // money-neutral: no space used
+    expect(evaluateTrade(save, offer, other.id).score).toBeGreaterThan(young);
 
-    // The same deal when it would carry a middle team (or a rebuilder) into the tax: no.
-    setPayroll(save, other, LUXURY_TAX - 2);
-    expect(validateTrade(save, offer)).toBeNull();
+    // Any team that would end over the cap with more salary than it sent says no, whatever the talent.
+    other.strategy = 'contend';
+    lesser.contract.salary = 20;
+    setPayroll(save, other, 148);
     const no = evaluateTrade(save, offer, other.id);
     expect(no.accept).toBe(false);
-    expect(no.message).toMatch(/luxury tax/i);
-    other.strategy = 'rebuild';
-    expect(evaluateTrade(save, offer, other.id).accept).toBe(false);
-
-    // A contender takes it, tax and all...
-    other.strategy = 'contend';
-    expect(evaluateTrade(save, offer, other.id).accept).toBe(true);
-    // ...right up to the first apron. Past it the rules stop anyone adding salary by trade, so the second apron is never crossed.
-    setPayroll(save, other, FIRST_APRON - 4);
-    expect(validateTrade(save, offer)).toBeNull();
-    expect(evaluateTrade(save, offer, other.id).accept).toBe(true);
-    setPayroll(save, other, FIRST_APRON - 3);
-    expect(validateTrade(save, offer)).toMatch(/first apron/i);
-    expect(evaluateTrade(save, offer, other.id).accept).toBe(false);
+    expect(no.message).toMatch(/over the cap/);
   });
 
   it('will not sell a contender\'s best player for picks, or an old star for a young one', () => {
@@ -783,8 +742,11 @@ describe('free agency', () => {
     save.offseason!.userOffers[insulted.id] = { teamId: USER, salary: round1(askingContract(save, insulted, USER).salary * 0.35), years: 2 };
 
     const userBefore = [...user.roster];
-    const startPay = save.teams.map(t => payroll(save, t));
-    expect(startPay.some(v => v > SALARY_CAP)).toBe(true);
+    // two teams are over the cap already: they can only add minimum deals
+    setPayroll(save, save.teams[5], 162); setPayroll(save, save.teams[10], 175);
+    const prevPay = save.teams.map(t => payroll(save, t)), prevSize = save.teams.map(t => t.roster.length);
+    expect(prevPay.some(v => v > SALARY_CAP)).toBe(true);
+    expect(prevPay.filter(v => v <= SALARY_CAP - 15).length).toBeGreaterThan(3);
     const logs: string[] = [];
     for (let day = 1; day <= FA_DAYS; day++) {
       save.offseason!.faDay = day;
@@ -798,17 +760,14 @@ describe('free agency', () => {
       }
       for (const team of save.teams) {
         expect(team.roster.length).toBeLessThanOrEqual(ROSTER_MAX);
-        // nobody is signed past the second apron, and a mid-level deal is by definition one that goes over the cap
-        expect(payroll(save, team)).toBeLessThanOrEqual(Math.max(SECOND_APRON, startPay[team.id]));
-        if (team.mleUsed) expect(payroll(save, team)).toBeGreaterThan(SALARY_CAP);
-        // an AI team that is not contending does not sign its way into the tax
-        if (team.id !== USER && team.strategy !== 'contend') expect(payroll(save, team)).toBeLessThanOrEqual(Math.max(LUXURY_TAX, startPay[team.id]));
+        // another team's free agent needs cap space: a team that ends the day over the cap added minimum deals at most
+        const now = payroll(save, team), added = team.roster.length - prevSize[team.id];
+        if (now > SALARY_CAP + 0.01) expect(now - prevPay[team.id]).toBeLessThanOrEqual(added * MIN_SALARY + 0.01);
+        prevPay[team.id] = now; prevSize[team.id] = team.roster.length;
       }
     }
     // every deal is for 4 years at most
     for (const id of good) expect(save.players[id].contract.years).toBeLessThanOrEqual(MAX_FA_YEARS);
-    // teams over the cap were in the market too, through the mid-level
-    expect(save.teams.some(t => t.mleUsed)).toBe(true);
     expect(wanted.teamId).toBe(USER);
     expect(wanted.contract).toEqual({ salary: generous.salary, years: generous.years });
     expect(insulted.teamId).not.toBe(USER);
@@ -817,8 +776,9 @@ describe('free agency', () => {
     expect(Object.keys(save.offseason!.userOffers).length).toBe(0);
 
     const signed = good.filter(id => save.players[id].teamId !== null);
-    expect(signed.length / good.length).toBeGreaterThanOrEqual(0.7);
-    expect(logs.filter(l => l.includes('signs with')).length).toBeGreaterThan(10);
+    // only teams with cap space can bid, so not everyone finds a deal, but the market moves
+    expect(signed.length / good.length).toBeGreaterThanOrEqual(0.4);
+    expect(logs.filter(l => l.includes('signs with')).length).toBeGreaterThan(6);
     expect(save.news.some(n => n.kind === 'signing' && n.mine)).toBe(true);
 
     aiFillRosters(save, rng);
@@ -836,13 +796,12 @@ describe('free agency', () => {
     const rng = new Rng(3);
     startFreeAgency(save, rng);
     const team = save.teams[9];
-    setPayroll(save, team, SECOND_APRON + 5);
+    setPayroll(save, team, HARD_LIMIT + 5);
     const before = [...team.roster];
     expect(before.length).toBe(8);
     aiFillRosters(save, rng);
     expect(team.roster.length).toBe(ROSTER_NORMAL);
     for (const id of team.roster) if (!before.includes(id)) expect(save.players[id].contract).toEqual({ salary: MIN_SALARY, years: 1 });
-    expect(team.mleUsed).toBeFalsy();
   });
 
   /** The last day of free agency with the user at a given payroll and one offer on a player who will take it if it is allowed. */
@@ -853,7 +812,7 @@ describe('free agency', () => {
     save.offseason!.faDay = FA_DAYS;
     const user = save.teams[USER];
     setPayroll(save, user, pay);
-    // useful role players whose ask is well inside the mid-level, cheapest first
+    // useful role players, cheapest first
     const role = fresh.filter(x => ovr(x) >= 60 && ovr(x) <= 64).sort((a, b) => ovr(a) - ovr(b));
     const p = role[0];
     const o = offer(askingContract(save, p, USER).salary);
@@ -863,52 +822,58 @@ describe('free agency', () => {
 
   it('signs a user offer through cap space when it fits under the cap', () => {
     const { save, rng, user, p, o } = lastDay(120, () => ({ salary: 20, years: 3 }));
+    expect(capSpace(save, user)).toBe(30);
     expect(signingPath(save, user, 20, { years: 3 })).toEqual({ ok: true, via: 'space' });
     runFreeAgencyDay(save, rng);
     expect(p.teamId).toBe(USER);
     expect(p.contract).toEqual(o);
-    expect(user.mleUsed).toBeFalsy();
+    expect(payroll(save, user)).toBeCloseTo(140, 1);
   });
 
-  it('signs a user offer with the mid-level when over the cap, marks it used, and allows only one', () => {
-    const { save, rng, user, p, role } = lastDay(170, () => ({ salary: MLE, years: 2 }));
-    const second = role[1];
-    save.offseason!.userOffers[second.id] = { teamId: USER, salary: MLE, years: 2 };
+  it('lets a team go over the cap, up to the hard limit, for the player who has just left it', () => {
+    const { save, rng, user, p, role } = lastDay(170, () => ({ salary: 12, years: 3 }));
+    const stranger = role[1];
+    save.offseason!.userOffers[stranger.id] = { teamId: USER, salary: 12, years: 3 };
+    // p finished last season with the user; the other man did not
+    p.seasons.push({ year: save.year, teamId: USER, age: p.age - 1, ovr: ovr(p), stats: emptyStats() });
+    stranger.seasons.push({ year: save.year, teamId: 4, age: stranger.age - 1, ovr: ovr(stranger), stats: emptyStats() });
+    expect(isOwnFreeAgent(save, p, USER)).toBe(true);
+    expect(isOwnFreeAgent(save, p, 4)).toBe(false);
+    expect(isOwnFreeAgent(save, stranger, USER)).toBe(false);
     const out = runFreeAgencyDay(save, rng);
-    const got = [p, second].filter(x => x.teamId === USER);
-    expect(got.length).toBe(1);
-    expect(user.mleUsed).toBe(true);
-    expect(payroll(save, user)).toBeCloseTo(170 + MLE, 1);
-    const missed = [p, second].find(x => x.teamId !== USER)!;
-    expect(out).toContain(`Your offer to ${missed.name} was not allowed and has been withdrawn: Over the cap with the mid-level exception already used: only minimum deals.`);
+    expect(p.teamId).toBe(USER);
+    expect(p.contract).toEqual({ salary: 12, years: 3 });
+    expect(payroll(save, user)).toBeCloseTo(182, 1);
+    expect(stranger.teamId).not.toBe(USER);
+    expect(out).toContain(`Your offer to ${stranger.name} was not allowed and has been withdrawn: You are over the cap: only minimum deals ($${MIN_SALARY}M) for other teams' free agents.`);
     expect(save.offseason!.userOffers).toEqual({});
-    expect(save.news.some(n => n.mine && n.kind === 'signing' && n.text.includes('mid-level exception'))).toBe(true);
+    // a season later he is nobody's own any more
+    save.year++;
+    releasePlayer(save, p.id, { deadCap: false });
+    expect(isOwnFreeAgent(save, p, USER)).toBe(false);
   });
 
   it('rejects a user offer that is not legal when the day resolves, and says why', () => {
-    // over the cap, more than the mid-level
-    let r = lastDay(170, () => ({ salary: 20, years: 3 }));
+    // under the cap, but not by enough
+    let r = lastDay(140, () => ({ salary: 20, years: 3 }));
     let out = runFreeAgencyDay(r.save, r.rng);
     expect(r.p.teamId).not.toBe(USER);
-    expect(out).toContain(`Your offer to ${r.p.name} was not allowed and has been withdrawn: Over the cap: the most you can offer is the mid-level exception, $${MLE}M.`);
+    expect(out).toContain(`Your offer to ${r.p.name} was not allowed and has been withdrawn: You have $10M of cap space: that is the most you can offer another team's free agent.`);
     expect(r.save.offseason!.userOffers[r.p.id]).toBeUndefined();
-    expect(payroll(r.save, r.user)).toBeCloseTo(170, 1);
-    expect(r.user.mleUsed).toBeFalsy();
+    expect(payroll(r.save, r.user)).toBeCloseTo(140, 1);
 
-    // past the first apron only the taxpayer mid-level is left
-    r = lastDay(FIRST_APRON - 4, () => ({ salary: 10, years: 2 }));
+    // over the cap: minimum deals only
+    r = lastDay(170, () => ({ salary: 8, years: 2 }));
     out = runFreeAgencyDay(r.save, r.rng);
     expect(r.p.teamId).not.toBe(USER);
-    expect(out.find(l => l.startsWith('Your offer'))).toMatch(/first apron.*taxpayer mid-level.*\$6M/);
-    r = lastDay(FIRST_APRON - 4, () => ({ salary: TAX_MLE, years: 2 }));
-    runFreeAgencyDay(r.save, r.rng);
-    expect(r.user.mleUsed).toBe(true);
+    expect(out.find(l => l.startsWith('Your offer'))).toMatch(/over the cap: only minimum deals/);
 
-    // over the second apron: minimum deals only
-    r = lastDay(SECOND_APRON + 3, () => ({ salary: TAX_MLE, years: 2 }));
+    // his old team may pass the cap for him, but not the hard limit
+    r = lastDay(HARD_LIMIT - 5, () => ({ salary: 10, years: 2 }));
+    r.p.seasons.push({ year: r.save.year, teamId: USER, age: r.p.age - 1, ovr: ovr(r.p), stats: emptyStats() });
     out = runFreeAgencyDay(r.save, r.rng);
     expect(r.p.teamId).not.toBe(USER);
-    expect(out.find(l => l.startsWith('Your offer'))).toMatch(/second apron: only minimum deals/);
+    expect(out.find(l => l.startsWith('Your offer'))).toMatch(/past the hard limit of \$190M\. You have \$5M of room under it/);
 
     // a full roster
     r = lastDay(120, ask => ({ salary: round1(ask * 1.5), years: 2 }));
@@ -921,8 +886,7 @@ describe('free agency', () => {
   it('lets anyone sign a minimum deal, but only for one or two years', () => {
     const save = mkSave(6);
     const user = save.teams[USER];
-    setPayroll(save, user, SECOND_APRON + 20);
-    user.mleUsed = true;
+    setPayroll(save, user, HARD_LIMIT + 20);
     expect(signingPath(save, user, MIN_SALARY, { years: 1 })).toEqual({ ok: true, via: 'min' });
     expect(signingPath(save, user, MIN_SALARY, { years: 2 })).toEqual({ ok: true, via: 'min' });
     expect(signingPath(save, user, MIN_SALARY)).toEqual({ ok: true, via: 'min' });
@@ -931,29 +895,25 @@ describe('free agency', () => {
     expect(!long.ok && long.reason).toMatch(/minimum deal can run 2 years/);
   });
 
-  it('signs in-season pickups by the same paths, and lets a fringe player settle for the minimum', () => {
+  it('signs in-season pickups under the same rules, and lets a fringe player settle for the minimum', () => {
     const save = mkSave(6);
     const user = save.teams[USER];
-    const role = mkPlayer(save, 'SG', 62, 27), starter = mkPlayer(save, 'PF', 74, 27);
-    save.freeAgents.push(role.id, starter.id);
+    const role = mkPlayer(save, 'SG', 62, 27);
+    save.freeAgents.push(role.id);
     const ask = askingContract(save, role, USER);
-    expect(ask.salary).toBeGreaterThan(TAX_MLE);
-    expect(ask.salary).toBeLessThan(MLE);
+    expect(ask.salary).toBeGreaterThan(FRINGE_ASK);
 
     setPayroll(save, user, 100);
     expect(instantSigning(save, role, USER)).toMatchObject({ ok: true, salary: ask.salary, via: 'space', settled: false });
+    // over the cap there is no room for him, and he is too good to come for the minimum
     setPayroll(save, user, 170);
-    expect(instantSigning(save, role, USER)).toMatchObject({ ok: true, salary: ask.salary, via: 'mle', settled: false });
-    // too rich for a capped-out team, and too good to come for the minimum
-    const no = instantSigning(save, starter, USER);
+    const no = instantSigning(save, role, USER);
     expect(no.ok).toBe(false);
-    expect(!no.ok && no.reason).toMatch(/mid-level exception/);
-    user.mleUsed = true;
-    expect(instantSigning(save, role, USER).ok).toBe(false);
+    expect(!no.ok && no.reason).toMatch(/over the cap: only minimum deals/);
     // a fringe player takes a one-year minimum once the market has closed...
     const fringe = mkPlayer(save, 'C', 56, 29);
     save.freeAgents.push(fringe.id);
-    expect(askingContract(save, fringe, USER).salary).toBeLessThanOrEqual(TAX_MLE);
+    expect(askingContract(save, fringe, USER).salary).toBeLessThanOrEqual(FRINGE_ASK);
     expect(instantSigning(save, fringe, USER)).toEqual({ ok: true, salary: MIN_SALARY, years: 1, via: 'min', settled: true });
     // ...but not while teams are still bidding
     save.phase = 'offseason';
@@ -1037,6 +997,8 @@ describe('team AI', () => {
       const before = userSnapshot(save);
       aiResignPhase(save, rng);
       expect(userSnapshot(save)).toBe(before);
+      // a team may pass the cap to keep its own players, never the hard limit
+      for (const team of save.teams) if (team.id !== USER) expect(payroll(save, team)).toBeLessThanOrEqual(HARD_LIMIT);
 
       let kept = 0, released = 0;
       for (const id of expiring) {
@@ -1056,51 +1018,85 @@ describe('team AI', () => {
         if (team.id === USER) continue;
         expect(team.roster.length).toBeGreaterThanOrEqual(ROSTER_NORMAL);
         expect(team.roster.length).toBeLessThanOrEqual(ROSTER_MAX);
-        // contenders may sit in the tax up to the second apron; nobody else stays above the tax line
-        expect(payroll(save, team)).toBeLessThanOrEqual(team.strategy === 'contend' ? SECOND_APRON : LUXURY_TAX);
+        expect(payroll(save, team) - exemptSalary(save, team)).toBeLessThanOrEqual(HARD_LIMIT);
         expect(team.lineup.length).toBe(5);
         expect(new Set(team.lineup).size).toBe(5);
         for (const id of team.lineup) expect(team.roster).toContain(id);
       }
     }
-    // re-signing their own players is how teams end up over the soft cap
+    // re-signing their own players is how teams end up over the cap
     expect(overCap).toBeGreaterThan(4);
   });
 
-  it('fixes an oversized roster that is over the second apron, and no more than it has to', () => {
+  it('fixes an oversized roster that is past the hard limit, and no more than it has to', () => {
     const save = mkSave(2);
     const rng = new Rng(8);
     const team = save.teams[7];
     for (let i = 0; i < 4; i++) addToTeam(save, mkPlayer(save, POSITIONS[i], 60, 29), team, { salary: 15, years: 3 });
     for (let i = 0; i < 6; i++) save.freeAgents.push(mkPlayer(save, POSITIONS[i % 5], 58, 26).id);
     expect(team.roster.length).toBe(14);
-    // once the two extra bodies are gone it is still $12M over the second apron
-    setPayroll(save, team, SECOND_APRON + 42);
+    // once the two extra bodies are gone it is still $12M past the hard limit
+    setPayroll(save, team, HARD_LIMIT + 42);
     const before = userSnapshot(save);
-    team.strategy = 'contend';
     aiMaintainRosters(save, rng);
     expect(userSnapshot(save)).toBe(before);
     assertLegal(save, { minRoster: ROSTER_NORMAL });
-    // a contender only gets back under the second apron: it stays a taxpayer
-    expect(payroll(save, team)).toBeGreaterThan(LUXURY_TAX);
-    // the same team with no title hopes gets under the tax line
-    team.strategy = 'middle';
-    aiMaintainRosters(save, rng);
-    expect(payroll(save, team)).toBeLessThanOrEqual(LUXURY_TAX);
-    assertLegal(save, { minRoster: ROSTER_NORMAL });
+    // it stops as soon as it is legal: still well over the cap
+    expect(payroll(save, team)).toBeGreaterThan(HARD_LIMIT - 16);
   });
 
-  it('leaves a payroll that is over the cap but inside its limit alone', () => {
+  it('leaves alone a payroll that is over the cap but inside the hard limit, or past it only through minimum deals and rookies', () => {
     const save = mkSave(2);
     const rng = new Rng(8);
-    for (const team of save.teams) {
-      if (team.id === USER) continue;
-      team.strategy = team.id % 2 ? 'contend' : 'middle';
-      setPayroll(save, team, team.strategy === 'contend' ? SECOND_APRON - 1 : LUXURY_TAX - 1);
-    }
+    for (const team of save.teams) if (team.id !== USER) setPayroll(save, team, HARD_LIMIT - 1);
+    // one team is past the limit, but only because of a rookie contract and a minimum deal
+    const team = save.teams[6];
+    const rookie = addToTeam(save, mkPlayer(save, 'SF', 66, 20), team, rookieContract(1, 3));
+    rookie.draft = { year: save.year, round: 1, pick: 3, teamId: team.id };
+    addToTeam(save, mkPlayer(save, 'C', 55, 30), team, { salary: MIN_SALARY, years: 1 });
+    expect(onRookieDeal(save, rookie)).toBe(true);
+    expect(payroll(save, team)).toBeGreaterThan(HARD_LIMIT + 8);
+    expect(exemptSalary(save, team)).toBeGreaterThanOrEqual(rookieContract(1, 3).salary + MIN_SALARY);
     const rosters = JSON.stringify(save.teams.map(t => t.roster));
     aiMaintainRosters(save, rng);
     expect(JSON.stringify(save.teams.map(t => t.roster))).toBe(rosters);
+    // once he signs a new deal it is an ordinary contract again
+    rookie.contract = { salary: 12, years: 3 };
+    expect(onRookieDeal(save, rookie)).toBe(false);
+  });
+
+  it('clears room under the hard limit to keep a core player, and lets lesser players go when the money runs out', () => {
+    let kept = 0, runs = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      const save = mkSave(2);
+      const rng = new Rng(seed);
+      save.phase = 'offseason';
+      const team = save.teams[7];
+      team.strategy = 'rebuild';
+      const star = addToTeam(save, mkPlayer(save, 'SF', 90, 27), team, { salary: 30, years: 0 });
+      const role = addToTeam(save, mkPlayer(save, 'PG', 70, 27), team, { salary: 10, years: 0 });
+      expect(ovr(star)).toBeGreaterThanOrEqual(CORE_OVR);
+      // two bad contracts have the payroll near the limit: his $45M cannot fit unless they go
+      addToTeam(save, mkPlayer(save, 'C', 62, 31), team, { salary: 40, years: 3 });
+      addToTeam(save, mkPlayer(save, 'PF', 63, 30), team, { salary: 38, years: 2 });
+      expect(payroll(save, team)).toBeGreaterThan(HARD_LIMIT - 45);
+      expect(payroll(save, team)).toBeLessThanOrEqual(HARD_LIMIT);
+      const before = team.roster.length;
+      aiResignPhase(save, rng);
+      runs++;
+      expect(payroll(save, team)).toBeLessThanOrEqual(HARD_LIMIT);
+      // the role player is over a rebuilder's ceiling: he is never kept
+      expect(keepCeiling(team)).toBeLessThan(HARD_LIMIT - 20);
+      expect(role.teamId).toBeNull();
+      if (star.teamId === team.id) {
+        kept++;
+        expect(star.contract).toEqual({ salary: MAX_SALARY, years: MAX_CONTRACT_YEARS });
+        expect(team.roster.length).toBeLessThan(before - 1); // someone made way for him
+      } else {
+        expect(save.freeAgents).toContain(star.id); // now and then a star tests the market
+      }
+    }
+    expect(kept).toBeGreaterThanOrEqual(runs - 3);
   });
 
   it('trades a contract it must shed into another team\'s cap space rather than cutting him, when someone wants him', () => {
@@ -1108,7 +1104,7 @@ describe('team AI', () => {
     const team = save.teams[7], taker = save.teams[9];
     const useful = addToTeam(save, mkPlayer(save, 'SF', 74, 26), team, { salary: 22, years: 2 });
     const albatross = addToTeam(save, mkPlayer(save, 'C', 58, 33), team, { salary: 30, years: 3 });
-    for (const t of save.teams) if (t.id !== team.id) setPayroll(save, t, t.id === taker.id ? 110 : 175);
+    for (const t of save.teams) if (t.id !== team.id) setPayroll(save, t, t.id === taker.id ? 100 : 175);
     expect(aiDumpSalary(save, team.id, albatross.id)).toBe(false);
     expect(albatross.teamId).toBe(team.id);
     expect(aiDumpSalary(save, team.id, useful.id)).toBe(true);

@@ -1,9 +1,9 @@
 import { useState } from 'preact/hooks';
-import { FA_DAYS, MAX_FA_YEARS, MIN_DEAL_YEARS, MIN_SALARY, MLE, ROSTER_MAX } from '../core/constants';
-import { interestLevel } from '../core/gm/freeAgency';
+import { FA_DAYS, HARD_LIMIT, MAX_FA_YEARS, MIN_DEAL_YEARS, MIN_SALARY, ROSTER_MAX, SALARY_CAP } from '../core/constants';
+import { interestLevel, isOwnFreeAgent } from '../core/gm/freeAgency';
 import { askingContract } from '../core/gm/value';
 import { faOver } from '../core/offseason/offseason';
-import { capSpace, capStatus, maxOffer, mleStatus, payroll, signingPath } from '../core/org/finance';
+import { capSpace, capStatus, maxOffer, payroll, signingPath } from '../core/org/finance';
 import type { SigningResult } from '../core/org/finance';
 import { clamp, ovr, round1 } from '../core/ratings';
 import type { FreeAgentOffer, Player, Save } from '../core/types';
@@ -22,33 +22,31 @@ function pendingOffers(save: Save): { p: Player; o: FreeAgentOffer }[] {
     .filter(x => !!x.p && save.freeAgents.includes(x.p.id));
 }
 
-/** How each pending offer would be signed if they all came good, best player first (the order they are decided in): each one counts against the room of the next, and only one can use the mid-level. */
+/** How each pending offer would be signed if they all came good, best player first (the order they are decided in): each one counts against the room of the next. */
 function offerPaths(save: Save): Map<number, SigningResult> {
   const me = save.teams[save.userTeamId];
   const out = new Map<number, SigningResult>();
-  let pending = 0, mleTaken = false, spots = ROSTER_MAX - me.roster.length;
+  let pending = 0, spots = ROSTER_MAX - me.roster.length;
   for (const { p, o } of pendingOffers(save).sort((a, b) => ovr(b.p) - ovr(a.p) || a.p.id - b.p.id)) {
     const path: SigningResult = spots <= 0
       ? { ok: false, reason: `No roster room: your roster and your other offers would pass ${ROSTER_MAX}.` }
-      : signingPath(save, me, o.salary, { years: o.years, pending, mleTaken });
+      : signingPath(save, me, o.salary, { years: o.years, pending, ownPlayer: isOwnFreeAgent(save, p, me.id) });
     out.set(p.id, path);
     if (!path.ok) continue;
     pending = round1(pending + o.salary);
     spots--;
-    if (path.via === 'mle' || path.via === 'taxMle') mleTaken = true;
   }
   return out;
 }
 
-/** What the user's other pending offers already commit: salary, roster spots, and the mid-level if one of them would use it. */
-function room(save: Save, exceptId: number | null): { pending: number; spots: number; mleTaken: boolean } {
+/** What the user's other pending offers already commit: salary and roster spots. */
+function room(save: Save, exceptId: number | null): { pending: number; spots: number } {
   const me = save.teams[save.userTeamId];
   const paths = offerPaths(save);
   const others = pendingOffers(save).filter(x => x.p.id !== exceptId && paths.get(x.p.id)?.ok);
   return {
     pending: round1(others.reduce((s, x) => s + x.o.salary, 0)),
     spots: ROSTER_MAX - me.roster.length - others.length,
-    mleTaken: others.some(x => { const r = paths.get(x.p.id); return !!r && r.ok && (r.via === 'mle' || r.via === 'taxMle'); }),
   };
 }
 
@@ -61,8 +59,7 @@ export function FreeAgencyStep({ save }: { save: Save }) {
   const paths = offerPaths(save);
   const left = room(save, null);
   const space = capSpace(save, me);
-  const best = maxOffer(save, me, { pending: left.pending, mleTaken: left.mleTaken });
-  const mle = mleStatus(save, me);
+  const spaceLeft = round1(space - left.pending);
   const lastDay = off.faDay - 1;
 
   const withdraw = (id: number) => { touch(s => { delete s.offseason!.userOffers[id]; }); toast('Offer withdrawn.', true); };
@@ -73,13 +70,14 @@ export function FreeAgencyStep({ save }: { save: Save }) {
         <div class="ox-stats">
           <div><h3>PAYROLL</h3><div class={`head ${STATUS_CLASS[capStatus(save, me)]}`}>{money(payroll(save, me))}</div></div>
           <div><h3>ROSTER</h3><div class="head">{me.roster.length}/{ROSTER_MAX}</div></div>
-          <div><h3>BIGGEST OFFER LEFT</h3><div class="head">{left.spots > 0 ? money(best.salary) : '-'}</div></div>
+          <div><h3>CAP SPACE LEFT</h3><div class={`head ${spaceLeft >= MIN_SALARY ? 'good' : 'dim'}`}>{money(Math.max(0, spaceLeft))}</div></div>
         </div>
         <div class="row cap-note" style={{ marginTop: '6px', flexWrap: 'wrap' }}>
           <CapTag status={capStatus(save, me)} />
           <span>
-            {space >= MIN_SALARY ? `Cap space ${money(space)}. ` : 'No cap space. '}
-            {mle.available ? `${mle.kind === 'taxMle' ? 'Taxpayer mid-level' : 'Mid-level exception'}: one signing up to ${money(mle.amount)}. ` : me.mleUsed ? 'Mid-level exception used. ' : 'No mid-level exception at this payroll. '}
+            {space >= MIN_SALARY
+              ? `You have ${money(space)} under the ${money(SALARY_CAP)} cap${left.pending > 0 ? `, ${money(Math.max(0, spaceLeft))} once your offers are counted` : ''}. `
+              : `You are over the ${money(SALARY_CAP)} cap: no room for another team's free agent. `}
             Minimum deals ({money(MIN_SALARY)}) are always allowed.
           </span>
         </div>
@@ -126,7 +124,7 @@ export function FreeAgencyStep({ save }: { save: Save }) {
       <h3>FREE AGENTS</h3>
       <FreeAgentList save={save}
         onPick={p => { if (over) toast('Free agency is over. Unsigned players can be signed during the season.'); else setSel(p); }}
-        sub={p => off.userOffers[p.id] ? <span class="tag gold">OFFER OUT</span> : null}
+        sub={p => off.userOffers[p.id] ? <span class="tag gold">OFFER OUT</span> : isOwnFreeAgent(save, p, me.id) ? <span class="tag">YOURS LAST SEASON</span> : null}
         right={p => <span class="head">{money(askingContract(save, p, me.id).salary)}</span>} />
 
       {sel && !over && <OfferModal save={save} player={sel} onClose={() => setSel(null)} />}
@@ -140,8 +138,10 @@ function OfferModal({ save, player: p, onClose }: { save: Save; player: Player; 
   const ask = askingContract(save, p, me.id);
   const existing = off.userOffers[p.id];
   const r = room(save, p.id);
+  // a player who was yours last season may still be re-signed over the cap, up to the hard limit
+  const own = isOwnFreeAgent(save, p, me.id);
   // the most the rules allow for this offer once the other offers are counted
-  const best = maxOffer(save, me, { pending: r.pending, mleTaken: r.mleTaken });
+  const best = maxOffer(save, me, { pending: r.pending, ownPlayer: own });
   const max = best.salary;
   const canOffer = r.spots > 0 && save.freeAgents.includes(p.id);
   const start = existing?.salary ?? clamp(Math.ceil(ask.salary * 2) / 2, MIN_SALARY, max);
@@ -151,7 +151,7 @@ function OfferModal({ save, player: p, onClose }: { save: Save; player: Player; 
   const [years, setYears] = useState(Math.min(existing?.years ?? ask.years, yearCap));
   const set = (v: number) => setSalary(round1(clamp(v, MIN_SALARY, max)));
   const lvl = interestLevel(save, p, { teamId: me.id, salary, years });
-  const path = signingPath(save, me, salary, { years, pending: r.pending, mleTaken: r.mleTaken });
+  const path = signingPath(save, me, salary, { years, pending: r.pending, ownPlayer: own });
   const why = !save.freeAgents.includes(p.id) ? `${p.name} has already signed.`
     : r.spots <= 0 ? `No roster room: your roster plus pending offers would pass ${ROSTER_MAX}. Withdraw an offer or release someone.`
     : !path.ok ? path.reason
@@ -171,12 +171,16 @@ function OfferModal({ save, player: p, onClose }: { save: Save; player: Player; 
       <div class="row"><span class="tag pos">{p.pos}</span><h2 class="grow">{p.name}</h2></div>
       <div class="row dim ox-sub"><Stars v={ovr(p)} big /><span>Age {p.age}</span><span>{p.trait}</span></div>
       <div class="row between"><span class="dim">He asks</span><span class="gold">{dealText(ask.salary, ask.years)}</span></div>
-      <div class="row between"><span class="dim">Most you can offer</span><span>{money(max)} · {VIA_TEXT[best.via].toLowerCase()}</span></div>
+      <div class="row between">
+        <span class="dim">Most you can offer</span>
+        <span>{money(max)} · {best.via === 'space' ? 'your cap space' : best.via === 'own' ? `room under the ${money(HARD_LIMIT)} limit` : 'minimum deal'}</span>
+      </div>
+      {canOffer && own && <div class="dim cap-note">He was yours last season: you may go over the cap to bring him back.</div>}
       {canOffer && short && (
         <div class="gold cap-note">
-          {best.via === 'min' ? 'You are over the cap with no exception to use: a minimum deal is all the rules allow.'
+          {best.via === 'min' ? 'You have no cap space: a minimum deal is all you can offer another team\'s player.'
             : best.via === 'space' ? 'That is all the cap space you have left.'
-            : `You are over the cap: the ${VIA_TEXT[best.via].toLowerCase()} is the most you can pay${best.salary < MLE && best.via === 'mle' ? ' without crossing the first apron' : ''}.`}
+            : 'That is all the room you have left under the hard limit.'}
         </div>
       )}
 
@@ -202,10 +206,8 @@ function OfferModal({ save, player: p, onClose }: { save: Save; player: Player; 
             </div>
           </div>
           <div class="row between">
-            <span class="dim">Signed with</span>
-            {path.ok
-              ? <span class={path.via === 'mle' || path.via === 'taxMle' ? 'gold' : 'good'}>{VIA_TEXT[path.via]}{path.via === 'mle' || path.via === 'taxMle' ? ' (once a season)' : ''}</span>
-              : <span class="bad">Not allowed</span>}
+            <span class="dim">Cap check</span>
+            {path.ok ? <span class="good">{VIA_TEXT[path.via]}</span> : <span class="bad">Not allowed</span>}
           </div>
           <div class="row between">
             <span class="dim">His interest</span>

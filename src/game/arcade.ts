@@ -67,13 +67,27 @@ const RIM_ZONE = 25;          // auto layup/dunk distance
 const BODY = 7;               // handler/defender collision distance
 const METER_CENTER = 0.8;
 
-const SPOTS: number[][][] = [
-  [[120, 165], [92, 172], [148, 172]],
-  [[204, 118], [223, 46], [178, 150]],
-  [[36, 118], [17, 46], [62, 150]],
-  [[160, 96], [146, 60], [120, 114]],
-  [[94, 60], [104, 86], [88, 48]],
+// Named places on the floor the offense uses.
+const SLOT = {
+  TOP: [120, 165], LS: [70, 160], RS: [170, 160], LW: [38, 120], RW: [202, 120], LC: [18, 46], RC: [222, 46],
+  LE: [92, 100], RE: [148, 100], HP: [120, 112], LB: [96, 64], RB: [144, 64], DL: [100, 52], DR: [140, 52],
+} as const;
+type SlotName = keyof typeof SLOT;
+const PERIMETER: SlotName[] = ['TOP', 'LS', 'RS', 'LW', 'RW', 'LC', 'RC'];
+const INSIDE: SlotName[] = ['LB', 'RB', 'LE', 'RE', 'HP'];
+/** Starting alignments, by lineup slot PG, SG, SF, PF, C. One is picked each possession. */
+const SETS: SlotName[][] = [
+  ['TOP', 'RW', 'LW', 'RC', 'LC'],   // five out
+  ['TOP', 'RW', 'LW', 'RC', 'LB'],   // four out, one in
+  ['TOP', 'RC', 'LC', 'RE', 'LE'],   // horns
+  ['RS', 'RC', 'LW', 'HP', 'RB'],    // triangle, right side
+  ['LS', 'LW', 'LC', 'HP', 'LB'],    // triangle, left side
+  ['TOP', 'RB', 'LB', 'RE', 'LE'],   // box: wings start inside and pop out
+  ['TOP', 'RC', 'LC', 'LW', 'HP'],   // spread, big at the high post
+  ['RS', 'LS', 'LC', 'RC', 'RB'],    // two-guard front
 ];
+/** A leg of an off-ball route. */
+interface Leg { x: number; y: number; speed: number; hold?: number; screen?: boolean }
 const CALLS = {
   move: ['ANKLES!', 'SHOOK!', 'CROSSED UP!', 'SEE YA!'],
   swish: ['SWISH!', 'SPLASH!', 'NOTHING BUT NET!', 'WET!'],
@@ -97,7 +111,8 @@ interface Ent {
   tx: number; ty: number;
   stun: number; slow: number; run: number; face: number;
   armsUp: number; lift: number;
-  relocate: number; spot: number; cut: number;
+  /** Off-ball: where he lives when idle, the route he is running, and timers. */
+  home: SlotName; route: Leg[]; leg: number; holdT: number; screen: number; wait: number; jitter: number;
 }
 export type Phase = 'idle' | 'live' | 'pass' | 'charge' | 'shot' | 'finish' | 'rebound' | 'over';
 interface Popup { text: string; color: string; t: number; scale: number; y: number }
@@ -146,6 +161,8 @@ export class Arcade {
   private shake = 0;
   private netKick = 0;
   private dropping = false;
+  private playT = 0;
+  private driveReacted = false;
   private rimShake = 0;
   private rimGlow = 0;
   private sparks: { x: number; y: number; vx: number; vy: number; t: number }[] = [];
@@ -218,11 +235,15 @@ export class Arcade {
     this.passes = 0; this.moves = 0;
     const mk = (p: Player, slot: number, off: boolean): Ent => ({
       p, slot, off, x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, stun: 0, slow: 0, run: -1, face: 0,
-      armsUp: 0, lift: 0, relocate: 1.5 + Math.random() * 2.5, spot: 0, cut: 0,
+      armsUp: 0, lift: 0, home: 'TOP', route: [], leg: 0, holdT: 0, screen: 0, wait: 0, jitter: Math.random() * 6,
     });
     this.off = setup.offense.slice(0, 5).map((p, i) => mk(p, i, true));
     this.def = setup.defense.slice(0, 5).map((p, i) => mk(p, i, false));
-    this.off.forEach((e, i) => { const sp = SPOTS[i][0]; e.x = sp[0]; e.y = sp[1]; e.tx = e.x; e.ty = e.y; });
+    // a different alignment every trip; practice keeps the simple one so targets stay put
+    const set = this.practice ? SETS[0] : SETS[Math.floor(Math.random() * SETS.length)];
+    this.off.forEach((e, i) => { e.home = set[i]; const sp = SLOT[e.home]; e.x = sp[0]; e.y = sp[1]; e.tx = e.x; e.ty = e.y; });
+    this.playT = 0.5 + Math.random() * 0.8;
+    this.driveReacted = false;
     this.handler = 0;
     const h = this.off[0];
     h.x = 120; h.y = 208;
@@ -423,6 +444,7 @@ export class Arcade {
     const pas = from.p.ratings.pas / 100;
     const spd = (105 + 115 * pas) * (1 + 0.03 * this.s.ocStars) * (1 + 0.08 * this.pk.passing);
     this.passes++;
+    this.afterPass(from);
     const dist = Math.hypot(tgt.x - from.x, tgt.y - from.y);
     const dur = Math.max(0.12, dist / spd);
     // lead the receiver, with a little error for poor passers
@@ -759,6 +781,7 @@ export class Arcade {
         }
         this.assist = { id: from.p.id, t: this.time };
         this.handler = ps.to;
+        this.off[ps.to].route = []; this.off[ps.to].screen = 0;
         if (this.guide?.endOnCatch) { this.popup('GOOD PASS!', PAL.green, 2); sfx.good(); this.phase = 'live'; this.end(0.9); return; }
         this.def[ps.to].slow = 0.45; // the closeout arrives a beat late: catch-and-shoot is worth it
         this.dribbleT = 0;
@@ -813,6 +836,8 @@ export class Arcade {
           this.popup(pick(CALLS.board), PAL.green, 2); sfx.good();
           this.highlights.push('oreb');
           this.handler = this.off.indexOf(w);
+          w.route = []; w.screen = 0;
+          for (const e of this.off) if (e !== w) { e.route = []; e.screen = 0; e.home = this.openSlot(e.slot >= 3 ? INSIDE : PERIMETER, e); }
           this.shotClock = Math.min(Math.max(this.shotClock, 14), this.clock);
           this.assist = null; this.grace = 0.5; this.dribbleT = 0;
           this.lag = { x: w.x, y: w.y };
@@ -842,6 +867,7 @@ export class Arcade {
     const lagK = 1 - Math.exp(-dt / Math.max(0.05, this.diff.lag * (1.25 - 0.5 * this.def[this.handler].p.ratings.def / 100)));
     this.lag.x += (h.x - this.lag.x) * lagK; this.lag.y += (h.y - this.lag.y) * lagK;
     const rebounding = this.phase === 'rebound';
+    if (!over && (this.phase === 'live' || this.phase === 'charge' || this.phase === 'pass')) this.directOffense(dt);
     this.off.forEach((e, i) => {
       e.stun = Math.max(0, e.stun - dt); e.slow = Math.max(0, e.slow - dt);
       e.armsUp = Math.max(0, e.armsUp - dt);
@@ -850,22 +876,9 @@ export class Arcade {
       if (!controlled) {
         if (rebounding && Math.hypot(e.x - this.reb.x1, e.y - this.reb.y1) < 60) { e.tx = this.reb.x1; e.ty = this.reb.y1 + 3; }
         else if (this.phase === 'pass' && i === this.pass.to) { e.tx = this.pass.x1; e.ty = this.pass.y1; }
-        else if (!over) {
-          e.relocate -= dt;
-          if (e.cut > 0) { e.cut -= dt; if (e.cut <= 0) e.relocate = 0; }
-          if (e.relocate <= 0) {
-            e.relocate = 2.2 + Math.random() * 3;
-            if ((e.slot === 1 || e.slot === 2) && Math.random() < 0.28) {
-              e.cut = 1.5; e.tx = HOOP.x + (e.x < HOOP.x ? -15 : 15); e.ty = HOOP.y + 20;
-            } else {
-              const opts = SPOTS[e.slot];
-              let sp = opts[Math.floor(Math.random() * opts.length)];
-              if (Math.hypot(sp[0] - h.x, sp[1] - h.y) < 34) sp = opts.slice().sort((a, b) => Math.hypot(b[0] - h.x, b[1] - h.y) - Math.hypot(a[0] - h.x, a[1] - h.y))[0];
-              e.tx = sp[0]; e.ty = sp[1];
-            }
-          }
-        }
-        this.steer(e, e.tx, e.ty, this.speed(e) * 0.85, dt);
+        else if (!over) this.followRoute(e, dt);
+        const leg = e.route[e.leg];
+        this.steer(e, e.tx, e.ty, this.speed(e) * (leg && e.wait <= 0 ? leg.speed : 0.85), dt);
       }
       const sp = Math.hypot(e.vx, e.vy);
       e.run = sp > 5 ? (e.run < 0 ? 0 : e.run + dt * 5) : -1;
@@ -888,10 +901,135 @@ export class Arcade {
       d.slow = Math.max(0, d.slow - dt);
       // sliding with the ball is slower than sprinting, so a quicker handler can turn the corner
       this.steer(d, t.x, t.y, this.speed(d) * this.diff.dspd * (i === this.handler ? 0.9 : 0.9) * (d.slow > 0 ? 0.45 : 1) * (this.practice ? 0.7 : 1), dt);
+      // a set screen is a wall: any defender but the screener's own man gets hung up on it
+      for (let k = 0; k < this.off.length; k++) {
+        const sc = this.off[k];
+        if (sc.screen <= 0 || k === i) continue;
+        const dx = d.x - sc.x, dy = d.y - sc.y, dd = Math.hypot(dx, dy);
+        if (dd < 8.5 && dd > 0.01) { d.x += (dx / dd) * (8.5 - dd); d.y += (dy / dd) * (8.5 - dd); d.slow = Math.max(d.slow, 0.3); }
+      }
       const sp = Math.hypot(d.vx, d.vy);
       d.run = sp > 5 ? (d.run < 0 ? 0 : d.run + dt * 5) : -1;
       d.face = Math.abs(d.vx) > 4 ? (d.vx > 0 ? 1 : -1) : 0;
     });
+  }
+
+  // ---- off-ball offense -------------------------------------------------------------
+  private slotXY(n: SlotName): { x: number; y: number } { return { x: SLOT[n][0], y: SLOT[n][1] }; }
+  /** The candidate slot with the most room around it (from teammates' destinations and the ball). */
+  private openSlot(cands: SlotName[], who: Ent): SlotName {
+    const h = this.off[this.handler];
+    let best = cands[0], bv = -1;
+    for (const n of cands) {
+      const p = this.slotXY(n);
+      let room = Math.hypot(p.x - h.x, p.y - h.y) * 0.8;
+      for (const o of this.off) {
+        if (o === who || o === h) continue;
+        const dest = o.route.length ? o.route[o.route.length - 1] : this.slotXY(o.home);
+        room = Math.min(room, Math.hypot(p.x - dest.x, p.y - dest.y));
+      }
+      room += Math.random() * 14; // not always the same answer
+      if (room > bv) { bv = room; best = n; }
+    }
+    return best;
+  }
+  private send(e: Ent, legs: Leg[], home: SlotName, wait = 0): void {
+    const end = this.slotXY(home);
+    e.route = [...legs, { x: end.x, y: end.y, speed: 0.9 }];
+    e.leg = 0; e.holdT = 0; e.screen = 0; e.wait = wait; e.home = home;
+  }
+  private followRoute(e: Ent, dt: number): void {
+    if (e.wait > 0) { e.wait -= dt; return; }
+    const leg = e.route[e.leg];
+    if (!leg) {
+      // idle: stand at home, shifting a step now and then so nobody looks frozen
+      const hm = this.slotXY(e.home);
+      e.jitter += dt;
+      e.tx = hm.x + Math.round(Math.sin(e.jitter * 0.9 + e.slot) * 3);
+      e.ty = hm.y + Math.round(Math.cos(e.jitter * 0.7 + e.slot * 2) * 2);
+      e.screen = 0;
+      return;
+    }
+    e.tx = leg.x; e.ty = leg.y;
+    if (Math.hypot(e.x - leg.x, e.y - leg.y) < 4) {
+      if (leg.hold && e.holdT < leg.hold) { e.holdT += dt; e.screen = leg.screen ? 1 : 0; return; }
+      e.holdT = 0; e.screen = 0; e.leg++;
+      if (e.leg >= e.route.length) { e.route = []; e.leg = 0; }
+    }
+  }
+  /** Calls an action every couple of seconds, and reacts to drives. */
+  private directOffense(dt: number): void {
+    if (this.practice) return;
+    const h = this.off[this.handler];
+    const hd = Math.hypot(h.x - HOOP.x, h.y - HOOP.y);
+    const mates = this.off.filter(e => e !== h);
+    const idle = mates.filter(e => e.route.length === 0 && e.wait <= 0);
+    // drive: bigs dive to the dunker spot away from the ball, shooters drift to open threes, one man gets back
+    if (hd < 82 && h.vy < -12 && !this.driveReacted) {
+      this.driveReacted = true;
+      let safety = false;
+      for (const e of mates) {
+        if (e.slot >= 3) this.send(e, [], h.x < HOOP.x ? 'DR' : 'DL');
+        else if (!safety && e.y > 130) { safety = true; this.send(e, [], this.openSlot(['TOP', 'LS', 'RS'], e)); }
+        else this.send(e, [], this.openSlot(e.x < HOOP.x ? ['LC', 'LW', 'LS'] : ['RC', 'RW', 'RS'], e));
+      }
+      this.playT = 1.6;
+      return;
+    }
+    if (hd > 105) this.driveReacted = false;
+    this.playT -= dt;
+    if (this.playT > 0 || !idle.length) return;
+    this.playT = 1.3 + Math.random() * 1.6;
+    const bigs = idle.filter(e => e.slot >= 3), wings = idle.filter(e => e.slot < 3);
+    const pickOne = <T,>(a: T[]): T => a[Math.floor(Math.random() * a.length)];
+    const r = Math.random();
+    const onD = this.def[this.handler];
+    if (r < 0.26 && bigs.length && hd > 70) {
+      // ball screen, then roll to the rim (finishers) or pop to a three (shooters)
+      const big = pickOne(bigs);
+      const hx = HOOP.x - h.x, hy = HOOP.y - h.y, hl = Math.hypot(hx, hy) || 1;
+      const side = Math.random() < 0.5 ? 1 : -1;
+      const sx = clamp(onD.x + (-hy / hl) * 9 * side, SIDE_L + 8, SIDE_R - 8), sy = onD.y + (hx / hl) * 9 * side;
+      const roll = big.p.ratings.fin >= big.p.ratings.sht;
+      if (roll) this.send(big, [{ x: sx, y: sy, speed: 1.05, hold: 1.5, screen: true }, { x: HOOP.x + side * 10, y: HOOP.y + 18, speed: 1.05, hold: 0.8 }], side > 0 ? 'RB' : 'LB');
+      else this.send(big, [{ x: sx, y: sy, speed: 1.05, hold: 1.5, screen: true }], this.openSlot(['LW', 'RW', 'TOP', 'LS', 'RS'], big));
+    } else if (r < 0.44 && bigs.length && wings.length) {
+      // pin-down: a big screens a wing's defender, the wing comes off it to the top or flares to the corner
+      const wing = pickOne(wings), big = pickOne(bigs);
+      const wd = this.def[this.off.indexOf(wing)];
+      this.send(big, [{ x: wd.x, y: wd.y + 5, speed: 1, hold: 1.3, screen: true }], this.openSlot(INSIDE, big));
+      const curl = Math.random() < 0.6;
+      this.send(wing, [], this.openSlot(curl ? ['TOP', 'LS', 'RS'] : wing.x < HOOP.x ? ['LC', 'LW'] : ['RC', 'RW'], wing), 0.5);
+    } else if (r < 0.6 && wings.length) {
+      // backdoor when his man is playing up on him, otherwise a V-cut to get open
+      const wing = pickOne(wings);
+      const wd = this.def[this.off.indexOf(wing)];
+      const tight = Math.hypot(wd.x - wing.x, wd.y - wing.y) < 16;
+      const sgn = wing.x < HOOP.x ? -1 : 1;
+      if (tight || Math.random() < 0.35) this.send(wing, [{ x: HOOP.x + sgn * 12, y: HOOP.y + 16, speed: 1.1, hold: 0.6 }], this.openSlot(sgn < 0 ? ['RC', 'RW', 'LC'] : ['LC', 'LW', 'RC'], wing));
+      else this.send(wing, [{ x: wing.x + (HOOP.x - wing.x) * 0.35, y: wing.y + (HOOP.y - wing.y) * 0.35, speed: 0.9 }], this.openSlot(PERIMETER, wing));
+    } else if (r < 0.74 && wings.length >= 2) {
+      // exchange: two perimeter players swap places
+      const a = wings[0], b = wings[1];
+      const ha = a.home, hb = b.home;
+      this.send(a, [], hb); this.send(b, [], ha);
+    } else if (r < 0.86 && bigs.length) {
+      // post up on the ball side, or flash to the high post
+      const big = pickOne(bigs);
+      this.send(big, [], Math.random() < 0.6 ? (h.x < HOOP.x ? 'LB' : 'RB') : this.openSlot(['HP', 'LE', 'RE'], big));
+    } else {
+      const e = pickOne(idle);
+      this.send(e, [], this.openSlot(e.slot >= 3 && e.p.ratings.sht < 62 ? INSIDE : PERIMETER, e));
+    }
+  }
+  /** The passer does not stand and watch: give-and-go to the rim, or fill an open spot. */
+  private afterPass(from: Ent): void {
+    if (this.practice) return;
+    const sgn = from.x < HOOP.x ? -1 : 1;
+    const farFromRim = Math.hypot(from.x - HOOP.x, from.y - HOOP.y) > 70;
+    if (farFromRim && Math.random() < 0.5) this.send(from, [{ x: HOOP.x + sgn * 9, y: HOOP.y + 16, speed: 1.1, hold: 0.7 }], this.openSlot(sgn < 0 ? ['RC', 'RW'] : ['LC', 'LW'], from));
+    else this.send(from, [], this.openSlot(from.slot >= 3 ? [...INSIDE, 'TOP'] : PERIMETER, from), 0.2);
+    this.playT = Math.max(this.playT, 0.9);
   }
 
   private steer(e: Ent, tx: number, ty: number, sp: number, dt: number): void {

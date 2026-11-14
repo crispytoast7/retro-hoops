@@ -1,27 +1,47 @@
-import { LUXURY_TAX, MIN_SALARY, ROSTER_MAX, ROSTER_NORMAL, SECOND_APRON } from '../constants';
+import { HARD_LIMIT, MIN_SALARY, ROSTER_MAX, ROSTER_NORMAL } from '../constants';
 import { autoLineup } from '../lineup';
-import { payroll } from '../org/finance';
+import { payroll, signingPath } from '../org/finance';
 import { releasePlayer } from '../org/roster';
 import { ovr } from '../ratings';
 import type { Rng } from '../rng';
 import type { Save, Team } from '../types';
-import { aiFillRosters, worstContract } from './freeAgency';
+import { onRookieDeal } from './draft';
+import { aiFillRosters } from './freeAgency';
 import { aiDumpSalary } from './trade';
-import { askingContract, keepCeiling, playerValue, teamStrength, teamSuccess, valueWithContract } from './value';
+import { CORE_OVR, askingContract, keepCeiling, playerValue, teamStrength, teamSuccess, valueWithContract } from './value';
 
 const aiTeams = (save: Save): Team[] => save.teams.filter(t => t.id !== save.userTeamId);
 
-/** Offseason, before the draft: every AI team decides on players with contract.years === 0: re-sign at askingContract if he is worth it and fits the plan, else release to free agency (no dead cap). A team may always re-sign its own player, over the cap and the aprons, so the limit is what it is willing to pay: contenders go into the tax (up to the second apron) for players who matter, everyone else stops at the tax line. */
+/** Salary on a team's books that the rules always allow, whatever the payroll: minimum deals and draft picks on their rookie contracts. */
+export function exemptSalary(save: Save, team: Team): number {
+  let t = 0;
+  for (const id of team.roster) {
+    const p = save.players[id];
+    if (p.contract.years > 0 && (p.contract.salary <= MIN_SALARY || onRookieDeal(save, p))) t += p.contract.salary;
+  }
+  return Math.round(t * 10) / 10;
+}
+
+/** The contract a team would least mind losing among those that count against its limits: worst trade value per dollar. `below` restricts it to players weaker than that overall. */
+function worstPaid(save: Save, team: Team, below = 200): number | null {
+  let worst: number | null = null, ws = 1e9;
+  for (const id of team.roster) {
+    const p = save.players[id];
+    if (p.contract.years <= 0 || p.contract.salary <= MIN_SALARY || onRookieDeal(save, p) || ovr(p) >= below) continue;
+    const s = playerValue(save, p) / p.contract.salary;
+    if (s < ws) { ws = s; worst = id; }
+  }
+  return worst;
+}
+
+/** Chance a core player declines to re-sign and tests free agency: the team's best player, and its other stars. */
+const STAR_WALKS = [0.1, 0.25];
+
+/** Offseason, before the draft: every AI team decides on players with contract.years === 0: re-sign at askingContract if he is worth it and fits, else release to free agency (no dead cap). A team may pass the cap to keep its own player but never the hard limit, and how far it goes depends on its plan (keepCeiling). Its best players come first: for a core player any team spends up to the hard limit, and moves lesser contracts out to make the room. */
 export function aiResignPhase(save: Save, rng: Rng): void {
   for (const team of aiTeams(save)) {
     const expiring = team.roster.filter(id => save.players[id].contract.years <= 0);
     if (!expiring.length) continue;
-    // Money already committed for next season.
-    let committed = team.deadCap;
-    for (const id of team.roster) {
-      const p = save.players[id];
-      if (p.contract.years > 0) committed += p.contract.salary;
-    }
     let kept = team.roster.length - expiring.length;
     const bestOvr = Math.max(...team.roster.map(id => ovr(save.players[id])));
 
@@ -31,24 +51,36 @@ export function aiResignPhase(save: Save, rng: Rng): void {
     for (const { id } of order) {
       const p = save.players[id];
       const o = ovr(p);
+      const core = o >= CORE_OVR || o >= bestOvr;
       const ask = askingContract(save, p, team.id);
       const worth = valueWithContract(save, p, { salary: ask.salary, years: ask.years });
-      // Leave minimum money for every roster spot still to fill.
-      const reserve = Math.max(0, ROSTER_NORMAL - kept - 1) * MIN_SALARY;
-      const after = committed + ask.salary + reserve;
-      const fits = after <= keepCeiling(team);
-      // Tax dollars are only for players who move the needle.
-      const bar = after > LUXURY_TAX ? 14 : 4;
+      const ceiling = core ? HARD_LIMIT : keepCeiling(team);
+      // What the payroll would be with him back, leaving minimum money for every roster spot still to fill.
+      const after = () => payroll(save, team) + ask.salary + Math.max(0, ROSTER_NORMAL - kept - 1) * MIN_SALARY;
 
-      let keep = !ask.refuses && fits && worth >= bar && kept < ROSTER_MAX;
-      if (keep && team.strategy === 'rebuild' && p.age >= 31 && ask.salary > 6) keep = false;
-      if (keep && team.strategy === 'contend' && o < 60 && p.age >= 30) keep = false;
-      // Some good players test the market anyway; the franchise player does not.
-      if (keep && o < bestOvr && rng.chance(o >= 75 ? 0.1 : 0.2)) keep = false;
+      let keep = !ask.refuses && (core || kept < ROSTER_MAX) && worth >= (core ? 0 : 4);
+      if (keep && !core) {
+        if (team.strategy === 'rebuild' && p.age >= 31 && ask.salary > 6) keep = false;
+        if (team.strategy === 'contend' && o < 60 && p.age >= 30) keep = false;
+        // Some good players test the market anyway.
+        if (keep && rng.chance(o >= 75 ? 0.1 : 0.2)) keep = false;
+      } else if (keep && rng.chance(o >= bestOvr ? STAR_WALKS[0] : STAR_WALKS[1])) {
+        // Now and then even a star wants to see what is out there: that is how one reaches the market.
+        keep = false;
+      }
+      // Clear room for a core player: lesser contracts go to a team with cap space, or are cut.
+      let guard = 0;
+      while (keep && core && (after() > ceiling || kept >= ROSTER_MAX) && guard++ < 6) {
+        const out = worstPaid(save, team, o - 2);
+        if (out === null) break;
+        if (!aiDumpSalary(save, team.id, out)) releasePlayer(save, out, { deadCap: false });
+        kept--;
+      }
+      if (keep && (after() > ceiling || kept >= ROSTER_MAX)) keep = false;
+      if (keep && !signingPath(save, team, ask.salary, { ownPlayer: true, years: ask.years }).ok) keep = false;
 
       if (keep) {
         p.contract = { salary: ask.salary, years: ask.years };
-        committed += ask.salary;
         kept++;
         if (o >= 80) {
           save.news.unshift({
@@ -106,18 +138,14 @@ export function aiMakeRoom(save: Save): void {
   }
 }
 
-/** AI roster hygiene, safe to call any week: cut down to ROSTER_MAX, shed salary only when the payroll is above the second apron (or above the tax line for a team that is not contending), releasing the worst value-per-dollar first (no dead cap for AI), fill via aiFillRosters, set lineup to autoLineup. Never touches the user's team. */
+/** AI roster hygiene, safe to call any week: cut down to ROSTER_MAX; if the payroll is past the hard limit by more than the rules excuse (minimum deals and rookie contracts), move the worst value-per-dollar contracts until it is not (to a team with cap space if one will have him, else released: no dead cap for AI); fill via aiFillRosters; set lineup to autoLineup. Never touches the user's team. */
 export function aiMaintainRosters(save: Save, rng: Rng): void {
   for (const team of aiTeams(save)) {
     trimTo(save, team, ROSTER_MAX);
     let guard = 0;
-    const limit = team.strategy === 'contend' ? SECOND_APRON : LUXURY_TAX;
-    // count the minimum deals it will take to get back to a full ten
-    const projected = () => payroll(save, team) + Math.max(0, ROSTER_NORMAL - team.roster.length) * MIN_SALARY;
-    while (projected() > limit && guard++ < 30) {
-      const worst = worstContract(save, team);
+    while (payroll(save, team) - exemptSalary(save, team) > HARD_LIMIT && guard++ < 30) {
+      const worst = worstPaid(save, team);
       if (worst === null) break;
-      // a team with cap space may take him off their hands; otherwise he is cut
       if (!aiDumpSalary(save, team.id, worst)) releasePlayer(save, worst, { deadCap: false });
     }
   }
