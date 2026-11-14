@@ -12,10 +12,11 @@ iPhone) to play offline.
 
 | Action | Touch / mouse | Keyboard |
 |---|---|---|
-| Dribble, drive | Drag anywhere | Arrows / WASD |
-| Crossover or spin | Quick flick | Shift (while moving) |
-| Pass | Tap a teammate, or drag from him | 1-4 |
-| Shoot | Press and hold still, release in the green | Hold Space |
+| Dribble, drive | Drag on the court | Arrows / WASD |
+| Shoot | Touch your player, pull back from the basket, release when the crosshair is over the rim | Hold Space, release |
+| Aimed pass, lead pass, lob | Touch your player, pull back away from the target, release | |
+| Quick pass | Tap a teammate | 1-4 |
+| Crossover, step-back | Quick flick | Shift (while moving) |
 | Layup / dunk | Drive at the rim with a lane | same |
 
 You play about a dozen key moments each game, each a different situation: fast break,

@@ -85,12 +85,13 @@ export function SettingsScreen(_p: { params: Record<string, any> }) {
       <Panel title="HOW TO PLAY">
         {has && getSave().schedule.length > 0 && <><Btn class="block" kind="primary" onClick={() => nav('practice')}>Practice the controls</Btn><div style={{ height: '8px' }} /></>}
         <div class="list" style={{ fontSize: '19px' }}>
-          <div class="item">Drag anywhere: dribble and drive</div>
-          <div class="item">Quick flick: crossover or spin move</div>
-          <div class="item">Tap a teammate (or drag from him): pass</div>
-          <div class="item">Press and hold still, release in the green: shoot</div>
+          <div class="item">Drag on the court: dribble and drive</div>
+          <div class="item">Touch your player, pull back, let go: shoot at the rim, or throw a pass where you aim</div>
+          <div class="item">Let go when the crosshair is over the rim. Green is a swish.</div>
+          <div class="item">Tap a teammate: quick pass</div>
+          <div class="item">Quick flick: crossover, or a step-back away from the basket</div>
           <div class="item">Drive at the rim with a lane: layup or dunk</div>
-          <div class="item dim">Keyboard: arrows/WASD move, Space shoot, Shift move, 1-4 pass</div>
+          <div class="item dim">Keyboard: arrows/WASD move, hold Space to aim a shot and release, Shift for a move, 1-4 pass</div>
         </div>
       </Panel>
     </Screen>

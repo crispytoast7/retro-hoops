@@ -50,7 +50,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
   const [playing, setPlaying] = useState(false);
   const [crowd, setCrowdLevel] = useState(50);
   const [mom, setMom] = useState(0);
-  const [swing, setSwing] = useState<'up' | 'down' | null>(null);
+  const [swing, setSwing] = useState<string | null>(null);
   const ctl = useRef({ fast: false, skip: false, started: null as null | (() => void), cancel: false, go: null as null | (() => void) });
   const [fast, setFast] = useState(false);
 
@@ -89,6 +89,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
       setMom(live.momentum);
     };
     const used: Scenario[] = [];
+    const hot: Record<number, number> = {};
     let myRun = 0, oppRun = 0, moments = 0;
     const run = async () => {
       await new Promise<void>(res => { c.started = res; });
@@ -118,16 +119,22 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
             offColors: me.colors, defColors: (iAmHome ? away : home).colors,
             ocStars: me.staff.oc?.stars ?? 0, difficulty: save.settings.difficulty,
             perks: { shooting: perk(save, 'shooting'), handles: perk(save, 'handles'), passing: perk(save, 'passing'), rim: perk(save, 'rim') },
-            scenario: sc,
+            scenario: sc, hot: { ...hot },
           });
           if (c.cancel) break;
           setPlaying(false);
           highlights.push(...res.highlights);
+          let fire = '';
+          for (const sh of res.shots) {
+            hot[sh.by] = sh.made ? (hot[sh.by] ?? 0) + 1 : 0;
+            if (sh.made && hot[sh.by] === 2) fire = `${save.players[sh.by]?.name.split(' ').pop()} IS HEATING UP`;
+            if (sh.made && hot[sh.by] >= 3) fire = `${save.players[sh.by]?.name.split(' ').pop()} IS ON FIRE!`;
+          }
           const before = live.momentum;
           push(live.resolveUser(res.outcome));
           myRun = 0; oppRun = 0;
-          setSwing(live.momentum > before ? 'up' : 'down');
-          await sleep(650);
+          setSwing(fire || (live.momentum > before ? 'MOMENTUM!' : 'MOMENTUM LOST'));
+          await sleep(fire ? 1100 : 650);
           setSwing(null);
         } else if (step.kind === 'period') {
           if (!c.skip) {
@@ -171,10 +178,10 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
             <div class="panel" style={{ maxWidth: '330px', fontSize: '19px', textAlign: 'left' }}>
               {seen ? <div class="dim">You play the key moments. Score, and your team goes on a run. Waste it, and the other side does.</div> : (
                 <div class="col" style={{ gap: '4px' }}>
-                  <div><span class="gold">DRAG</span> to dribble and drive</div>
-                  <div><span class="gold">FLICK</span> for a crossover</div>
-                  <div><span class="gold">TAP A TEAMMATE</span> to pass</div>
-                  <div><span class="gold">HOLD STILL, RELEASE IN THE GREEN</span> to shoot</div>
+                  <div><span class="gold">DRAG ON THE COURT</span> to dribble and drive</div>
+                  <div><span class="gold">TOUCH YOUR PLAYER, PULL BACK, LET GO</span> to shoot or throw a pass where you aim</div>
+                  <div><span class="gold">TAP A TEAMMATE</span> for a quick pass</div>
+                  <div><span class="gold">FLICK</span> for a crossover or step-back</div>
                   <div><span class="gold">DRIVE AT THE RIM</span> for a layup or dunk</div>
                   <div class="dim">You play about a dozen key moments. Score and your team goes on a run; waste one and the other side does.</div>
                 </div>
@@ -193,7 +200,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
             <div class="head dim">TAP TO PLAY</div>
           </div>
         )}
-        {swing && <div class="overlay"><div class="bigcall" style={{ color: swing === 'up' ? 'var(--good)' : 'var(--bad)' }}>{swing === 'up' ? 'MOMENTUM!' : 'MOMENTUM LOST'}</div></div>}
+        {swing && <div class="overlay"><div class="bigcall" style={{ color: swing === 'MOMENTUM LOST' ? 'var(--bad)' : swing === 'MOMENTUM!' ? 'var(--good)' : 'var(--gold)' }}>{swing}</div></div>}
         {overlay?.kind === 'period' && <div class="overlay dimmed"><div class="bigcall">{overlay.text}</div><div class="head">{away.abbr} {score.away} · {home.abbr} {score.home}</div></div>}
         {overlay?.kind === 'final' && (
           <div class="overlay dimmed">
@@ -228,7 +235,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
           )}
         </div>
         <div class="lines">
-          {playing && lines.length === 0 ? <div class="dim">Drag to move · hold to shoot · tap a teammate to pass</div> : lines.slice(-3).map(l => <div class={l.cls}>{l.text}</div>)}
+          {playing ? <div class="dim">Drag: move · Pull back from your player: shoot or pass · Tap a teammate: pass</div> : lines.slice(-3).map(l => <div class={l.cls}>{l.text}</div>)}
         </div>
       </div>
     </div>

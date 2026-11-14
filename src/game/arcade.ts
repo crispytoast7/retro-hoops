@@ -1,4 +1,4 @@
-// The hand-played possession: input, movement, defender AI, shot meter, passes, drives,
+// The hand-played possession: input, movement, defender AI, pull-back aiming, passes, drives,
 // rebounds. Reads player ratings, returns a list of PlayEvents for the sim to score.
 import type { Difficulty, Player } from '../core/types';
 import type { PlayEvent, ShotType, UserPossessionOutcome, UserPossessionSetup } from '../core/sim/api';
@@ -27,6 +27,8 @@ export interface ArcadeSetup {
   /** Tutorial aids drawn on the court. */
   guide?: Guide;
   scenario?: Scenario;
+  /** Consecutive makes this game by player id: hot hands aim steadier and draw a double team. */
+  hot?: Record<number, number>;
 }
 /** The situation a key moment starts from. */
 export type Scenario = 'halfcourt' | 'fastbreak' | 'pnr' | 'post' | 'iso' | 'open' | 'lateclock' | 'freethrows';
@@ -59,6 +61,8 @@ export interface ArcadeResult {
   moves: number;
   /** Reached the tutorial target spot. */
   reached: boolean;
+  /** Field goals in this moment, in order: who shot and whether it went in. */
+  shots: { by: number; made: boolean }[];
   /** Timing of the last jump shot: 3 perfect, 2 good, 1 early/late, 0 way off, -1 none taken. */
   quality: number;
 }
@@ -67,12 +71,22 @@ export interface ArcadeTheme { paint: string; accent: string; banners: number; c
 // ---- tuning -------------------------------------------------------------------------
 /** Game-clock seconds per real second. */
 const TIME_SCALE = 1.6;
-const DIFF: Record<Difficulty, { window: number; lag: number; steal: number; dspd: number; make: number; move: number }> = {
-  easy:   { window: 1.3, lag: 0.30, steal: 0.6, dspd: 0.93, make: 0.04, move: 0.1 },
-  normal: { window: 1.0, lag: 0.20, steal: 1.0, dspd: 1.0, make: 0, move: 0 },
-  hard:   { window: 0.8, lag: 0.13, steal: 1.3, dspd: 1.05, make: -0.03, move: -0.08 },
+const DIFF: Record<Difficulty, { aim: number; lag: number; steal: number; dspd: number; make: number; move: number }> = {
+  easy:   { aim: 0.78, lag: 0.30, steal: 0.6, dspd: 0.93, make: 0.04, move: 0.1 },
+  normal: { aim: 1.0, lag: 0.20, steal: 1.0, dspd: 1.0, make: 0, move: 0 },
+  hard:   { aim: 1.25, lag: 0.13, steal: 1.3, dspd: 1.05, make: -0.03, move: -0.08 },
 };
-const HOLD_TO_SHOOT = 0.16;   // seconds of still press before the meter starts
+// Pull-back aiming: touch your player, drag away from the target, release.
+const AIM_TOUCH = 24;     // how near the ball-handler a touch must start
+const AIM_MIN = 8;        // px of pull before an aim counts
+const AIM_GAIN = 3.3;     // court px thrown per px pulled
+const SNAP_HOOP = 24;     // an aim this close to the rim is a shot
+const SNAP_MATE = 18;     // an aim this close to a teammate is a pass to him
+const R_SWISH = 3.2;      // reticle this close to the rim's centre: nothing but net
+const R_RIM = 7.2;        // inside this it may roll in
+const R_IRON = 11.5;      // inside this it hits iron; beyond is an airball
+const AIM_SLOW = 0.32;    // time slows while you aim...
+const AIM_SLOW_T = 1.5;   // ...for this many real seconds
 const DRAG_START = 6;         // px before a press becomes a drag
 const SWIPE_TIME = 0.24;      // a drag shorter than this, released, is a handles move
 const SWIPE_DIST = 16;
@@ -80,7 +94,6 @@ const STICK_MAX = 22;         // px of drag for full speed
 const MATE_PICK_R = 18;
 const RIM_ZONE = 25;          // auto layup/dunk distance
 const BODY = 7;               // handler/defender collision distance
-const METER_CENTER = 0.8;
 
 // Named places on the floor the offense uses.
 const SLOT = {
@@ -199,12 +212,16 @@ export class Arcade {
   // pass
   private pass = { from: 0, to: 0, x0: 0, y0: 0, x1: 0, y1: 0, t: 0, dur: 0, checked: new Set<number>(), stolenBy: -1 };
   // shot
-  private meter = { v: 0, dur: 0.7, hw: 0.1, three: false, contest: 0 };
+  private aim = { on: false, t: 0, kb: false, ph: 0, kind: 'none' as 'none' | 'shot' | 'pass' | 'lead', mate: -1, tx: 0, ty: 0, wx: 0, wy: 0, amp: 0 };
+  private realDt = 0;
+  /** Consecutive makes by each player this game (from earlier key moments). */
+  private hot: Record<number, number> = {};
+  private doubled = false;
   private shot = { t: 0, dur: 0, x0: 0, y0: 0, made: false, type: 'mid' as ShotType, quality: 0, blockBy: -1, foul: false, pts: 2, text: '', buzzer: false, x1: 0, y1: 0, arc: 30, z0: 30 };
   private reb = { t: 0, dur: 0.6, x0: 0, y0: 0, x1: 0, y1: 0, winner: null as Ent | null };
   private slowmo = 1;
   // input
-  private ptr = { down: false, id: -1, x0: 0, y0: 0, x: 0, y: 0, t0: 0, mode: 'none' as 'none' | 'press' | 'drag' | 'mate', mate: -1 };
+  private ptr = { down: false, id: -1, x0: 0, y0: 0, x: 0, y: 0, t0: 0, mode: 'none' as 'none' | 'press' | 'drag' | 'mate' | 'aim', mate: -1 };
   private keys = new Set<string>();
   private usedKeys = false;
   private mv = { x: 0, y: 0 };
@@ -226,6 +243,7 @@ export class Arcade {
     canvas.addEventListener('contextmenu', this.noMenu);
     window.addEventListener('keydown', this.onKey);
     window.addEventListener('keyup', this.onKeyUp);
+    if (import.meta.env.DEV) (window as unknown as { arcade: Arcade }).arcade = this; // for test scripts
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.frame);
   }
@@ -253,6 +271,9 @@ export class Arcade {
     this.pk = { shooting: 0, handles: 0, passing: 0, rim: 0, ...setup.perks };
     this.practice = !!setup.practice;
     this.guide = setup.guide ?? null;
+    this.hot = setup.hot ?? {};
+    this.doubled = false;
+    this.aim.on = false;
     this.reached = false; this.lastQuality = -1; this.hang = 0;
     this.passes = 0; this.moves = 0;
     const mk = (p: Player, slot: number, off: boolean): Ent => ({
@@ -304,15 +325,16 @@ export class Arcade {
     const p = this.toLogical(e);
     Object.assign(this.ptr, { down: true, id: e.pointerId, x0: p.x, y0: p.y, x: p.x, y: p.y, t0: this.time, mode: 'press', mate: -1 });
     if (this.phase === 'live') {
+      const hh = this.off[this.handler];
+      // a touch that starts on your player is an aim: pull back to throw or shoot
+      if (this.ftMode || Math.hypot(p.x - hh.x, p.y - (hh.y - 12)) < AIM_TOUCH) { this.ptr.mode = 'aim'; this.startAim(false); return; }
       let best = -1, bd = MATE_PICK_R;
       this.off.forEach((m, i) => {
         if (i === this.handler) return;
         const d = Math.hypot(p.x - m.x, p.y - (m.y - 12));
         if (d < bd) { bd = d; best = i; }
       });
-      // A press on the handler himself always controls the handler.
-      const hh = this.off[this.handler];
-      if (best >= 0 && Math.hypot(p.x - hh.x, p.y - (hh.y - 12)) > bd) { this.ptr.mode = 'mate'; this.ptr.mate = best; }
+      if (best >= 0) { this.ptr.mode = 'mate'; this.ptr.mate = best; }
     }
   };
   private onMove = (e: PointerEvent) => {
@@ -321,15 +343,13 @@ export class Arcade {
     this.ptr.x = p.x; this.ptr.y = p.y;
     const moved = Math.hypot(p.x - this.ptr.x0, p.y - this.ptr.y0);
     if (this.ptr.mode === 'press' && this.phase === 'live' && moved > DRAG_START) this.ptr.mode = 'drag';
-    // dragging away early in the meter cancels the shot (a pump fake) and goes back to dribbling
-    else if (this.ptr.mode === 'press' && this.phase === 'charge' && moved > 12 && this.meter.v < 0.5) { this.phase = 'live'; this.ptr.mode = 'drag'; }
   };
   private onUp = (e: PointerEvent) => {
     if (!this.ptr.down || e.pointerId !== this.ptr.id) return;
     const pt = this.ptr;
     pt.down = false;
     const dx = pt.x - pt.x0, dy = pt.y - pt.y0, d = Math.hypot(dx, dy);
-    if (this.phase === 'charge') this.release();
+    if (this.phase === 'charge') this.releaseAim();
     else if (this.phase === 'live') {
       if (this.ftMode) { /* only the shot */ }
       else if (pt.mode === 'mate' && pt.mate >= 0) this.startPass(pt.mate);
@@ -346,7 +366,7 @@ export class Arcade {
     this.keys.add(k);
     if (this.phase !== 'live') return;
     if (this.ftMode && k !== ' ') return;
-    if (k === ' ') this.startCharge();
+    if (k === ' ') this.startAim(true);
     else if (k === 'shift' || k === 'x') {
       const m = this.keyVec();
       if (m.x || m.y) this.startDash(m.x, m.y);
@@ -358,7 +378,7 @@ export class Arcade {
   private onKeyUp = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase();
     this.keys.delete(k);
-    if (k === ' ' && this.phase === 'charge') this.release();
+    if (k === ' ' && this.phase === 'charge') this.releaseAim();
   };
   private keyVec(): { x: number; y: number } {
     const K = this.keys;
@@ -407,6 +427,12 @@ export class Arcade {
       const gap = Math.min(this.practice ? 26 : 13, d * 0.6);
       return { x: this.lag.x + (dx / d) * gap, y: this.lag.y + (dy / d) * gap };
     }
+    // a hot hand draws a second defender, which leaves somebody open
+    if (this.phase !== 'pass' && !this.practice && (this.hot[h.p.id] ?? 0) >= 2 && this.doubler() === i) {
+      const dx = this.def[i].x - h.x, dy = this.def[i].y - h.y, d = Math.hypot(dx, dy) || 1;
+      if (!this.doubled && d < 40) { this.doubled = true; this.popup('DOUBLE TEAM!', PAL.red, 2); }
+      return { x: h.x + (dx / d) * 9, y: h.y + (dy / d) * 9 };
+    }
     // off ball: sag toward the hoop and a little toward the ball
     let x = man.x + (HOOP.x - man.x) * 0.26 + (this.ball.x - man.x) * 0.1;
     let y = man.y + (HOOP.y - man.y) * 0.26 + (this.ball.y - man.y) * 0.1;
@@ -426,6 +452,17 @@ export class Arcade {
       }
     }
     return { x, y };
+  }
+  /** The off-ball defender nearest the ball: the one who comes to double. */
+  private doubler(): number {
+    const h = this.off[this.handler];
+    let best = -1, bd = 1e9;
+    this.def.forEach((d, i) => {
+      if (i === this.handler || d.stun > 0) return;
+      const dd = Math.hypot(d.x - h.x, d.y - h.y);
+      if (dd < bd) { bd = dd; best = i; }
+    });
+    return bd < 90 ? best : -1;
   }
   private helper(): number {
     const h = this.off[this.handler];
@@ -484,70 +521,128 @@ export class Arcade {
     sfx.pass();
   }
 
-  private startCharge(): void {
+  // ---- pull-back aiming --------------------------------------------------------------
+  private startAim(kb: boolean): void {
     if (this.phase !== 'live') return;
     const h = this.off[this.handler];
-    const sht = h.p.ratings.sht / 100;
-    const three = isThree(h.x, h.y);
-    const dist = Math.hypot(h.x - HOOP.x, h.y - HOOP.y);
-    const distM = this.ftMode ? 1.15 : dist > 135 ? 0.55 : three ? 0.8 : 1;
-    this.meter = {
-      v: 0, three, contest: 0,
-      dur: (0.55 + 0.25 * sht) * (three ? 0.94 : 1),
-      hw: 0.085 * (0.55 + 0.9 * sht) * distM * this.diff.window * (1 + 0.05 * this.s.ocStars) * (1 + 0.08 * this.pk.shooting) * (this.practice ? 1.3 : 1),
-    };
     h.vx = 0; h.vy = 0;
+    this.aim = { on: true, t: 0, kb, ph: Math.random() * 6.28, kind: 'none', mate: -1, tx: h.x, ty: h.y, wx: 0, wy: 0, amp: 0 };
     this.phase = 'charge';
   }
-
-  private release(): void {
-    if (this.phase !== 'charge') return;
-    const h = this.off[this.handler];
+  /** How far the reticle wanders: steadier for good shooters, wilder from deep or under pressure. */
+  private aimWobble(h: Ent): { amp: number; w: number } {
     const sht = h.p.ratings.sht / 100;
-    if (this.ftMode) {
-      // a free throw: nobody guarding, timing and touch only
-      const off = Math.abs(this.meter.v - METER_CENTER), hw = this.meter.hw;
-      const q = this.meter.v >= 1 ? 0 : off <= hw ? 3 : off <= hw * 2.2 ? 2 : off <= hw * 4 ? 1 : 0;
-      const p = [0.12, 0.42 + 0.3 * sht, 0.74 + 0.2 * sht, 0.98][q];
-      if (q === 3) { sfx.perfect(); this.highlights.push('perfect'); }
-      this.popup(['WAY OFF', this.meter.v < METER_CENTER ? 'EARLY' : 'LATE', 'GOOD', 'PERFECT!'][q], [PAL.red, '#ffa04d', PAL.white, PAL.green][q], 1, h.y - 46);
-      this.launch(h, Math.random() < p, 'mid', 1, q, -1, false);
-      return;
-    }
-    const { c, by } = this.contestAt(h);
-    const hw = this.meter.hw * (1 - 0.45 * c);
-    const off = Math.abs(this.meter.v - METER_CENTER);
-    const late = this.meter.v >= 1;
-    const q = late ? 0 : off <= hw ? 3 : off <= hw * 2.2 ? 2 : off <= hw * 4 ? 1 : 0;
-    this.lastQuality = q;
-    const three = this.meter.three;
+    if (this.ftMode) return { amp: 8 * (1.4 - 0.85 * sht) * this.diff.aim, w: 4.2 + 3 * (1 - sht) };
     const dist = Math.hypot(h.x - HOOP.x, h.y - HOOP.y);
-    let p = (three ? 0.19 + 0.29 * sht : 0.28 + 0.29 * sht) + [-0.22, -0.08, 0.05, 0.21][q];
-    if (dist > 135) p -= 0.12 + (dist - 135) * 0.004;
-    if (dist < 40) p += 0.06;
-    p -= 0.17 * c;
-    if (c < 0.08) p += 0.05;
-    p += 0.01 * this.s.ocStars + this.diff.make;
-    p = clamp(p, 0.03, 0.95);
-    const made = Math.random() < p;
-    let blockBy = -1, foul = false;
-    if (by && c > 0.7 && !made && Math.random() < 0.06 + 0.16 * (by.p.ratings.def / 100)) blockBy = by.p.id;
-    if (by && c > 0.6 && blockBy < 0 && Math.random() < 0.05) foul = true;
+    const distK = dist > 135 ? 2 : isThree(h.x, h.y) ? 1.25 : dist < 45 ? 0.8 : 1;
+    const { c } = this.contestAt(h);
+    const heat = this.hot[h.p.id] ?? 0;
+    let amp = 9.5 * distK * (1.45 - 0.9 * sht) * (1 + c) * this.diff.aim;
+    amp *= (1 - 0.07 * this.pk.shooting) * (1 - 0.03 * this.s.ocStars) * (heat >= 3 ? 0.7 : heat === 2 ? 0.85 : 1) * (this.practice ? 0.6 : 1);
+    return { amp, w: (4 + 4.5 * (1 - sht)) * (1 + 0.35 * c) };
+  }
+  /** Work out what the current pull is aimed at. Runs every frame while aiming, in real time. */
+  private updateAim(): void {
+    const a = this.aim, h = this.off[this.handler];
+    a.t += this.realDt;
+    this.slowmo = a.t < AIM_SLOW_T ? AIM_SLOW : 1;
+    let kind: typeof a.kind = 'none', tx = h.x, ty = h.y, mate = -1;
+    if (a.kb || this.ftMode) { kind = 'shot'; tx = HOOP.x; ty = HOOP.y; }
+    else {
+      const px = this.ptr.x0 - this.ptr.x, py = this.ptr.y0 - this.ptr.y;
+      if (Math.hypot(px, py) >= AIM_MIN) {
+        tx = h.x + px * AIM_GAIN; ty = h.y + py * AIM_GAIN;
+        if (Math.hypot(tx - HOOP.x, ty - HOOP.y) < SNAP_HOOP) { kind = 'shot'; tx = HOOP.x; ty = HOOP.y; }
+        else {
+          const pas = h.p.ratings.pas / 100, spd = 105 + 115 * pas;
+          let bd = SNAP_MATE;
+          this.off.forEach((m, i) => {
+            if (i === this.handler) return;
+            const tf = Math.hypot(m.x - h.x, m.y - h.y) / spd;
+            const d = Math.hypot(tx - (m.x + m.vx * tf * 0.8), ty - (m.y + m.vy * tf * 0.8));
+            if (d < bd) { bd = d; mate = i; }
+          });
+          kind = mate >= 0 ? 'pass' : 'lead';
+        }
+      }
+    }
+    a.kind = kind; a.mate = mate; a.tx = tx; a.ty = ty;
+    if (kind === 'shot') {
+      const wob = this.aimWobble(h);
+      a.amp = wob.amp;
+      // a defender in your face also drags the whole pattern off the rim, so even perfect timing
+      // on a smothered shot usually finds iron, not the centre
+      const push = this.ftMode ? 0 : this.contestAt(h).c * 5;
+      a.wx = wob.amp * Math.sin(wob.w * a.t + a.ph) + push * Math.cos(0.9 * a.t + a.ph);
+      a.wy = wob.amp * 0.62 * Math.sin(wob.w * 1.63 * a.t + 1.3 + a.ph) + push * 0.62 * Math.sin(0.9 * a.t + a.ph);
+    } else { a.wx = 0; a.wy = 0; }
+  }
+  private releaseAim(): void {
+    if (this.phase !== 'charge') return;
+    const a = this.aim;
+    a.on = false;
+    this.slowmo = 1;
+    if (a.kind === 'none') { this.phase = 'live'; return; }
+    if (a.kind === 'shot') { this.shootAimed(); return; }
+    this.phase = 'live';
+    if (a.kind === 'pass') this.startPass(a.mate);
+    else this.startLead(a.tx, a.ty);
+  }
+  /** The shot goes where the reticle was. No dice: on the centre is a swish, on the rim may roll in. */
+  private shootAimed(): void {
+    const a = this.aim, h = this.off[this.handler];
+    const d = Math.hypot(a.wx, a.wy);
+    const q = d <= R_SWISH ? 3 : d <= R_RIM ? 2 : d <= R_IRON ? 1 : 0;
+    this.lastQuality = q;
+    let made = q === 3 || (q === 2 && Math.random() < 1 - 0.7 * ((d - R_SWISH) / (R_RIM - R_SWISH)));
     if (q === 3) { sfx.perfect(); this.highlights.push('perfect'); }
-    const label = ['WAY OFF', q === 1 && this.meter.v < METER_CENTER ? 'EARLY' : 'LATE', 'GOOD', 'PERFECT!'][q];
-    this.popup(late ? 'TOO LATE' : label, [PAL.red, '#ffa04d', PAL.white, PAL.green][q], 1, h.y - 46);
-    this.launch(h, made, three ? 'three' : 'mid', three ? 3 : 2, q, blockBy, foul);
+    this.popup(['WAY OFF', 'OFF THE MARK', 'ON THE RIM', 'DEAD CENTRE!'][q], [PAL.red, '#ffa04d', PAL.white, PAL.green][q], 1, h.y - 46);
+    if (this.ftMode) { this.launch(h, made, 'mid', 1, q, -1, false, a.wx, a.wy); return; }
+    const three = isThree(h.x, h.y);
+    const { c, by } = this.contestAt(h);
+    let blockBy = -1, foul = false;
+    // smothered shots can be swatted, whatever the aim
+    if (by && c > 0.78 && Math.random() < 0.08 + 0.2 * (by.p.ratings.def / 100)) { blockBy = by.p.id; made = false; }
+    if (by && c > 0.6 && blockBy < 0 && Math.random() < 0.05) foul = true;
+    this.launch(h, made, three ? 'three' : 'mid', three ? 3 : 2, q, blockBy, foul, a.wx, a.wy);
+  }
+  /** A pass thrown to a spot: the nearest teammate runs onto it. */
+  private startLead(x: number, y: number): void {
+    if (this.phase !== 'live') return;
+    const from = this.off[this.handler];
+    const pas = from.p.ratings.pas / 100;
+    const spd = (105 + 115 * pas) * (1 + 0.03 * this.s.ocStars) * (1 + 0.08 * this.pk.passing);
+    const dur = Math.max(0.12, Math.hypot(x - from.x, y - from.y) / spd);
+    let to = -1, bd = 1e9;
+    this.off.forEach((m, i) => {
+      if (i === this.handler) return;
+      const d = Math.hypot(x - (m.x + m.vx * dur * 0.6), y - (m.y + m.vy * dur * 0.6));
+      if (d < bd) { bd = d; to = i; }
+    });
+    if (to < 0) return;
+    this.passes++;
+    this.afterPass(from);
+    const tgt = this.off[to];
+    tgt.route = []; tgt.screen = 0;
+    this.lob = Math.hypot(x - HOOP.x, y - HOOP.y) < 34 && Math.hypot(from.x - HOOP.x, from.y - HOOP.y) > 58;
+    this.pass = { from: this.handler, to, x0: from.x, y0: from.y, x1: x, y1: y, t: 0, dur, checked: new Set(), stolenBy: -1 };
+    this.phase = 'pass';
+    sfx.pass();
   }
 
-  private launch(h: Ent, made: boolean, type: ShotType, pts: number, quality: number, blockBy: number, foul: boolean): void {
+  private launch(h: Ent, made: boolean, type: ShotType, pts: number, quality: number, blockBy: number, foul: boolean, offX?: number, offY?: number): void {
     const dist = Math.hypot(h.x - HOOP.x, h.y - HOOP.y);
     h.armsUp = 0.6; h.lift = 5;
     let x1 = HOOP.x, y1 = HOOP.y;
-    if (!made) {
-      const air = quality === 0 && type !== 'layup' && type !== 'dunk' && Math.random() < 0.3;
-      const a = Math.random() * Math.PI * 2, r = air ? 11 : 5;
-      x1 += Math.cos(a) * r; y1 += Math.sin(a) * r * 0.6;
-      if (air) this.shot.text = 'air';
+    this.shot.text = '';
+    if (!made && offX !== undefined && offY !== undefined) {
+      // the ball goes where it was aimed: just off the rim, or nowhere near it
+      const d = Math.hypot(offX, offY) || 1, r = Math.max(5, Math.min(14, d));
+      x1 += (offX / d) * r; y1 += (offY / d) * r * 0.6;
+      if (quality === 0) this.shot.text = 'air';
+    } else if (!made) {
+      const a = Math.random() * Math.PI * 2;
+      x1 += Math.cos(a) * 5; y1 += Math.sin(a) * 3;
     }
     this.shot = {
       t: 0, dur: type === 'three' || type === 'mid' ? 0.55 + dist / 240 : type === 'dunk' ? 0.62 : 0.52, x0: h.x, y0: h.y, z0: spriteHeight(h.p) + 6, made, type, quality, blockBy, foul, pts,
@@ -696,6 +791,7 @@ export class Arcade {
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     this.time += dt;
+    this.realDt = dt;
     this.update(dt * this.slowmo);
     this.render();
     this.raf = requestAnimationFrame(this.frame);
@@ -729,7 +825,8 @@ export class Arcade {
         this.slowmo = 1;
         const seconds = clamp(Math.round(this.startClock - this.clock), 2, Math.max(2, Math.round(this.startClock)));
         const r = this.resolve; this.resolve = null;
-        r?.({ outcome: { events: this.events, seconds }, highlights: this.highlights, points: this.points, passes: this.passes, moves: this.moves, reached: this.reached, quality: this.lastQuality });
+        r?.({ outcome: { events: this.events, seconds }, highlights: this.highlights, points: this.points, passes: this.passes, moves: this.moves, reached: this.reached, quality: this.lastQuality,
+          shots: this.events.filter(e => e.t === 'shot').map(e => ({ by: (e as { by: number }).by, made: (e as { made: boolean }).made })) });
       }
       return;
     }
@@ -748,8 +845,7 @@ export class Arcade {
     const h = this.off[this.handler];
 
     if (this.phase === 'live') {
-      // start the shot meter on a still hold
-      if (this.ptr.down && (this.ptr.mode === 'press' || (this.ftMode && this.ptr.mode !== 'none')) && this.time - this.ptr.t0 > HOLD_TO_SHOOT) { this.startCharge(); }
+      // (shots and passes start from an aim: see startAim)
     }
     if (this.phase === 'live') {
       // movement intent
@@ -801,10 +897,9 @@ export class Arcade {
         if (toward > 0.3 || (this.dash.t > 0 && (this.dash.x * hx + this.dash.y * hy) / (hd || 1) > 0.3)) { this.finishAtRim(); }
       }
     } else if (this.phase === 'charge') {
-      this.meter.v += dt / this.meter.dur;
-      h.armsUp = 0.1;
+      this.updateAim();
+      h.armsUp = this.aim.kind === 'shot' ? 0.1 : 0;
       h.vx = 0; h.vy = 0;
-      if (this.meter.v >= 1) { this.meter.v = 1; this.release(); }
     } else if (this.phase === 'pass') {
       const ps = this.pass;
       ps.t += dt;
@@ -851,7 +946,7 @@ export class Arcade {
         this.lag = { x: to.x, y: to.y };
         this.phase = 'live';
         // a press held through the catch goes straight into a shot
-        if (this.ptr.down) { this.ptr.mode = 'press'; this.ptr.x0 = this.ptr.x; this.ptr.y0 = this.ptr.y; this.ptr.t0 = this.time - HOLD_TO_SHOOT * 0.5; }
+        if (this.ptr.down) { this.ptr.mode = 'press'; this.ptr.x0 = this.ptr.x; this.ptr.y0 = this.ptr.y; this.ptr.t0 = this.time; }
       }
     } else if (this.phase === 'finish') {
       // layup or dunk: gather, rise, then the ball leaves the hand (layup) or is thrown down (dunk)
@@ -887,7 +982,7 @@ export class Arcade {
       // between free throws: the ball comes back to the shooter
       this.ftPause -= dt;
       if (this.dropping && this.ball.z > 0) this.ball.z = Math.max(0, this.ball.z - dt * 60);
-      if (this.ftPause <= 0) { this.dropping = false; this.ball.x = h.x; this.ball.y = h.y; this.ball.z = 8; this.ptr.mode = this.ptr.down ? 'press' : 'none'; this.ptr.t0 = this.time; this.phase = 'live'; }
+      if (this.ftPause <= 0) { this.dropping = false; this.ball.x = h.x; this.ball.y = h.y; this.ball.z = 8; this.phase = 'live'; if (this.ptr.down) { this.ptr.mode = 'aim'; this.ptr.x0 = this.ptr.x; this.ptr.y0 = this.ptr.y; this.startAim(false); } else this.ptr.mode = 'none'; }
     } else if (this.phase === 'rebound') {
       const rb = this.reb;
       rb.t += dt;
@@ -1241,6 +1336,15 @@ export class Arcade {
         });
       }
       if (!hoopDrawn) drawHoop(g, this.netKick, this.rimShake, this.time, this.rimGlow);
+      // a player on fire
+      for (const e of this.off) {
+        if ((this.hot[e.p.id] ?? 0) < 3) continue;
+        for (let k = 0; k < 5; k++) {
+          const fy = ((this.time * 28 + k * 5) % 14);
+          g.fillStyle = k % 2 ? '#ff8a3c' : PAL.yellow;
+          g.fillRect(Math.round(e.x - 5 + k * 2.5 + Math.sin(this.time * 9 + k) * 1.5), Math.round(e.y - e.lift - spriteHeight(e.p) - 2 - fy), 2, 2);
+        }
+      }
       // star players wear a small gold star over their heads
       for (const e of ents) {
         if (ovr(e.p) < STAR_OVR) continue;
@@ -1261,7 +1365,7 @@ export class Arcade {
       }
       if (this.phase !== 'idle') drawBall(g, this.ball.x, this.ball.y, this.ball.z);
       for (const sp of this.sparks) { g.fillStyle = sp.t < 0.2 ? PAL.white : PAL.yellow; g.fillRect(Math.round(sp.x), Math.round(sp.y), 2, 2); }
-      if (this.phase === 'charge') this.drawMeter();
+      if (this.phase === 'charge') this.drawAim();
       this.drawGuideOver();
       // joystick
       if (this.ptr.down && this.ptr.mode === 'drag' && this.phase === 'live') {
@@ -1344,10 +1448,13 @@ export class Arcade {
     const t = this.time % 1.6;
     let fx = 0, fy = 0, pressed = true, label = '';
     if (gd.demo === 'hold') {
-      fx = clamp(h.x + 36, 20, W - 20); fy = Math.min(H - 16, h.y + 26); label = 'HOLD STILL';
-      const r = 4 + ((this.time * 10) % 8);
-      g.fillStyle = 'rgba(255,255,255,0.6)';
-      for (let a = 0; a < 14; a++) g.fillRect(Math.round(fx + Math.cos((a / 14) * 6.283) * r), Math.round(fy + Math.sin((a / 14) * 6.283) * r), 1, 1);
+      // touch the player, pull straight back from the basket, release
+      const k = Math.min(1, t / 1.0);
+      const dx = h.x - HOOP.x, dy = h.y - HOOP.y, d = Math.hypot(dx, dy) || 1;
+      fx = h.x + (dx / d) * 26 * k; fy = h.y - 10 + (dy / d) * 26 * k; label = k < 1 ? 'PULL BACK' : 'LET GO';
+      pressed = t < 1.25;
+      g.fillStyle = 'rgba(255,255,255,0.7)';
+      for (let i = 0; i < 6; i++) g.fillRect(Math.round(h.x + (dx / d) * 26 * k * (i / 6)), Math.round(h.y - 10 + (dy / d) * 26 * k * (i / 6)), 1, 1);
     } else if (gd.demo === 'drag') {
       const tx = gd.target?.x ?? HOOP.x, ty = gd.target?.y ?? HOOP.y;
       const dx = tx - h.x, dy = ty - h.y, d = Math.hypot(dx, dy) || 1;
@@ -1374,28 +1481,50 @@ export class Arcade {
     if (label) drawText(g, label, X, Y + 13, PAL.white, { align: 'center', outline: PAL.ink });
   }
 
-  private drawMeter(): void {
-    const g = this.g;
-    const h = this.off[this.handler];
-    const MH = 40, MW = 6;
-    const x = Math.round(h.x + (h.x > W - 30 ? -18 : 12));
-    const y = Math.round(clamp(h.y - 44, 4, H - MH - 4));
+  /** The aim: a dotted arc from the player to where the ball will come down, and a reticle there. */
+  private drawAim(): void {
+    const g = this.g, a = this.aim, h = this.off[this.handler];
     const { c } = this.contestAt(h);
-    const hw = this.meter.hw * (1 - 0.45 * c);
-    g.fillStyle = PAL.ink; g.fillRect(x - 1, y - 1, MW + 2, MH + 2);
-    g.fillStyle = '#3a3558'; g.fillRect(x, y, MW, MH);
-    const zone = (half: number, col: string) => {
-      const top = clamp(METER_CENTER + half, 0, 1), bot = clamp(METER_CENTER - half, 0, 1);
+    if (!this.ftMode) {
+      if (c > 0.3) drawText(g, 'CONTESTED', h.x, h.y + 6, PAL.red, { align: 'center', outline: PAL.ink });
+      else if (c < 0.08) drawText(g, 'OPEN', h.x, h.y + 6, PAL.green, { align: 'center', outline: PAL.ink });
+    }
+    if (a.kind === 'none') {
+      // touching him but not pulled yet: show which way to drag
+      g.fillStyle = 'rgba(255,255,255,0.7)';
+      for (let i = 0; i < 12; i++) g.fillRect(Math.round(h.x + Math.cos((i / 12) * 6.283) * 11), Math.round(h.y - 10 + Math.sin((i / 12) * 6.283) * 11), 1, 1);
+      return;
+    }
+    const shot = a.kind === 'shot';
+    const ex = a.tx + a.wx, ey = a.ty + a.wy;
+    const d = Math.hypot(a.wx, a.wy);
+    let col = shot ? (d <= R_SWISH ? PAL.green : d <= R_RIM ? PAL.yellow : PAL.white) : a.kind === 'pass' ? PAL.green : PAL.white;
+    if (a.kind === 'lead' && (ex < SIDE_L || ex > SIDE_R || ey < BASE_Y)) col = PAL.red;
+    // arc: a shot comes down on the rim, a pass stays low
+    const sx = h.x, sy = h.y, zs = spriteHeight(h.p) + 4, ze = shot ? RIM_Z : 12;
+    const arc = shot ? 20 + Math.hypot(ex - sx, ey - sy) * 0.14 : 5;
+    const n = Math.max(6, Math.floor(Math.hypot(ex - sx, ey - sy) / 6));
+    g.fillStyle = col;
+    for (let i = 1; i < n; i++) {
+      if ((i + Math.floor(this.time * 10)) % 2) continue;
+      const k = i / n;
+      g.fillRect(Math.round(sx + (ex - sx) * k), Math.round(sy + (ey - sy) * k - (zs + (ze - zs) * k + Math.sin(k * Math.PI) * arc)), 2, 2);
+    }
+    if (shot) {
+      // the reticle sits at rim height: get it over the rim, then let go
+      const rx = Math.round(ex), ry = Math.round(ey - RIM_Z + 2);
+      g.fillStyle = PAL.ink;
+      g.fillRect(rx - 5, ry - 2, 11, 5); g.fillRect(rx - 2, ry - 5, 5, 11);
       g.fillStyle = col;
-      g.fillRect(x, Math.round(y + MH * (1 - top)), MW, Math.max(1, Math.round(MH * (top - bot))));
-    };
-    zone(hw * 2.2, '#b9902a');
-    zone(hw, PAL.green);
-    const my = Math.round(y + MH * (1 - this.meter.v));
-    g.fillStyle = PAL.white; g.fillRect(x - 2, my - 1, MW + 4, 2);
-    g.fillStyle = PAL.ink; g.fillRect(x - 2, my + 1, MW + 4, 1);
-    if (c > 0.3) drawText(g, 'CONTESTED', x + MW / 2, y + MH + 3, PAL.red, { align: 'center', outline: PAL.ink });
-    else if (c < 0.08) drawText(g, 'OPEN', x + MW / 2, y + MH + 3, PAL.green, { align: 'center', outline: PAL.ink });
+      g.fillRect(rx - 4, ry, 3, 1); g.fillRect(rx + 2, ry, 3, 1); g.fillRect(rx, ry - 4, 1, 3); g.fillRect(rx, ry + 2, 1, 3);
+      g.fillRect(rx, ry, 1, 1);
+    } else if (a.kind === 'pass' && this.off[a.mate]) {
+      const m = this.off[a.mate];
+      for (let i = 0; i < 16; i++) g.fillRect(Math.round(m.x + Math.cos((i / 16) * 6.283) * 10), Math.round(m.y - 1 + Math.sin((i / 16) * 6.283) * 5), 2, 1);
+    } else {
+      const rx = Math.round(ex), ry = Math.round(ey);
+      g.fillRect(rx - 3, ry, 7, 1); g.fillRect(rx, ry - 2, 1, 5);
+    }
   }
 }
 
