@@ -10,7 +10,8 @@ cd "$(dirname "$0")/.."
 TEAM="${IOS_TEAM:-$(security find-certificate -c "Apple Development" -p 2>/dev/null | openssl x509 -noout -subject 2>/dev/null | sed -n 's/.*OU *= *\([A-Z0-9]\{10\}\).*/\1/p')}"
 if [ -z "$TEAM" ]; then echo "No Apple Development certificate found. Open Xcode > Settings > Accounts, add your Apple ID, then run this again."; exit 1; fi
 
-DEVICE="$(xcrun devicectl list devices 2>/dev/null | awk '/iPhone/ && /(connected|available)/ {for (i = 1; i <= NF; i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F]{4}-/) {print $i; exit}}')"
+# a real iPhone only (simulators show up in this list too)
+DEVICE="$(xcrun devicectl list devices 2>/dev/null | awk '/iPhone/ && /physical/ && /(connected|available)/ {for (i = 1; i <= NF; i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F-]{8,}$/) {print $i; exit}}')"
 if [ -z "$DEVICE" ]; then echo "No iPhone found. Plug it in, unlock it, tap Trust, and make sure Developer Mode is on."; exit 1; fi
 
 echo "Building the web app..."
