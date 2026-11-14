@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
 import { TROPHIES, coachLevel, rankName } from '../core/org/progress';
-import { AFTER_GAME, AfterGame, afterGameChoice } from '../core/org/xp';
 import { advance, PostGame } from '../core/season/flow';
 import type { BoxLine } from '../core/types';
 import { sfx } from '../audio/sfx';
@@ -39,12 +38,10 @@ export function PostGameScreen({ params }: { params: Record<string, any> }) {
   const topLine = [...r.box.home, ...r.box.away].find(l => l.playerId === post.topPerformer);
   const topTeam = r.box.home.some(l => l.playerId === post.topPerformer) ? home : away;
   const names = (id: number) => (save.players[id] ? short(save.players[id].name) : '—');
-  const go = (choice: AfterGame) => {
-    act((s, rng) => { afterGameChoice(s, choice, post.won); if (!params.simmed) advance(s, rng, 'afterUser'); });
-    sfx.select();
+  const go = () => {
+    if (!params.simmed) act((s, rng) => { advance(s, rng, 'afterUser'); });
     reset('hub');
   };
-  const opts = AFTER_GAME[post.won ? 'won' : 'lost'];
   const periods = r.homeQ.map((_, i) => (i < 4 ? `Q${i + 1}` : `OT${i - 3}`));
   return (
     <div class="screen">
@@ -94,14 +91,7 @@ export function PostGameScreen({ params }: { params: Record<string, any> }) {
           <Box lines={(tab === 'Mine') === iAmHome ? r.box.home : r.box.away} names={names} />
         </Panel>
       </div>
-      <div class="footer" style={{ flexDirection: 'column', gap: '6px' }}>
-        <div class="head dim">AFTER THE GAME, YOU...</div>
-        {(Object.keys(opts) as AfterGame[]).map(k => (
-          <Btn class="opt" kind={k === 'team' ? 'primary' : ''} onClick={() => go(k)} silent>
-            <span>{opts[k].label}</span><span class="fx">{opts[k].effect}</span>
-          </Btn>
-        ))}
-      </div>
+      <div class="footer"><Btn kind="primary big" class="grow" onClick={go}>Continue</Btn></div>
     </div>
   );
 }

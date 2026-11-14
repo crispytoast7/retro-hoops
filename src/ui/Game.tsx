@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { cal, ROUND_NAMES } from '../core/season/calendar';
 import { Objective, offerObjectives } from '../core/org/objectives';
-import { courtStyle, perk } from '../core/org/progress';
+import { adaptChallenge, challenge, courtStyle, perk } from '../core/org/progress';
 import { Rng } from '../core/rng';
 import { finishUserGame, startLiveGame, PostGame } from '../core/season/flow';
 import type { PossessionResult } from '../core/sim/api';
@@ -102,6 +102,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
     const hot: Record<number, number> = {};
     let myRun = 0, oppRun = 0, moments = 0;
     let adjust: Adjust | null = null;
+    let scored = 0;
     const run = async () => {
       await new Promise<void>(res => { c.started = res; });
       sfx.whistle();
@@ -132,11 +133,12 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
             offColors: me.colors, defColors: (iAmHome ? away : home).colors,
             ocStars: me.staff.oc?.stars ?? 0, difficulty: save.settings.difficulty,
             perks: { shooting: perk(save, 'shooting') + (adjust === 'shoot' ? 2 : 0), handles: perk(save, 'handles'), passing: perk(save, 'passing'), rim: perk(save, 'rim') + (adjust === 'rim' ? 2 : 0) },
-            scenario: sc, hot: { ...hot },
+            scenario: sc, hot: { ...hot }, challenge: challenge(save),
           });
           if (c.cancel) break;
           setPlaying(false);
           highlights.push('played', ...res.highlights);
+          if (res.points > 0) scored++;
           let fire = '';
           for (const sh of res.shots) {
             hot[sh.by] = sh.made ? (hot[sh.by] ?? 0) + 1 : 0;
@@ -167,7 +169,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
       }
       if (c.cancel) return;
       const result = live.result();
-      const post = act((s, rng) => finishUserGame(s, s.schedule.find(x => x.id === g.id)!, result, highlights, rng, c.objective));
+      const post = act((s, rng) => { adaptChallenge(s, scored, moments); return finishUserGame(s, s.schedule.find(x => x.id === g.id)!, result, highlights, rng, c.objective); });
       setScore(sc => ({ ...sc, home: result.homeScore, away: result.awayScore }));
       sfx.buzzer(); if (post.won) { sfx.cheer(true); sfx.fanfare(); } else sfx.groan();
       setOverlay({ kind: 'final', post });

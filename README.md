@@ -43,7 +43,7 @@ one hands the run to the opponent. Games are full length (12-minute quarters, sc
 - Players: seven star ratings, age curve, contracts, morale, personality traits, injuries,
   a team captain. Your players earn XP in games and level up; you choose which rating
   improves. Star players are marked on the court and in every list.
-- A choice after every game (praise the players, salute the fans, or back to work).
+- Adaptive difficulty: the court gets tougher when you keep scoring in your key moments.
 - Organization: a $150M salary cap (go over it only to re-sign your own players, for minimum
   deals and for draft picks) under a $190M hard limit, coordinators to hire (and lose), four upgradable
   facilities that wear down, credits economy, owner goals and approval, fan support,
@@ -74,6 +74,25 @@ on-court feel.
 Every push to `main` runs `.github/workflows/deploy.yml`: install, test, build, publish
 `dist/` to GitHub Pages. The build uses a relative base path, so `dist/` can be served by
 any static host without changes.
+
+## iPhone app
+
+The same game runs as a native iPhone app through a Capacitor shell (`ios/`). Saves live
+inside the app, it works offline, and it has its own home-screen icon.
+
+To put it on your own iPhone (needs a Mac with Xcode and your Apple ID added under
+Xcode > Settings > Accounts):
+
+1. Plug the iPhone into the Mac, unlock it and tap **Trust**.
+2. On the iPhone, switch on **Developer Mode** (Settings > Privacy & Security > Developer
+   Mode) and restart when asked.
+3. Run `npm run ios:device`.
+4. First time only, on the iPhone: Settings > General > VPN & Device Management > trust
+   your developer certificate.
+
+With a free Apple ID the app stops opening after 7 days; run step 3 again to renew it
+(your save stays). A paid Apple Developer membership makes that one year. To work in
+Xcode instead, run `npm run ios:sync` then `npm run ios:open` and press Run.
 
 ## How it is built
 

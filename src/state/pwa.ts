@@ -7,6 +7,8 @@ const subs = new Set<() => void>();
 
 export function initPwa(): void {
   if (import.meta.env.DEV) return;
+  // inside the native iPhone shell the files are already on the device: no service worker needed
+  if ((window as unknown as { Capacitor?: unknown }).Capacitor) return;
   try {
     apply = registerSW({
       onNeedRefresh() { waiting = true; subs.forEach(f => f()); },

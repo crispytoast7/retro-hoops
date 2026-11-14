@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { newLeague } from '../src/core/gen/league';
 import { chooseTeam } from '../src/core/offseason/offseason';
 import {
+  adaptChallenge, challenge,
   COURTS, MAX_LEVEL, PERKS, TROPHIES, buyPerk, checkTrophies, coachLevel, courtStyle, gamesToUnlock, isUnlocked,
   levelOf, markTip, nextTip, perk, perkPoints, prog, resignDiscount, xpFor,
 } from '../src/core/org/progress';
@@ -79,5 +80,20 @@ describe('coach progression', () => {
     expect(courtStyle(save).id).toBe('gold');
     expect(COURTS[0].ok(save)).toBe(true);
     expect(coachLevel(save)).toBe(1);
+  });
+
+  test('difficulty adapts to how often you score in your key moments', () => {
+    const { save } = mk();
+    expect(challenge(save)).toBe(1);
+    adaptChallenge(save, 10, 12);
+    const up = challenge(save);
+    expect(up).toBeGreaterThan(1.2);
+    adaptChallenge(save, 2, 12);
+    expect(challenge(save)).toBeLessThan(up);
+    adaptChallenge(save, 3, 3); // too few moments to judge
+    for (let i = 0; i < 30; i++) adaptChallenge(save, 12, 12);
+    expect(challenge(save)).toBeLessThanOrEqual(2.6);
+    for (let i = 0; i < 30; i++) adaptChallenge(save, 0, 12);
+    expect(challenge(save)).toBeGreaterThanOrEqual(0.85);
   });
 });

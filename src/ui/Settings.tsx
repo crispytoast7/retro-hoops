@@ -19,7 +19,7 @@ function SaveSettings() {
       </Panel>
       <Panel title="DIFFICULTY">
         <Tabs tabs={['easy', 'normal', 'hard'] as const} labels={{ easy: 'Rookie', normal: 'Pro', hard: 'Legend' }} value={save.settings.difficulty} onChange={(v: Difficulty) => touch(s => { s.settings.difficulty = v; })} />
-        <div class="dim" style={{ fontSize: '17px', marginTop: '6px' }}>Changes the shot meter size and how sharp defenders are when you play.</div>
+        <div class="dim" style={{ fontSize: '17px', marginTop: '6px' }}>Sets how steady your aim is and how sharp defenders are. On top of this the game adapts: score in most of your key moments and it gets tougher; struggle and it eases off.</div>
       </Panel>
     </>
   );

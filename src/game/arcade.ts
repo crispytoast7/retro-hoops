@@ -29,6 +29,8 @@ export interface ArcadeSetup {
   scenario?: Scenario;
   /** Consecutive makes this game by player id: hot hands aim steadier and draw a double team. */
   hot?: Record<number, number>;
+  /** Adaptive difficulty, 1 = baseline. Higher: wilder crosshair, quicker hands, faster closeouts. */
+  challenge?: number;
 }
 /** The situation a key moment starts from. */
 export type Scenario = 'halfcourt' | 'fastbreak' | 'pnr' | 'post' | 'iso' | 'open' | 'lateclock' | 'freethrows';
@@ -82,7 +84,7 @@ const AIM_MIN = 8;        // px of pull before an aim counts
 const AIM_GAIN = 3.3;     // court px thrown per px pulled
 const SNAP_HOOP = 24;     // an aim this close to the rim is a shot
 const SNAP_MATE = 18;     // an aim this close to a teammate is a pass to him
-const R_SWISH = 3.2;      // reticle this close to the rim's centre: nothing but net
+const R_SWISH = 3.0;      // reticle this close to the rim's centre: nothing but net
 const R_RIM = 7.2;        // inside this it may roll in
 const R_IRON = 11.5;      // inside this it hits iron; beyond is an airball
 const AIM_SLOW = 0.32;    // time slows while you aim...
@@ -217,6 +219,7 @@ export class Arcade {
   /** Consecutive makes by each player this game (from earlier key moments). */
   private hot: Record<number, number> = {};
   private doubled = false;
+  private chal = 1;
   private shot = { t: 0, dur: 0, x0: 0, y0: 0, made: false, type: 'mid' as ShotType, quality: 0, blockBy: -1, foul: false, pts: 2, text: '', buzzer: false, x1: 0, y1: 0, arc: 30, z0: 30 };
   private reb = { t: 0, dur: 0.6, x0: 0, y0: 0, x1: 0, y1: 0, winner: null as Ent | null };
   private slowmo = 1;
@@ -272,6 +275,7 @@ export class Arcade {
     this.practice = !!setup.practice;
     this.guide = setup.guide ?? null;
     this.hot = setup.hot ?? {};
+    this.chal = this.practice ? 1 : clamp(setup.challenge ?? 1, 0.8, 2.6);
     this.doubled = false;
     this.aim.on = false;
     this.reached = false; this.lastQuality = -1; this.hang = 0;
@@ -532,20 +536,21 @@ export class Arcade {
   /** How far the reticle wanders: steadier for good shooters, wilder from deep or under pressure. */
   private aimWobble(h: Ent): { amp: number; w: number } {
     const sht = h.p.ratings.sht / 100;
-    if (this.ftMode) return { amp: 8 * (1.4 - 0.85 * sht) * this.diff.aim, w: 4.2 + 3 * (1 - sht) };
+    const k = Math.pow(this.chal, 0.9), kw = 1 + 0.3 * (this.chal - 1);
+    if (this.ftMode) return { amp: 8.5 * (1.4 - 0.85 * sht) * this.diff.aim * k, w: (4.2 + 3 * (1 - sht)) * kw };
     const dist = Math.hypot(h.x - HOOP.x, h.y - HOOP.y);
     const distK = dist > 135 ? 2 : isThree(h.x, h.y) ? 1.25 : dist < 45 ? 0.8 : 1;
     const { c } = this.contestAt(h);
     const heat = this.hot[h.p.id] ?? 0;
-    let amp = 9.5 * distK * (1.45 - 0.9 * sht) * (1 + c) * this.diff.aim;
+    let amp = 10.5 * distK * (1.45 - 0.9 * sht) * (1 + c) * this.diff.aim * k;
     amp *= (1 - 0.07 * this.pk.shooting) * (1 - 0.03 * this.s.ocStars) * (heat >= 3 ? 0.7 : heat === 2 ? 0.85 : 1) * (this.practice ? 0.6 : 1);
-    return { amp, w: (4 + 4.5 * (1 - sht)) * (1 + 0.35 * c) };
+    return { amp, w: (4 + 4.5 * (1 - sht)) * (1 + 0.35 * c) * kw };
   }
   /** Work out what the current pull is aimed at. Runs every frame while aiming, in real time. */
   private updateAim(): void {
     const a = this.aim, h = this.off[this.handler];
     a.t += this.realDt;
-    this.slowmo = a.t < AIM_SLOW_T ? AIM_SLOW : 1;
+    this.slowmo = a.t < AIM_SLOW_T / Math.max(1, this.chal) ? AIM_SLOW : 1;
     let kind: typeof a.kind = 'none', tx = h.x, ty = h.y, mate = -1;
     if (a.kb || this.ftMode) { kind = 'shot'; tx = HOOP.x; ty = HOOP.y; }
     else {
@@ -884,7 +889,7 @@ export class Arcade {
         }
         // reach-in steals
         if (dd < 9 && this.grace <= 0 && !this.practice && !this.ftMode) {
-          let rate = clamp(0.12 + 0.4 * (d.p.ratings.def / 100) - 0.42 * (h.p.ratings.hnd / 100), 0.03, 0.5) * this.diff.steal * (1 - 0.06 * this.pk.handles);
+          let rate = clamp(0.12 + 0.4 * (d.p.ratings.def / 100) - 0.42 * (h.p.ratings.hnd / 100), 0.03, 0.5) * this.diff.steal * (1 - 0.06 * this.pk.handles) * (1 + 0.35 * (this.chal - 1));
           if (this.dash.t > 0) rate *= 0.3;
           if (Math.random() < rate * dt) { this.turnover('steal', d); return; }
         }
@@ -1063,7 +1068,7 @@ export class Arcade {
       if (closing) { const m = this.off[i]; t = { x: m.x + (HOOP.x - m.x) * 0.07, y: m.y + (HOOP.y - m.y) * 0.07 }; if (Math.hypot(d.x - m.x, d.y - m.y) < 14) { d.armsUp = 0.2; if (this.phase === 'shot') d.lift = 6; } }
       d.slow = Math.max(0, d.slow - dt);
       // sliding with the ball is slower than sprinting, so a quicker handler can turn the corner
-      this.steer(d, t.x, t.y, this.speed(d) * this.diff.dspd * (i === this.handler ? 0.9 : 0.9) * (d.slow > 0 ? 0.45 : 1) * (this.practice ? 0.7 : 1), dt);
+      this.steer(d, t.x, t.y, this.speed(d) * this.diff.dspd * (i === this.handler ? 0.9 : 0.9) * (d.slow > 0 ? 0.45 : 1) * (this.practice ? 0.7 : 1) * Math.min(1.12, 1 + 0.06 * (this.chal - 1)), dt);
       // a set screen is a wall: any defender but the screener's own man gets hung up on it
       for (let k = 0; k < this.off.length; k++) {
         const sc = this.off[k];

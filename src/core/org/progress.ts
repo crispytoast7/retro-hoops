@@ -89,6 +89,18 @@ export function nextTip(save: Save): Tip | null {
 }
 export function markTip(save: Save, id: string): void { const s = prog(save).seen; if (!s.includes(id)) s.push(id); }
 
+// ---- adaptive difficulty ---------------------------------------------------------------
+/** Share of key moments the game steers you toward scoring in. */
+const DDA_TARGET = 0.5;
+/** How hard the court plays right now: 1 is the baseline, higher is harder. Adapts every game. */
+export const challenge = (save: Save): number => (prog(save) as Progress & { dda?: number }).dda ?? 1;
+/** After a hand-played game: scoring in most of your moments makes the next game harder, and the reverse. */
+export function adaptChallenge(save: Save, scored: number, moments: number): void {
+  if (moments < 4) return;
+  const p = prog(save) as Progress & { dda?: number };
+  p.dda = clamp((p.dda ?? 1) + (scored / moments - DDA_TARGET) * 0.9, 0.85, 2.6);
+}
+
 // ---- first-season checklist --------------------------------------------------------------
 export interface Step { id: string; text: string; why: string; go: string; done: boolean }
 const bump = (save: Save, key: string): void => { const c = prog(save).counters; c[key] = (c[key] ?? 0) + 1; };
