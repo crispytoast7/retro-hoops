@@ -686,6 +686,7 @@ export class Arcade {
     else if (kind === 'oob') { this.popup('OUT OF BOUNDS', PAL.red, 2); sfx.whistle(); }
     else { this.popup('SHOT CLOCK!', PAL.red, 2); sfx.buzzer(); }
     this.crowd = Math.max(0, this.crowd - 6);
+    this.highlights.push('tov');
     this.end(1.2);
   }
 

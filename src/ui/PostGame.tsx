@@ -74,6 +74,12 @@ export function PostGameScreen({ params }: { params: Record<string, any> }) {
             <div class="item" style={{ minHeight: 0 }}><span class="grow head">PAID OUT</span><span class="head gold">◉ +{post.total}</span></div>
           </div>
         </Panel>
+        {post.objective && (
+          <Panel title="YOUR CHALLENGE">
+            <div class="row"><span class="grow">{post.objective.text}</span><span class={`tag ${post.objective.done ? 'good' : 'bad'}`}>{post.objective.done ? 'DONE' : 'MISSED'}</span></div>
+            {post.objective.done && <div class="gold" style={{ marginTop: '4px' }}>{post.objective.reward}</div>}
+          </Panel>
+        )}
         <Panel title="COACH XP">
           <div class="list">
             <div class="item" style={{ minHeight: 0 }}><span class="grow">{post.levelUp ? <span class="gold head">LEVEL UP! NOW LEVEL {post.levelUp}</span> : `Level ${coachLevel(save)} · ${rankName(coachLevel(save))}`}</span><span class="gold">+{Math.round(post.xp)} XP</span></div>
@@ -91,8 +97,8 @@ export function PostGameScreen({ params }: { params: Record<string, any> }) {
       <div class="footer" style={{ flexDirection: 'column', gap: '6px' }}>
         <div class="head dim">AFTER THE GAME, YOU...</div>
         {(Object.keys(opts) as AfterGame[]).map(k => (
-          <Btn class="block" kind={k === 'team' ? 'primary' : ''} onClick={() => go(k)} silent>
-            <span class="grow" style={{ textAlign: 'left' }}>{opts[k].label}</span><span style={{ fontSize: '8px', opacity: 0.85 }}>{opts[k].effect}</span>
+          <Btn class="opt" kind={k === 'team' ? 'primary' : ''} onClick={() => go(k)} silent>
+            <span>{opts[k].label}</span><span class="fx">{opts[k].effect}</span>
           </Btn>
         ))}
       </div>

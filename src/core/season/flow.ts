@@ -7,6 +7,7 @@ import { beginOffseason } from '../offseason/offseason';
 import { CreditLine, checkMilestones, effLevel, gameCredits, headline, pushNews, weeklyFacilities } from '../org/economy';
 import { afterUserGame, checkFired, healWeek, rollEvent, rollInjuries } from '../org/people';
 import { checkTrophies, gameProgress, isUnlocked, perk, seasonProgress } from '../org/progress';
+import { Objective, ObjectiveResult, settleObjective } from '../org/objectives';
 import { gameXp } from '../org/xp';
 import { addStats } from '../ratings';
 import type { Rng } from '../rng';
@@ -92,9 +93,11 @@ export interface PostGame {
   xp: number; levelUp: number | null; trophies: string[];
   /** Players of yours who levelled up in this game. */
   playerLevelUps: number[];
+  /** The challenge picked before the game, if any. */
+  objective: ObjectiveResult | null;
 }
 /** After the user's own game (played or simmed): credits, coach record, morale, owner, fans. */
-export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult, highlights: string[], rng: Rng): PostGame {
+export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult, highlights: string[], rng: Rng, objective?: Objective | null): PostGame {
   applyGame(save, g, result, rng);
   const home = g.homeId === save.userTeamId;
   const my = home ? result.homeScore : result.awayScore, their = home ? result.awayScore : result.homeScore;
@@ -125,8 +128,9 @@ export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult,
   if (!g.playoff && me.record.streak === -4) pushNews(save, 'owner', headline(rng, 'ownerAngry', { owner: save.owner.name, team: me.name }), true);
   if (!g.playoff && me.record.streak === 4) pushNews(save, 'owner', headline(rng, 'ownerHappy', { owner: save.owner.name, team: me.name }), true);
   const gp = gameProgress(save, result, highlights, !!g.playoff, scale);
+  const done = objective ? settleObjective(save, objective, result, highlights) : null;
   const playerLevelUps = gameXp(save, lines, g.playoff ? 1 : Math.max(scale, 0.35));
-  return { gameId: g.id, won, credits, total, topPerformer: result.topPerformer, playoff: !!g.playoff, ...gp, playerLevelUps };
+  return { gameId: g.id, won, credits, total, topPerformer: result.topPerformer, playoff: !!g.playoff, ...gp, playerLevelUps, objective: done };
 }
 
 function simGame(save: Save, g: ScheduledGame, rng: Rng): PostGame | null {

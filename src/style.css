@@ -119,6 +119,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 20px; }
 .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; pointer-events: none; text-align: center; padding: 12px; }
 .overlay.dimmed { background: rgba(8, 7, 14, .55); }
 .overlay > * { pointer-events: auto; }
+/* an option button: a title with its consequence underneath */
+.btn.opt { flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; width: 100%; padding: 9px 10px; }
+.btn.opt .fx { font-family: var(--body); font-size: 17px; text-transform: none; opacity: .9; line-height: 1.05; }
+.overlay.scroll { justify-content: flex-start; overflow-y: auto; padding-top: 10px; }
+.overlay.scroll .bigcall { font-size: 13px; }
 .coachline { position: absolute; left: 6px; right: 6px; top: 6px; background: rgba(11,10,20,.88); border: 3px solid var(--gold); padding: 8px 10px; font-family: var(--head); font-size: 10px; line-height: 1.5; color: var(--gold); text-align: center; pointer-events: none; z-index: 3; }
 .bigcall { font-family: var(--head); font-size: 18px; color: var(--gold); text-shadow: 3px 3px 0 var(--edge); animation: pop .3s steps(4); }
 @keyframes pop { from { transform: scale(1.8); opacity: 0; } to { transform: none; opacity: 1; } }

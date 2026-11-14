@@ -102,6 +102,10 @@ export interface LiveGame {
   done: boolean;
   /** Momentum from the user's key moments, -100..100 in his favour: it tilts the simulated play that follows. */
   momentum: number;
+  /** Call a timeout: stops the opponent's run (momentum back to level). */
+  timeout(): void;
+  /** Halftime adjustment: the opponent shoots this much worse in simulated play for the rest of the game. */
+  tightenDefense(amount: number): void;
   /** Hand-played possessions so far. */
   userPossessions: number;
   /** Advance one step. After a 'user' step you must call resolveUser or simUser before next(). */

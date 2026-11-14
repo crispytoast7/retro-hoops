@@ -195,6 +195,12 @@ class Game implements LiveGame {
   userPossessions = 0;
   /** -100..100 in the user's favour. */
   momentum = 0;
+  /** Extra make-chance taken off the user's opponent (halftime adjustment). */
+  private lockdown = 0;
+  /** A timeout stops the other side's run. */
+  timeout(): void { this.momentum = Math.max(this.momentum, 4); }
+  /** Tighten the user's simulated defense for the rest of the game. */
+  tightenDefense(amount: number): void { this.lockdown = amount; }
 
   private rng: Rng;
   private home: Side;
@@ -402,7 +408,8 @@ class Game implements LiveGame {
       b += (CROWD_MAKE * Math.max(0, this.crowd - 50)) / 50;
     }
     b += (MORALE_MAKE * (clamp(mean(offFloor, p => p.morale, 50), 0, 100) - 50)) / 50;
-    if (this.setup.userTeamId != null && this.momentum !== 0) b += (MOM_MAKE * this.momentum * (off.id === this.setup.userTeamId ? 1 : -1)) / 100;
+    if (this.setup.userTeamId != null && this.lockdown && off.id !== this.setup.userTeamId) b -= this.lockdown;
+    if (this.setup.userTeamId != null && this.momentum !== 0) b += (MOM_MAKE * this.momentum * (off.id === this.setup.userTeamId ? 0.6 : -1)) / 100; // mostly it is felt on defense, so scores do not balloon
     if (off.input.captainId != null && offFloor.some(p => p.id === off.input.captainId)) b += CAPTAIN_MAKE;
     return b;
   }

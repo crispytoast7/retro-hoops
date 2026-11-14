@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { cal, ROUND_NAMES } from '../core/season/calendar';
+import { Objective, offerObjectives } from '../core/org/objectives';
 import { courtStyle, perk } from '../core/org/progress';
 import { Rng } from '../core/rng';
 import { finishUserGame, startLiveGame, PostGame } from '../core/season/flow';
@@ -17,12 +18,19 @@ const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const HINT_KEY = 'retro-hoops-hints-seen';
 
 /** Choose the situation for the next key moment: varied, never the same twice running. */
-function pickScenario(s: UserPossessionSetup, momentum: number, used: Scenario[]): Scenario {
+type Adjust = 'rim' | 'shoot' | 'lock';
+const ADJUST: Record<Adjust, { label: string; effect: string }> = {
+  rim: { label: 'Attack the rim', effect: 'Layups and dunks +8%, more breaks and post-ups' },
+  shoot: { label: 'Let it fly', effect: 'Steadier aim, more open looks' },
+  lock: { label: 'Lock down', effect: 'They shoot worse in simulated play' },
+};
+
+function pickScenario(s: UserPossessionSetup, momentum: number, used: Scenario[], adjust: Adjust | null): Scenario {
   if (s.lastShot) return Math.random() < 0.55 ? 'iso' : 'halfcourt';
   const last = used[used.length - 1], prev = used[used.length - 2];
   const w: [Scenario, number][] = [
-    ['halfcourt', 1.6], ['pnr', 2], ['post', 1.6], ['iso', 1.6], ['open', 1.6], ['lateclock', 1],
-    ['fastbreak', momentum > 15 ? 3.2 : 1.6],
+    ['halfcourt', 1.6], ['pnr', 2], ['post', adjust === 'rim' ? 2.6 : 1.6], ['iso', 1.6], ['open', adjust === 'shoot' ? 3 : 1.6], ['lateclock', 1],
+    ['fastbreak', (momentum > 15 ? 3.2 : 1.6) * (adjust === 'rim' ? 1.5 : 1)],
     ['freethrows', used.length >= 2 && used.filter(u => u === 'freethrows').length < 2 ? (s.clutch ? 1.6 : 0.9) : 0],
   ];
   const pool = w.filter(([k]) => k !== last && (k !== prev || Math.random() < 0.4));
@@ -33,7 +41,7 @@ function pickScenario(s: UserPossessionSetup, momentum: number, used: Scenario[]
 
 interface Line { text: string; cls: string }
 type Overlay =
-  | { kind: 'intro' } | { kind: 'ball'; text: string; sub: string; hint: string; run: string } | { kind: 'period'; text: string } | { kind: 'final'; post: PostGame } | null;
+  | { kind: 'intro' } | { kind: 'ball'; text: string; sub: string; hint: string; run: string; timeout: boolean } | { kind: 'half' } | { kind: 'period'; text: string } | { kind: 'final'; post: PostGame } | null;
 
 export function GameScreen({ params }: { params: Record<string, any> }) {
   const save = getSave();
@@ -51,7 +59,9 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
   const [crowd, setCrowdLevel] = useState(50);
   const [mom, setMom] = useState(0);
   const [swing, setSwing] = useState<string | null>(null);
-  const ctl = useRef({ fast: false, skip: false, started: null as null | (() => void), cancel: false, go: null as null | (() => void) });
+  const ctl = useRef({ fast: false, skip: false, started: null as null | (() => void), cancel: false, go: null as null | (() => void), objective: null as Objective | null, timeouts: 2, callTimeout: null as null | (() => void), adjust: null as null | ((a: Adjust) => void) });
+  const [timeouts, setTimeouts] = useState(2);
+  const offers = useRef<Objective[]>(offerObjectives(save, g.id)).current;
   const [fast, setFast] = useState(false);
 
   // keep the 8:9 court as large as the space allows
@@ -91,6 +101,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
     const used: Scenario[] = [];
     const hot: Record<number, number> = {};
     let myRun = 0, oppRun = 0, moments = 0;
+    let adjust: Adjust | null = null;
     const run = async () => {
       await new Promise<void>(res => { c.started = res; });
       sfx.whistle();
@@ -103,27 +114,29 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
         } else if (step.kind === 'user') {
           if (c.skip) { push(live.simUser()); continue; }
           const s = step.setup;
-          const sc = pickScenario(s, live.momentum, used);
+          const sc = pickScenario(s, live.momentum, used, adjust);
           used.push(sc); moments++;
           const info = SCENARIOS[sc];
-          const run = moments === 1 ? '' : myRun === oppRun ? `Since your last play: ${myRun}-${oppRun}` : myRun > oppRun ? `Your team went on a ${myRun}-${oppRun} run` : `They went on a ${oppRun}-${myRun} run`;
-          setOverlay({ kind: 'ball', text: s.lastShot ? 'LAST SHOT' : s.clutch ? `CLUTCH: ${info.name}` : info.name, sub: `${s.userScore}-${s.oppScore} · ${s.quarter > 4 ? 'OT' : `Q${s.quarter}`} ${fmtClock(s.clock)}`, hint: info.hint, run });
+          const isRun = Math.abs(myRun - oppRun) >= 6 && Math.min(myRun, oppRun) <= Math.max(myRun, oppRun) * 0.6;
+          const run = moments === 1 ? '' : !isRun ? `Since your last play: you ${myRun}, them ${oppRun}` : myRun > oppRun ? `Your team went on a ${myRun}-${oppRun} run` : `They went on a ${oppRun}-${myRun} run`;
+          setOverlay({ kind: 'ball', text: s.lastShot ? 'LAST SHOT' : s.clutch ? `CLUTCH: ${info.name}` : info.name, sub: `${s.userScore}-${s.oppScore} · ${s.quarter > 4 ? 'OT' : `Q${s.quarter}`} ${fmtClock(s.clock)}`, hint: info.hint, run, timeout: c.timeouts > 0 && oppRun - myRun >= 6 && live.momentum < 0 });
+          c.callTimeout = () => { if (c.timeouts <= 0) return; c.timeouts--; setTimeouts(c.timeouts); live.timeout(); setMom(live.momentum); sfx.whistle(); c.callTimeout = null; setOverlay(o => (o && o.kind === 'ball' ? { ...o, timeout: false, run: 'Timeout. Their run is over.' } : o)); };
           sfx.select();
           // read the situation, then tap (or wait) to play it
-          await Promise.race([sleep(c.fast ? 1200 : 2600), new Promise<void>(res => { c.go = res; })]);
-          c.go = null;
+          await Promise.race([sleep(c.fast ? 1400 : 3200), new Promise<void>(res => { c.go = res; })]);
+          c.go = null; c.callTimeout = null;
           if (c.cancel) break;
           setOverlay(null); setPlaying(true);
           const res = await arcade.play({
             poss: s, offense: s.offense.map(id => save.players[id]), defense: s.defense.map(id => save.players[id]),
             offColors: me.colors, defColors: (iAmHome ? away : home).colors,
             ocStars: me.staff.oc?.stars ?? 0, difficulty: save.settings.difficulty,
-            perks: { shooting: perk(save, 'shooting'), handles: perk(save, 'handles'), passing: perk(save, 'passing'), rim: perk(save, 'rim') },
+            perks: { shooting: perk(save, 'shooting') + (adjust === 'shoot' ? 2 : 0), handles: perk(save, 'handles'), passing: perk(save, 'passing'), rim: perk(save, 'rim') + (adjust === 'rim' ? 2 : 0) },
             scenario: sc, hot: { ...hot },
           });
           if (c.cancel) break;
           setPlaying(false);
-          highlights.push(...res.highlights);
+          highlights.push('played', ...res.highlights);
           let fire = '';
           for (const sh of res.shots) {
             hot[sh.by] = sh.made ? (hot[sh.by] ?? 0) + 1 : 0;
@@ -137,7 +150,14 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
           await sleep(fire ? 1100 : 650);
           setSwing(null);
         } else if (step.kind === 'period') {
-          if (!c.skip) {
+          if (!c.skip && step.ended === 2 && !step.ot) {
+            sfx.buzzer();
+            setOverlay({ kind: 'half' });
+            adjust = await new Promise<Adjust>(res => { c.adjust = res; });
+            c.adjust = null;
+            if (adjust === 'lock') live.tightenDefense(0.035);
+            setOverlay(null);
+          } else if (!c.skip) {
             sfx.buzzer();
             setOverlay({ kind: 'period', text: step.ot ? 'END OF OVERTIME' : step.ended === 2 ? 'HALFTIME' : step.ended === 4 ? 'END OF REGULATION' : `END OF Q${step.ended}` });
             await sleep(c.fast ? 500 : 1300);
@@ -147,7 +167,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
       }
       if (c.cancel) return;
       const result = live.result();
-      const post = act((s, rng) => finishUserGame(s, s.schedule.find(x => x.id === g.id)!, result, highlights, rng));
+      const post = act((s, rng) => finishUserGame(s, s.schedule.find(x => x.id === g.id)!, result, highlights, rng, c.objective));
       setScore(sc => ({ ...sc, home: result.homeScore, away: result.awayScore }));
       sfx.buzzer(); if (post.won) { sfx.cheer(true); sfx.fanfare(); } else sfx.groan();
       setOverlay({ kind: 'final', post });
@@ -172,32 +192,47 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
       <div class="courtwrap" ref={wrap}>
         <canvas ref={canvas} />
         {overlay?.kind === 'intro' && (
-          <div class="overlay dimmed">
+          <div class="overlay dimmed scroll">
             <div class="head dim">{g.playoff ? ROUND_NAMES[g.week - cal(save).regWeeks].toUpperCase() : `WEEK ${g.week}`}</div>
             <div class="bigcall">{away.name.toUpperCase()}<br />AT<br />{home.name.toUpperCase()}</div>
             <div class="panel" style={{ maxWidth: '330px', fontSize: '19px', textAlign: 'left' }}>
-              {seen ? <div class="dim">You play the key moments. Score, and your team goes on a run. Waste it, and the other side does.</div> : (
-                <div class="col" style={{ gap: '4px' }}>
-                  <div><span class="gold">DRAG ON THE COURT</span> to dribble and drive</div>
-                  <div><span class="gold">TOUCH YOUR PLAYER, PULL BACK, LET GO</span> to shoot or throw a pass where you aim</div>
-                  <div><span class="gold">TAP A TEAMMATE</span> for a quick pass</div>
-                  <div><span class="gold">FLICK</span> for a crossover or step-back</div>
-                  <div><span class="gold">DRIVE AT THE RIM</span> for a layup or dunk</div>
-                  <div class="dim">You play about a dozen key moments. Score and your team goes on a run; waste one and the other side does.</div>
-                </div>
-              )}
+              <div class="dim">You play the key moments. Score, and your team goes on a run. Waste one, and the other side does.</div>
+              {!seen && <div style={{ marginTop: '6px' }}><span class="gold">Drag</span> the court to move. <span class="gold">Touch your player and pull back</span> to shoot or pass. <span class="gold">Flick</span> for a move.</div>}
             </div>
-            <div class="row"><Btn kind="primary big" onClick={start}>Tip Off</Btn>{!seen && <Btn onClick={() => replace('practice')}>Practice first</Btn>}</div>
+            <div class="panel col" style={{ maxWidth: '330px', gap: '6px', textAlign: 'left' }}>
+              <div class="head gold">PICK A CHALLENGE</div>
+              {offers.map(o => (
+                <Btn class="opt" onClick={() => { ctl.current.objective = o; start(); }} silent>
+                  <span>{o.text}</span><span class="fx gold">{o.reward}</span>
+                </Btn>
+              ))}
+            </div>
+            <div class="row"><Btn onClick={start}>No challenge: tip off</Btn>{!seen && <Btn onClick={() => replace('practice')}>Practice first</Btn>}</div>
           </div>
         )}
         {overlay?.kind === 'ball' && (
-          <div class="overlay dimmed" onClick={() => ctl.current.go?.()}>
+          <div class="overlay dimmed" onClick={e => { if (!(e.target as HTMLElement).closest('.btn')) ctl.current.go?.(); }}>
             <div class="head dim">KEY MOMENT</div>
             <div class="bigcall">{overlay.text}</div>
             <div class="head">{overlay.sub}</div>
             <div class="panel" style={{ maxWidth: '300px', fontSize: '20px' }}>{overlay.hint}</div>
-            {overlay.run && <div class={overlay.run.startsWith('They') ? 'bad' : overlay.run.startsWith('Your') ? 'good' : 'dim'}>{overlay.run}</div>}
+            {overlay.run && <div class={overlay.run.startsWith('They') ? 'bad' : overlay.run.startsWith('Your') || overlay.run.startsWith('Timeout') ? 'good' : 'dim'}>{overlay.run}</div>}
+            {overlay.timeout && <Btn kind="danger" onClick={() => ctl.current.callTimeout?.()}>Timeout: stop their run ({timeouts} left)</Btn>}
             <div class="head dim">TAP TO PLAY</div>
+          </div>
+        )}
+        {overlay?.kind === 'half' && (
+          <div class="overlay dimmed">
+            <div class="bigcall">HALFTIME</div>
+            <div class="head">{away.abbr} {score.away} · {home.abbr} {score.home}</div>
+            <div class="panel col" style={{ maxWidth: '330px', gap: '6px', textAlign: 'left' }}>
+              <div class="head gold">SECOND-HALF ADJUSTMENT</div>
+              {(Object.keys(ADJUST) as Adjust[]).map(k => (
+                <Btn class="opt" onClick={() => ctl.current.adjust?.(k)}>
+                  <span>{ADJUST[k].label}</span><span class="fx">{ADJUST[k].effect}</span>
+                </Btn>
+              ))}
+            </div>
           </div>
         )}
         {swing && <div class="overlay"><div class="bigcall" style={{ color: swing === 'MOMENTUM LOST' ? 'var(--bad)' : swing === 'MOMENTUM!' ? 'var(--good)' : 'var(--gold)' }}>{swing}</div></div>}
