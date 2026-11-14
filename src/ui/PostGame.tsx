@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
-import { endWeek, PostGame } from '../core/season/flow';
+import { TROPHIES, coachLevel, rankName } from '../core/org/progress';
+import { advance, PostGame } from '../core/season/flow';
 import type { BoxLine } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { act, useSave } from '../state/store';
@@ -28,7 +29,7 @@ export function PostGameScreen({ params }: { params: Record<string, any> }) {
   const post = params.post as PostGame;
   const g = save.schedule.find(x => x.id === post.gameId);
   const [tab, setTab] = useState<'Mine' | 'Theirs'>('Mine');
-  useEffect(() => { if (post.total > 0) setTimeout(() => sfx.coin(), 400); }, []);
+  useEffect(() => { if (post.total > 0) setTimeout(() => sfx.coin(), 400); if (post.levelUp) setTimeout(() => sfx.fanfare(), 800); }, []);
   if (!g || !g.result) return <div class="screen"><div class="title"><Btn kind="primary" onClick={() => reset('hub')}>Back to the hub</Btn></div></div>;
   const r = g.result;
   const home = save.teams[r.homeId], away = save.teams[r.awayId];
@@ -38,8 +39,8 @@ export function PostGameScreen({ params }: { params: Record<string, any> }) {
   const topTeam = r.box.home.some(l => l.playerId === post.topPerformer) ? home : away;
   const names = (id: number) => (save.players[id] ? short(save.players[id].name) : '—');
   const go = () => {
-    if (!params.simmed) act((s, rng) => { endWeek(s, rng); });
-    if (save.phase === 'offseason') reset('hub'); else reset('hub');
+    if (!params.simmed) act((s, rng) => { advance(s, rng, 'afterUser'); });
+    reset('hub');
   };
   const periods = r.homeQ.map((_, i) => (i < 4 ? `Q${i + 1}` : `OT${i - 3}`));
   return (
@@ -66,8 +67,15 @@ export function PostGameScreen({ params }: { params: Record<string, any> }) {
         )}
         <Panel title="CREDITS EARNED">
           <div class="list">
-            {post.credits.map(c => <div class="item" style={{ minHeight: 0 }}><span class="grow">{c.label}</span><span class="gold">+{c.amount}</span></div>)}
-            <div class="item" style={{ minHeight: 0 }}><span class="grow head">TOTAL</span><span class="head gold">◉ +{post.total}</span></div>
+            {post.credits.map(c => <div class="item" style={{ minHeight: 0 }}><span class="grow">{c.label}</span><span class="gold">+{Math.round(c.amount * 10) / 10}</span></div>)}
+            <div class="item" style={{ minHeight: 0 }}><span class="grow head">PAID OUT</span><span class="head gold">◉ +{post.total}</span></div>
+          </div>
+        </Panel>
+        <Panel title="COACH XP">
+          <div class="list">
+            <div class="item" style={{ minHeight: 0 }}><span class="grow">{post.levelUp ? <span class="gold head">LEVEL UP! NOW LEVEL {post.levelUp}</span> : `Level ${coachLevel(save)} · ${rankName(coachLevel(save))}`}</span><span class="gold">+{Math.round(post.xp)} XP</span></div>
+            {post.levelUp && <div class="item" style={{ minHeight: 0 }}><span class="grow">A new perk point is waiting on the Coach screen.</span></div>}
+            {post.trophies.map(id => { const t = TROPHIES.find(x => x.id === id)!; return <div class="item" style={{ minHeight: 0 }}><span class="grow gold">♛ Trophy: {t.name}</span><span class="gold">◉ +{t.credits}</span></div>; })}
           </div>
         </Panel>
         <Panel title="BOX SCORE">

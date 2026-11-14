@@ -1,16 +1,21 @@
 // Unit tests for the pure organisation logic: finance, roster, lineup, ratings, economy, people, offseason, migrate.
 import { describe, expect, test } from 'vitest';
-import { MIN_SALARY, ROSTER_MAX, SALARY_CAP, SAVE_VERSION } from '../src/core/constants';
+import {
+  FIRST_APRON, LUXURY_TAX, MAX_SALARY, MIN_SALARY, MLE, ROSTER_MAX, SALARY_CAP, SAVE_VERSION, SECOND_APRON, SUPERMAX_SALARY, TAX_MLE,
+} from '../src/core/constants';
 import { EVENTS } from '../src/data/events';
 import { genPlayer, newLeague } from '../src/core/gen/league';
-import { askingContract } from '../src/core/gm/value';
+import { askingContract, teamStrength } from '../src/core/gm/value';
 import { autoLineup, fixLineup, slotValue } from '../src/core/lineup';
-import { advanceOffseason, chooseTeam, expiringPlayers, resignPlayer, startNewSeason, userDraftPick, userOnClock } from '../src/core/offseason/offseason';
+import {
+  LOTTERY_WEIGHTS, advanceOffseason, beginOffseason, buildDraftOrder, chooseTeam, expiringPlayers, resignPlayer, startNewSeason, userDraftPick, userOnClock,
+} from '../src/core/offseason/offseason';
 import {
   FACILITY_COST, UPGRADE_POINTS, canHire, checkMilestones, effLevel, fireStaff, gameCredits, hireStaff, repairFacility,
   scoutProspect, scoutedRating, upgradeCost, upgradeFacility, upgradeRating, weeklyFacilities,
 } from '../src/core/org/economy';
-import { capSpace, payroll } from '../src/core/org/finance';
+import { capSpace, capStatus, luxuryTax, matchLimit, maxOffer, mleStatus, payroll, signingPath, statusOf, taxBill } from '../src/core/org/finance';
+import { prog } from '../src/core/org/progress';
 import {
   afterUserGame, checkFired, evaluateGoals, healWeek, progressPlayer, resolveEvent, rollEvent, rollInjuries, setOwnerGoals, takeJob,
 } from '../src/core/org/people';
@@ -18,7 +23,7 @@ import { movePlayer, releasePlayer, signPlayer } from '../src/core/org/roster';
 import { POS_WEIGHTS, careerStats, emptyStats, overallOf, stars } from '../src/core/ratings';
 import { Rng } from '../src/core/rng';
 import { migrate } from '../src/state/persist';
-import type { BoxLine, GameResult, Player, Save, StaffMember, Trait } from '../src/core/types';
+import type { BoxLine, GameResult, Player, Save, StaffMember, Team, Trait } from '../src/core/types';
 import { FACILITY_KEYS, POSITIONS, RATING_KEYS } from '../src/core/types';
 
 const ME = 3;
@@ -29,6 +34,11 @@ function mk(seed = 7): { save: Save; rng: Rng } {
   return { save, rng };
 }
 const me = (s: Save) => s.teams[s.userTeamId];
+/** Pin a team's payroll to a figure by adjusting dead money (negative is fine for a test). */
+function setPayroll(s: Save, t: Team, target: number): void {
+  t.deadCap = Math.round((target - (payroll(s, t) - t.deadCap)) * 10) / 10;
+  expect(payroll(s, t)).toBeCloseTo(target, 1);
+}
 const roster = (s: Save, t = me(s)) => t.roster.map(id => s.players[id]);
 function expectValidLineup(s: Save, t = me(s)): void {
   expect(t.lineup.length).toBe(5);
@@ -58,6 +68,176 @@ describe('finance', () => {
     t.deadCap = 4.5;
     expect(payroll(save, t)).toBeCloseTo(base + 4.5, 1);
     expect(capSpace(save, t)).toBeCloseTo(SALARY_CAP - payroll(save, t), 1);
+    // an expired deal is off the books
+    const p = roster(save)[0];
+    const before = payroll(save, t);
+    p.contract.years = 0;
+    expect(payroll(save, t)).toBeCloseTo(before - p.contract.salary, 1);
+  });
+
+  test('capStatus names where the payroll stands; a line is crossed only above it', () => {
+    const { save } = mk();
+    const t = me(save);
+    const at = (pay: number) => { setPayroll(save, t, pay); return capStatus(save, t); };
+    expect(at(90)).toBe('under cap');
+    expect(at(SALARY_CAP)).toBe('under cap');
+    expect(at(SALARY_CAP + 0.1)).toBe('over cap');
+    expect(at(LUXURY_TAX)).toBe('over cap');
+    expect(at(LUXURY_TAX + 0.1)).toBe('taxpayer');
+    expect(at(FIRST_APRON)).toBe('taxpayer');
+    expect(at(FIRST_APRON + 0.1)).toBe('first apron');
+    expect(at(SECOND_APRON)).toBe('first apron');
+    expect(at(SECOND_APRON + 0.1)).toBe('second apron');
+    expect(statusOf(260)).toBe('second apron');
+  });
+
+  test('signingPath: cap space first', () => {
+    const { save } = mk();
+    const t = me(save);
+    setPayroll(save, t, 120);
+    expect(signingPath(save, t, 30)).toEqual({ ok: true, via: 'space' }); // lands exactly on the cap
+    expect(signingPath(save, t, MIN_SALARY)).toEqual({ ok: true, via: 'space' });
+    // more than the room, and more than any exception
+    const no = signingPath(save, t, 30.1);
+    expect(no).toEqual({ ok: false, reason: 'You have $30M of cap space: that is the most you can offer.' });
+    // a team just under the cap can still reach for the mid-level
+    setPayroll(save, t, 145);
+    expect(signingPath(save, t, 5)).toEqual({ ok: true, via: 'space' });
+    expect(signingPath(save, t, 12)).toEqual({ ok: true, via: 'mle' });
+    expect(maxOffer(save, t)).toEqual({ salary: MLE, via: 'mle' });
+    setPayroll(save, t, 100);
+    expect(maxOffer(save, t)).toEqual({ salary: MAX_SALARY, via: 'space' });
+    expect(signingPath(save, t, MAX_SALARY + 0.1)).toEqual({ ok: false, reason: `The maximum salary is $${MAX_SALARY}M.` });
+    expect(signingPath(save, t, MIN_SALARY - 0.1)).toEqual({ ok: false, reason: `The minimum salary is $${MIN_SALARY}M.` });
+  });
+
+  test('signingPath: own free agents can always be re-signed, over the cap and both aprons', () => {
+    const { save } = mk();
+    const t = me(save);
+    setPayroll(save, t, 100);
+    expect(signingPath(save, t, 40, { ownPlayer: true })).toEqual({ ok: true, via: 'space' });
+    for (const pay of [140, 185, 195, 230]) {
+      setPayroll(save, t, pay);
+      expect(signingPath(save, t, 40, { ownPlayer: true })).toEqual({ ok: true, via: 'bird' });
+    }
+    t.mleUsed = true;
+    expect(signingPath(save, t, SUPERMAX_SALARY, { ownPlayer: true, years: 5 })).toEqual({ ok: true, via: 'bird' });
+    expect(signingPath(save, t, SUPERMAX_SALARY + 0.1, { ownPlayer: true }).ok).toBe(false);
+    expect(t.mleUsed).toBe(true);
+  });
+
+  test('signingPath: the mid-level once a season up to the first apron, the taxpayer mid-level up to the second', () => {
+    const { save } = mk();
+    const t = me(save);
+    setPayroll(save, t, 160);
+    expect(signingPath(save, t, MLE)).toEqual({ ok: true, via: 'mle' });
+    expect(signingPath(save, t, MLE + 0.1)).toEqual({ ok: false, reason: `Over the cap: the most you can offer is the mid-level exception, $${MLE}M.` });
+    expect(mleStatus(save, t)).toEqual({ available: true, amount: MLE, kind: 'mle' });
+    // the full mid-level must leave the payroll at or under the first apron
+    setPayroll(save, t, FIRST_APRON - MLE);
+    expect(signingPath(save, t, MLE)).toEqual({ ok: true, via: 'mle' });
+    setPayroll(save, t, FIRST_APRON - 10);
+    expect(signingPath(save, t, 10)).toEqual({ ok: true, via: 'mle' });
+    const tooBig = signingPath(save, t, 10.1);
+    expect(tooBig.ok).toBe(false);
+    expect(!tooBig.ok && tooBig.reason).toBe(`Over the cap: the most you can offer is the mid-level exception, $10M.`);
+    // close to the apron the smaller exception is the bigger one
+    setPayroll(save, t, FIRST_APRON - 3);
+    expect(signingPath(save, t, 3)).toEqual({ ok: true, via: 'mle' });
+    expect(signingPath(save, t, TAX_MLE)).toEqual({ ok: true, via: 'taxMle' });
+    expect(maxOffer(save, t)).toEqual({ salary: TAX_MLE, via: 'taxMle' });
+    expect(mleStatus(save, t)).toEqual({ available: true, amount: TAX_MLE, kind: 'taxMle' });
+    const past = signingPath(save, t, TAX_MLE + 1);
+    expect(!past.ok && past.reason).toMatch(/past the first apron \(\$190M\), where only the taxpayer mid-level is allowed: up to \$6M/);
+    // over the first apron: taxpayer mid-level only, and it must stay at or under the second apron
+    setPayroll(save, t, FIRST_APRON + 2);
+    expect(signingPath(save, t, TAX_MLE)).toEqual({ ok: true, via: 'taxMle' });
+    const over1 = signingPath(save, t, TAX_MLE + 0.1);
+    expect(!over1.ok && over1.reason).toBe(`Over the first apron only the taxpayer mid-level is left: up to $${TAX_MLE}M.`);
+    setPayroll(save, t, SECOND_APRON - 4);
+    expect(signingPath(save, t, 4)).toEqual({ ok: true, via: 'taxMle' });
+    expect(signingPath(save, t, 4.1).ok).toBe(false);
+    setPayroll(save, t, SECOND_APRON - 1);
+    const squeeze = signingPath(save, t, 3);
+    expect(!squeeze.ok && squeeze.reason).toMatch(/over the second apron \(\$200M\)/);
+    expect(mleStatus(save, t).available).toBe(false);
+    // not available above the second apron
+    setPayroll(save, t, SECOND_APRON + 1);
+    expect(signingPath(save, t, 3)).toEqual({ ok: false, reason: 'Over the second apron: only minimum deals and your own free agents.' });
+    expect(maxOffer(save, t)).toEqual({ salary: MIN_SALARY, via: 'min' });
+    // once used, it is gone until the next season
+    setPayroll(save, t, 160);
+    t.mleUsed = true;
+    expect(signingPath(save, t, 5)).toEqual({ ok: false, reason: 'Over the cap with the mid-level exception already used: only minimum deals.' });
+    expect(mleStatus(save, t)).toEqual({ available: false, amount: 0, kind: null });
+    expect(maxOffer(save, t)).toEqual({ salary: MIN_SALARY, via: 'min' });
+    // other pending offers count against the room, and can claim the exception
+    t.mleUsed = false;
+    expect(signingPath(save, t, 20, { pending: 0 }).ok).toBe(false);
+    setPayroll(save, t, 120);
+    expect(signingPath(save, t, 20, { pending: 5 })).toEqual({ ok: true, via: 'space' });
+    expect(signingPath(save, t, 20, { pending: 15 }).ok).toBe(false);
+    expect(signingPath(save, t, 12, { pending: 25 })).toEqual({ ok: true, via: 'mle' });
+    expect(signingPath(save, t, 12, { pending: 25, mleTaken: true }).ok).toBe(false);
+  });
+
+  test('signingPath: a minimum deal is always allowed, for one or two years', () => {
+    const { save } = mk();
+    const t = me(save);
+    t.mleUsed = true;
+    for (const pay of [160, 185, 195, 240]) {
+      setPayroll(save, t, pay);
+      expect(signingPath(save, t, MIN_SALARY)).toEqual({ ok: true, via: 'min' });
+      expect(signingPath(save, t, MIN_SALARY, { years: 2 })).toEqual({ ok: true, via: 'min' });
+      expect(signingPath(save, t, MIN_SALARY, { years: 3 })).toEqual({ ok: false, reason: 'Over the cap, a minimum deal can run 2 years at most.' });
+      expect(signingPath(save, t, MIN_SALARY + 0.1).ok).toBe(false);
+    }
+    expect(t.mleUsed).toBe(true);
+  });
+
+  test('signPlayer marks the mid-level used only for a mid-level deal', () => {
+    const { save } = mk();
+    const t = me(save);
+    signPlayer(save, save.freeAgents[0], t.id, { salary: MIN_SALARY, years: 1 }, 'min');
+    signPlayer(save, save.freeAgents[0], t.id, { salary: 4, years: 1 }, 'space');
+    signPlayer(save, save.freeAgents[0], t.id, { salary: 4, years: 1 });
+    expect(t.mleUsed).toBeFalsy();
+    signPlayer(save, save.freeAgents[0], t.id, { salary: 4, years: 1 }, 'taxMle');
+    expect(t.mleUsed).toBe(true);
+    const other = save.teams[5];
+    signPlayer(save, save.freeAgents[0], other.id, { salary: 9, years: 2 }, 'mle');
+    expect(other.mleUsed).toBe(true);
+  });
+
+  test('luxury tax bill: 1 credit per full $3M over, owner approval -1 per $4M over and at least -2', () => {
+    expect(taxBill(LUXURY_TAX)).toEqual({ over: 0, credits: 0, ownerHit: 0 });
+    expect(taxBill(150)).toEqual({ over: 0, credits: 0, ownerHit: 0 });
+    expect(taxBill(LUXURY_TAX + 0.1)).toEqual({ over: 0.1, credits: 0, ownerHit: 2 });
+    expect(taxBill(LUXURY_TAX + 2.9)).toEqual({ over: 2.9, credits: 0, ownerHit: 2 });
+    expect(taxBill(LUXURY_TAX + 3)).toEqual({ over: 3, credits: 1, ownerHit: 2 });
+    expect(taxBill(LUXURY_TAX + 11.9)).toEqual({ over: 11.9, credits: 3, ownerHit: 2 });
+    expect(taxBill(LUXURY_TAX + 12)).toEqual({ over: 12, credits: 4, ownerHit: 3 });
+    expect(taxBill(LUXURY_TAX + 21)).toEqual({ over: 21, credits: 7, ownerHit: 5 });
+    expect(taxBill(LUXURY_TAX + 40)).toEqual({ over: 40, credits: 13, ownerHit: 10 });
+    const { save } = mk();
+    setPayroll(save, me(save), LUXURY_TAX + 12);
+    expect(luxuryTax(save, me(save))).toEqual({ over: 12, credits: 4, ownerHit: 3 });
+  });
+
+  test('matchLimit: what a trade may bring back for what it sends', () => {
+    const { save } = mk();
+    const t = me(save);
+    const at = (pay: number, out: number) => { setPayroll(save, t, pay); return matchLimit(save, t, out); };
+    expect(at(100, 0)).toBe(50); // cap space
+    expect(at(100, 10)).toBe(60);
+    expect(at(150, 0)).toBe(0.3); // 125% of nothing, plus the quarter million
+    expect(at(160, 10)).toBe(12.8);
+    expect(at(160, 40)).toBe(50.3);
+    expect(at(185, 20)).toBe(25); // the first apron cuts 125% short
+    expect(at(190, 20)).toBe(20);
+    expect(at(196, 20)).toBe(20);
+    expect(at(230, 20)).toBe(20);
+    expect(at(230, 0)).toBe(0);
   });
 });
 
@@ -663,17 +843,232 @@ describe('offseason', () => {
     expect(p.contract).toEqual(old);
     save.tradeDemands = [];
     expect(askingContract(save, p, t.id).refuses).toBe(false);
-    // no space: dead cap swallows the cap
-    t.deadCap = 500;
-    expect(resignPlayer(save, p.id)).toMatch(/cap space/);
+    // only the roster limit can stop it
+    const extra: number[] = [];
+    while (t.roster.length <= ROSTER_MAX) { const id = save.freeAgents[0]; extra.push(id); signPlayer(save, id, t.id, { salary: MIN_SALARY, years: 1 }); }
+    expect(resignPlayer(save, p.id)).toMatch(/over the limit/);
     expect(p.contract).toEqual(old);
-    // plenty of space: signs at the asking price
-    t.deadCap = 0;
-    for (const o of roster(save)) if (o.id !== p.id) o.contract.salary = MIN_SALARY;
+    for (const id of extra) releasePlayer(save, id, { deadCap: false });
+    // no cap space at all, far past the second apron, mid-level spent: his own team may still re-sign him
+    t.deadCap = 500;
+    t.mleUsed = true;
+    expect(payroll(save, t)).toBeGreaterThan(SECOND_APRON);
     const ask = askingContract(save, p, t.id);
     expect(resignPlayer(save, p.id)).toBeNull();
     expect(p.contract).toEqual({ salary: ask.salary, years: ask.years });
     expect(p.contract.years).toBeGreaterThan(0);
+    expect(t.mleUsed).toBe(true);
+    expect(expiringPlayers(save)).toEqual([]);
+    // someone else's player is not yours to re-sign
+    expect(resignPlayer(save, save.teams[0].roster[0])).not.toBeNull();
+  });
+
+  test('a star with an All-League or MVP award asks his own team for the supermax, and can be given it', () => {
+    const { save } = mk();
+    const t = me(save);
+    const p = roster(save).sort((a, b) => b.contract.salary - a.contract.salary)[0];
+    for (const k of RATING_KEYS) p.ratings[k] = 95;
+    p.age = 27; p.morale = 80; p.trait = 'Quiet Pro'; p.tenure = 0;
+    p.contract.years = 0;
+    expect(askingContract(save, p, t.id)).toMatchObject({ salary: MAX_SALARY, supermax: false, years: 5 });
+    p.awards.push('MVP (Y1)');
+    const ask = askingContract(save, p, t.id);
+    expect(ask.supermax).toBe(true);
+    expect(ask.salary).toBeGreaterThan(MAX_SALARY);
+    expect(ask.salary).toBeLessThanOrEqual(SUPERMAX_SALARY);
+    // nobody else can offer it
+    expect(askingContract(save, p, 0)).toMatchObject({ salary: MAX_SALARY, supermax: false });
+    expect(askingContract(save, p, 0).years).toBeLessThanOrEqual(4);
+    setPayroll(save, t, FIRST_APRON);
+    expect(resignPlayer(save, p.id)).toBeNull();
+    expect(p.contract).toEqual({ salary: ask.salary, years: 5 });
+  });
+
+  test('the Negotiator perk discounts what the user\'s own players ask, and nobody else\'s', () => {
+    const { save } = mk();
+    const t = me(save);
+    const p = roster(save)[2];
+    const theirs = save.players[save.teams[0].roster[2]];
+    const base = askingContract(save, p, t.id).salary, baseTheirs = askingContract(save, theirs, 0).salary, baseFa = askingContract(save, theirs, t.id).salary;
+    prog(save).perks.negotiator = 2;
+    expect(askingContract(save, p, t.id).salary).toBeCloseTo(base * 0.9, 0);
+    expect(askingContract(save, p, t.id).salary).toBeLessThan(base);
+    expect(askingContract(save, theirs, 0).salary).toBe(baseTheirs);
+    expect(askingContract(save, theirs, t.id).salary).toBe(baseFa);
+  });
+
+  /** A finished season: team i has i wins, the best eight made the playoffs, `champ` won it. */
+  function lotterySave(champ = 15): { save: Save; restore: () => void } {
+    const { save } = mk();
+    save.teams.forEach((t, i) => { t.record = { w: i, l: 15 - i, pf: 0, pa: 0, confW: 0, confL: 0, streak: 0 }; });
+    const series = [[15, 8], [14, 9], [13, 10], [12, 11]].map(([h, l]) => ({ round: 1 as const, conf: 0, highId: h, lowId: l, highW: 0, lowW: 0, games: [] }));
+    save.playoffs = { series, championId: champ };
+    startOffseason(save);
+    const picks = save.teams.map(t => t.picks.slice());
+    const cls = save.draftClass.slice();
+    const restore = () => { save.teams.forEach((t, i) => { t.picks = picks[i].slice(); }); save.draftClass = cls.slice(); save.offseason!.log = []; save.news = []; };
+    return { save, restore };
+  }
+
+  test('lottery: the worst team wins the first pick about a quarter of the time, and only the bottom eight can move up', () => {
+    const { save, restore } = lotterySave(12);
+    expect(LOTTERY_WEIGHTS).toEqual([25, 20, 16, 13, 10, 7, 5, 4]);
+    expect(LOTTERY_WEIGHTS.reduce((s, v) => s + v, 0)).toBe(100);
+    const N = 4000;
+    const first = new Array(16).fill(0);
+    let worstTop3 = 0;
+    for (let seed = 1; seed <= N; seed++) {
+      restore();
+      buildDraftOrder(save, new Rng(seed * 7919));
+      const order = save.offseason!.draftOrder;
+      expect(order.length).toBe(32);
+      const r1 = order.filter(s => s.round === 1), r2 = order.filter(s => s.round === 2);
+      expect(r1.map(s => s.pick)).toEqual(Array.from({ length: 16 }, (_, i) => i + 1));
+      expect(r2.map(s => s.pick)).toEqual(Array.from({ length: 16 }, (_, i) => i + 1));
+      expect(new Set(r1.map(s => s.teamId)).size).toBe(16);
+      // nobody outside the bottom eight picks in the top three
+      const top3 = r1.slice(0, 3).map(s => s.teamId);
+      for (const id of top3) expect(id).toBeLessThan(8);
+      // the rest of the lottery teams follow by record, worst first
+      const rest = r1.slice(3, 8).map(s => s.teamId);
+      expect(rest).toEqual([0, 1, 2, 3, 4, 5, 6, 7].filter(id => !top3.includes(id)));
+      // so the worst team can fall no lower than fourth
+      expect(r1.findIndex(s => s.teamId === 0)).toBeLessThanOrEqual(3);
+      // playoff teams after them by record, the champion last
+      expect(r1.slice(8).map(s => s.teamId)).toEqual([8, 9, 10, 11, 13, 14, 15, 12]);
+      // round 2 is strict reverse record
+      expect(r2.map(s => s.teamId)).toEqual(Array.from({ length: 16 }, (_, i) => i));
+      first[top3[0]]++;
+      if (top3.includes(0)) worstTop3++;
+      // this year's picks are used up, and the board is set
+      for (const t of save.teams) expect(t.picks.some(pk => pk.year === save.year)).toBe(false);
+      expect(save.offseason!.prospects.length).toBe(40);
+    }
+    LOTTERY_WEIGHTS.forEach((w, i) => expect(Math.abs(first[i] / N - w / 100)).toBeLessThan(0.03));
+    expect(first[0] / N).toBeGreaterThan(0.22);
+    expect(first[0] / N).toBeLessThan(0.28);
+    for (let i = 8; i < 16; i++) expect(first[i]).toBe(0);
+    // the worst team lands in the top three roughly 60% of the time
+    expect(worstTop3 / N).toBeGreaterThan(0.5);
+    expect(worstTop3 / N).toBeLessThan(0.72);
+  });
+
+  test('lottery: results are logged and reported, and a traded pick goes to its owner wherever it lands', () => {
+    const { save, restore } = lotterySave();
+    restore();
+    // team 9 holds the worst team's first-round pick; team 2 holds the champion's second
+    const move = (from: number, to: number, round: 1 | 2) => {
+      const i = save.teams[from].picks.findIndex(pk => pk.year === save.year && pk.round === round && pk.origTeamId === from);
+      save.teams[to].picks.push(save.teams[from].picks.splice(i, 1)[0]);
+    };
+    move(0, 9, 1); move(15, 2, 2);
+    buildDraftOrder(save, new Rng(5));
+    const order = save.offseason!.draftOrder, log = save.offseason!.log;
+    const r1 = order.filter(s => s.round === 1), r2 = order.filter(s => s.round === 2);
+    expect(order.length).toBe(32);
+    expect(r1.filter(s => s.teamId === 0).length).toBe(0);
+    expect(r1.filter(s => s.teamId === 9).length).toBe(2);
+    expect(r1.findIndex(s => s.teamId === 9)).toBeLessThanOrEqual(3); // the worst team's slot, which is top four
+    expect(r1[15].teamId).toBe(15);
+    expect(r2[15].teamId).toBe(2);
+    expect(r2.filter(s => s.teamId === 15).length).toBe(0);
+    // one line for each of the top three, and for anyone pushed out of it
+    const lines = log.filter(l => l.startsWith('Lottery: '));
+    expect(lines.length).toBeGreaterThanOrEqual(3);
+    expect(lines.length).toBeLessThanOrEqual(6);
+    for (const n of [1, 2, 3]) expect(lines.filter(l => l.includes(`the #${n} pick`)).length).toBe(1);
+    expect(lines.every(l => /(keep|jump from \d(st|nd|rd|th) to|fall from \d(st|nd|rd|th) to) the #\d pick/.test(l))).toBe(true);
+    const worst = lines.find(l => l.startsWith(`Lottery: ${save.teams[0].city} `))!;
+    expect(worst).toContain(`(the pick belongs to ${save.teams[9].city})`);
+    const news = save.news.find(n => n.kind === 'draft' && n.text.startsWith('Draft lottery: '))!;
+    expect(news).toBeTruthy();
+    expect(news.text).toMatch(/win the #1 pick\. Then .* second, .* third\./);
+    // a jump is described from the seed to the pick
+    let jumped = false;
+    for (let seed = 1; seed <= 40 && !jumped; seed++) {
+      restore();
+      buildDraftOrder(save, new Rng(seed));
+      const top = save.offseason!.draftOrder[0].teamId;
+      if (top === 0) { expect(save.offseason!.log).toContain(`Lottery: ${save.teams[0].city} keep the #1 pick`); continue; }
+      jumped = true;
+      const nth = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'][top];
+      expect(save.offseason!.log).toContain(`Lottery: ${save.teams[top].city} jump from ${nth} to the #1 pick`);
+      expect(save.offseason!.log.some(l => l.startsWith(`Lottery: ${save.teams[0].city} fall from 1st to the #`))).toBe(true);
+    }
+    expect(jumped).toBe(true);
+  });
+
+  test('a draft pick can always be signed, even far over the cap', () => {
+    const { save, rng } = mk();
+    const t = me(save);
+    startOffseason(save, 'draft');
+    const off = save.offseason!;
+    off.prospects = save.draftClass.slice();
+    off.draftOrder = [{ teamId: t.id, round: 1, pick: 1 }];
+    t.deadCap = 300; t.mleUsed = true;
+    const pid = off.prospects[0];
+    expect(userDraftPick(save, pid, rng)).toBeNull();
+    expect(t.roster).toContain(pid);
+    expect(save.players[pid].contract).toEqual({ salary: 10, years: 3 });
+  });
+
+  /** End a season with the user's team at a given payroll (and not in the final). */
+  function endSeasonAt(pay: number, credits: number): Save {
+    const { save, rng } = mk();
+    const t = me(save);
+    for (const x of save.teams) x.record = { w: 7, l: 7, pf: 0, pa: 0, confW: 0, confL: 0, streak: 0 };
+    save.playoffs = { series: [{ round: 3, conf: 2, highId: 0, lowId: 1, winnerId: 0, highW: 1, lowW: 0, games: [] }], championId: 0 };
+    save.credits = credits;
+    save.owner.approval = 60;
+    setPayroll(save, t, pay);
+    beginOffseason(save, rng);
+    return save;
+  }
+
+  test('the luxury tax is charged to the user at season end: credits, owner approval, a headline', () => {
+    const clean = endSeasonAt(LUXURY_TAX, 10);
+    expect(clean.credits).toBe(10);
+    expect(clean.offseason!.log.some(l => l.startsWith('Luxury tax'))).toBe(false);
+    expect(clean.news.some(n => n.text.startsWith('Luxury tax'))).toBe(false);
+
+    const taxed = endSeasonAt(LUXURY_TAX + 12, 10);
+    expect(taxed.credits).toBe(6);
+    expect(taxed.owner.approval).toBe(clean.owner.approval - 3);
+    const line = taxed.offseason!.log.find(l => l.startsWith('Luxury tax'))!;
+    expect(line).toBe(`Luxury tax: ${me(taxed).city} finished $12M over the tax line. It cost 4 credits and 3 owner approval.`);
+    expect(taxed.news.find(n => n.text === line)).toMatchObject({ kind: 'owner', mine: true });
+
+    // a small overage still costs the owner's patience, and credits never go below zero
+    const small = endSeasonAt(LUXURY_TAX + 1, 10);
+    expect(small.credits).toBe(10);
+    expect(small.owner.approval).toBe(clean.owner.approval - 2);
+    const broke = endSeasonAt(LUXURY_TAX + 30, 3);
+    expect(broke.credits).toBe(0);
+    expect(broke.offseason!.log.find(l => l.startsWith('Luxury tax'))).toContain('It cost 3 credits and 7 owner approval.');
+  });
+
+  test('after a loss a taxpaying team with a losing record costs one more owner approval', () => {
+    const run = (pay: number, won: boolean, w: number, l: number): number => {
+      const { save } = mk();
+      const t = me(save);
+      t.record = { w, l, pf: 0, pa: 0, confW: 0, confL: 0, streak: 0 };
+      save.owner.approval = 50;
+      setPayroll(save, t, pay);
+      afterUserGame(save, won, 5, false);
+      return save.owner.approval;
+    };
+    expect(run(LUXURY_TAX + 1, false, 3, 6)).toBe(run(LUXURY_TAX, false, 3, 6) - 1);
+    expect(run(LUXURY_TAX + 25, false, 3, 6)).toBe(run(LUXURY_TAX, false, 3, 6) - 1);
+    expect(run(LUXURY_TAX + 5, false, 6, 3)).toBe(run(LUXURY_TAX, false, 6, 3)); // winning record: no complaint
+    expect(run(LUXURY_TAX + 5, true, 3, 6)).toBe(run(LUXURY_TAX, true, 3, 6)); // not after a win
+    expect(run(SALARY_CAP + 20, false, 3, 6)).toBe(run(100, false, 3, 6)); // over the cap is not the tax
+  });
+
+  test('the mid-level exception comes back when the new season starts', () => {
+    const { save, rng } = mk();
+    for (const t of save.teams) t.mleUsed = true;
+    startNewSeason(save, rng);
+    for (const t of save.teams) expect(t.mleUsed).toBe(false);
   });
 
   test('draft order has 32 slots and honours a traded pick', () => {
@@ -755,6 +1150,43 @@ describe('offseason', () => {
     expect(save.owner.goals.length).toBe(2);
     expect(save.scoutPoints).toBeGreaterThan(0);
     for (const t of save.teams) expectValidLineup(save, t);
+  });
+});
+
+describe('a freshly generated league', () => {
+  test('payrolls spread around the soft cap: strong teams in or near the tax, weak teams with room, nobody above the second apron', () => {
+    const all: number[] = [];
+    let topAvg = 0, bottomAvg = 0;
+    const N = 25;
+    for (let seed = 1; seed <= N; seed++) {
+      const { save } = mk(seed * 13);
+      const rows = save.teams.map(t => ({ pay: payroll(save, t), str: teamStrength(save, t) })).sort((a, b) => b.str - a.str);
+      const avg = rows.reduce((s, r) => s + r.pay, 0) / rows.length;
+      expect(avg, `seed ${seed} average payroll`).toBeGreaterThan(140);
+      expect(avg, `seed ${seed} average payroll`).toBeLessThan(170);
+      for (const r of rows) { expect(r.pay).toBeLessThanOrEqual(SECOND_APRON); all.push(r.pay); }
+      expect(rows.filter(r => r.pay > SALARY_CAP).length).toBeGreaterThanOrEqual(4);
+      expect(rows.filter(r => r.pay <= SALARY_CAP).length).toBeGreaterThanOrEqual(3);
+      topAvg += rows.slice(0, 4).reduce((s, r) => s + r.pay, 0) / 4 / N;
+      bottomAvg += rows.slice(-4).reduce((s, r) => s + r.pay, 0) / 4 / N;
+      for (const t of save.teams) for (const id of t.roster) {
+        const c = save.players[id].contract;
+        expect(c.salary).toBeGreaterThanOrEqual(MIN_SALARY);
+        expect(c.salary).toBeLessThanOrEqual(MAX_SALARY);
+        expect(c.years).toBeGreaterThanOrEqual(1);
+        expect(c.years).toBeLessThanOrEqual(4);
+      }
+      for (const t of save.teams) expect(t.mleUsed).toBeFalsy();
+    }
+    const mean = all.reduce((s, v) => s + v, 0) / all.length;
+    expect(mean).toBeGreaterThan(148);
+    expect(mean).toBeLessThan(162);
+    expect(topAvg).toBeGreaterThan(172);
+    expect(topAvg).toBeLessThan(SECOND_APRON);
+    expect(bottomAvg).toBeGreaterThan(112);
+    expect(bottomAvg).toBeLessThan(138);
+    // some teams start as taxpayers
+    expect(all.filter(v => v > LUXURY_TAX).length).toBeGreaterThan(N);
   });
 });
 

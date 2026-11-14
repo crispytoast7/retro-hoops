@@ -17,14 +17,20 @@ export interface ArcadeSetup {
   defColors: { primary: string; secondary: string };
   ocStars: number;
   difficulty: Difficulty;
+  /** Coach perk ranks that change how possessions play. */
+  perks?: { shooting?: number; handles?: number; passing?: number; rim?: number };
+  /** Practice mode: no shot clock, no steals or interceptions, slower defenders. */
+  practice?: boolean;
 }
 export interface ArcadeResult {
   outcome: UserPossessionOutcome;
   /** Great plays for credits and crowd: 'dunk' 'three' 'perfect' 'buzzer' 'andone' 'ankles' 'oreb' */
   highlights: string[];
   points: number;
+  passes: number;
+  moves: number;
 }
-export interface ArcadeTheme { paint: string; accent: string; banners: number; crowdA: string; crowdB: string }
+export interface ArcadeTheme { paint: string; accent: string; banners: number; crowdA: string; crowdB: string; wood?: { wood: string; wood2: string; grain: string } }
 
 // ---- tuning -------------------------------------------------------------------------
 /** Game-clock seconds per real second. */
@@ -108,6 +114,10 @@ export class Arcade {
   private events: PlayEvent[] = [];
   private highlights: string[] = [];
   private points = 0;
+  private passes = 0;
+  private moves = 0;
+  private pk = { shooting: 0, handles: 0, passing: 0, rim: 0 };
+  private practice = false;
   private popups: Popup[] = [];
   private shake = 0;
   private netKick = 0;
@@ -139,7 +149,7 @@ export class Arcade {
     this.buf.width = W; this.buf.height = H;
     this.g = this.buf.getContext('2d')!;
     this.theme = theme;
-    this.court = makeCourt(theme.paint, theme.accent, theme.banners);
+    this.court = makeCourt(theme.paint, theme.accent, theme.banners, theme.wood);
     canvas.style.touchAction = 'none';
     canvas.addEventListener('pointerdown', this.onDown);
     canvas.addEventListener('pointermove', this.onMove);
@@ -172,6 +182,9 @@ export class Arcade {
     this.s = setup;
     this.diff = DIFF[setup.difficulty];
     this.crowd = setup.poss.crowd;
+    this.pk = { shooting: 0, handles: 0, passing: 0, rim: 0, ...setup.perks };
+    this.practice = !!setup.practice;
+    this.passes = 0; this.moves = 0;
     const mk = (p: Player, slot: number, off: boolean): Ent => ({
       p, slot, off, x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, stun: 0, slow: 0, run: -1, face: 0,
       armsUp: 0, lift: 0, relocate: 1.5 + Math.random() * 2.5, spot: 0, cut: 0,
@@ -187,7 +200,7 @@ export class Arcade {
     this.ball = { x: h.x, y: h.y, z: 6 };
     this.clock = setup.poss.clock;
     this.startClock = this.clock;
-    this.periodEnds = setup.poss.lastShot || this.clock <= 24;
+    this.periodEnds = !this.practice && (setup.poss.lastShot || this.clock <= 24);
     this.shotClock = Math.min(24, this.clock);
     this.events = []; this.highlights = []; this.points = 0;
     this.popups = []; this.assist = null; this.dribbleT = 0;
@@ -353,10 +366,11 @@ export class Arcade {
     const h = this.off[this.handler];
     const hnd = h.p.ratings.hnd / 100;
     this.dash = { t: 0.2, cd: 0.85, x: dx, y: dy };
+    this.moves++;
     sfx.move();
     const on = this.nearestDef(h.x, h.y);
     if (on.e && on.d < 24) {
-      const p = clamp(0.3 + 0.6 * hnd - 0.28 * (on.e.p.ratings.def / 100) + this.diff.move, 0.1, 0.92);
+      const p = clamp(0.3 + 0.6 * hnd - 0.28 * (on.e.p.ratings.def / 100) + this.diff.move + 0.06 * this.pk.handles + (this.practice ? 0.5 : 0), 0.1, 0.95);
       if (Math.random() < p) {
         on.e.stun = 0.5 + 0.5 * hnd;
         this.popup(pick(CALLS.move), PAL.yellow, 2);
@@ -365,7 +379,7 @@ export class Arcade {
       } else {
         h.slow = 0.45;
         this.dash.t = 0.1;
-        if (on.d < 12 && this.grace <= 0 && Math.random() < (0.08 + 0.3 * (1 - hnd)) * this.diff.steal) this.turnover('steal', on.e);
+        if (!this.practice && on.d < 12 && this.grace <= 0 && Math.random() < (0.08 + 0.3 * (1 - hnd)) * this.diff.steal * (1 - 0.06 * this.pk.handles)) this.turnover('steal', on.e);
       }
     }
   }
@@ -374,7 +388,8 @@ export class Arcade {
     if (this.phase !== 'live' || to === undefined || to < 0 || to === this.handler) return;
     const from = this.off[this.handler], tgt = this.off[to];
     const pas = from.p.ratings.pas / 100;
-    const spd = (105 + 115 * pas) * (1 + 0.03 * this.s.ocStars);
+    const spd = (105 + 115 * pas) * (1 + 0.03 * this.s.ocStars) * (1 + 0.08 * this.pk.passing);
+    this.passes++;
     const dist = Math.hypot(tgt.x - from.x, tgt.y - from.y);
     const dur = Math.max(0.12, dist / spd);
     // lead the receiver, with a little error for poor passers
@@ -396,7 +411,7 @@ export class Arcade {
     this.meter = {
       v: 0, three, contest: 0,
       dur: (0.55 + 0.25 * sht) * (three ? 0.94 : 1),
-      hw: 0.085 * (0.55 + 0.9 * sht) * distM * this.diff.window * (1 + 0.05 * this.s.ocStars),
+      hw: 0.085 * (0.55 + 0.9 * sht) * distM * this.diff.window * (1 + 0.05 * this.s.ocStars) * (1 + 0.08 * this.pk.shooting) * (this.practice ? 1.3 : 1),
     };
     h.vx = 0; h.vy = 0;
     this.phase = 'charge';
@@ -413,10 +428,10 @@ export class Arcade {
     const q = late ? 0 : off <= hw ? 3 : off <= hw * 2.2 ? 2 : off <= hw * 4 ? 1 : 0;
     const three = this.meter.three;
     const dist = Math.hypot(h.x - HOOP.x, h.y - HOOP.y);
-    let p = (three ? 0.17 + 0.28 * sht : 0.27 + 0.28 * sht) + [-0.22, -0.08, 0.04, 0.18][q];
+    let p = (three ? 0.19 + 0.29 * sht : 0.28 + 0.29 * sht) + [-0.22, -0.08, 0.05, 0.21][q];
     if (dist > 135) p -= 0.12 + (dist - 135) * 0.004;
     if (dist < 40) p += 0.06;
-    p -= 0.2 * c;
+    p -= 0.17 * c;
     if (c < 0.08) p += 0.05;
     p += 0.01 * this.s.ocStars + this.diff.make;
     p = clamp(p, 0.03, 0.95);
@@ -459,8 +474,8 @@ export class Arcade {
     const dunk = h.p.ratings.fin >= 68 && (open || (h.p.ratings.fin >= 86 && c1 < 0.6));
     let p = dunk
       ? (open ? 0.96 : 0.6 + 0.3 * fin - 0.3 * c1)
-      : 0.56 + 0.4 * fin - 0.3 * c1 - 0.12 * c2;
-    p = clamp(p + this.diff.make, 0.08, 0.97);
+      : 0.6 + 0.38 * fin - 0.3 * c1 - 0.12 * c2;
+    p = clamp(p + this.diff.make + 0.04 * this.pk.rim, 0.08, 0.97);
     const made = Math.random() < p;
     const foul = !open && Math.random() < 0.09 + 0.1 * c1;
     let blockBy = -1;
@@ -586,14 +601,14 @@ export class Arcade {
         this.slowmo = 1;
         const seconds = clamp(Math.round(this.startClock - this.clock), 2, Math.max(2, Math.round(this.startClock)));
         const r = this.resolve; this.resolve = null;
-        r?.({ outcome: { events: this.events, seconds }, highlights: this.highlights, points: this.points });
+        r?.({ outcome: { events: this.events, seconds }, highlights: this.highlights, points: this.points, passes: this.passes, moves: this.moves });
       }
       return;
     }
     // clocks
     const live = this.phase === 'live' || this.phase === 'pass' || this.phase === 'charge';
-    this.clock = Math.max(0, this.clock - dt * TIME_SCALE);
-    if (live) this.shotClock = Math.max(0, this.shotClock - dt * TIME_SCALE);
+    if (!this.practice) this.clock = Math.max(0, this.clock - dt * TIME_SCALE);
+    if (live && !this.practice) this.shotClock = Math.max(0, this.shotClock - dt * TIME_SCALE);
     this.onClock?.(this.clock, this.periodEnds ? -1 : this.shotClock);
     this.grace = Math.max(0, this.grace - dt);
     this.dash.cd = Math.max(0, this.dash.cd - dt);
@@ -640,8 +655,8 @@ export class Arcade {
           d.x -= (dx / dd) * push * 0.35; d.y -= (dy / dd) * push * 0.35;
         }
         // reach-in steals
-        if (dd < 9 && this.grace <= 0) {
-          let rate = clamp(0.12 + 0.4 * (d.p.ratings.def / 100) - 0.42 * (h.p.ratings.hnd / 100), 0.03, 0.5) * this.diff.steal;
+        if (dd < 9 && this.grace <= 0 && !this.practice) {
+          let rate = clamp(0.12 + 0.4 * (d.p.ratings.def / 100) - 0.42 * (h.p.ratings.hnd / 100), 0.03, 0.5) * this.diff.steal * (1 - 0.06 * this.pk.handles);
           if (this.dash.t > 0) rate *= 0.3;
           if (Math.random() < rate * dt) { this.turnover('steal', d); return; }
         }
@@ -670,10 +685,10 @@ export class Arcade {
       const left = Math.hypot(ps.x1 - this.ball.x, ps.y1 - this.ball.y);
       if (travelled > 12 && left > 9) {
         for (const d of this.def) {
-          if (d.stun > 0 || ps.checked.has(d.p.id)) continue;
+          if (this.practice || d.stun > 0 || ps.checked.has(d.p.id)) continue;
           if (Math.hypot(d.x - this.ball.x, d.y - 4 - this.ball.y) < 6.5) {
             ps.checked.add(d.p.id);
-            const p = clamp(0.32 + 0.5 * (d.p.ratings.def / 100) - 0.5 * (from.p.ratings.pas / 100) + (this.diff.steal - 1) * 0.2, 0.08, 0.8);
+            const p = clamp(0.32 + 0.5 * (d.p.ratings.def / 100) - 0.5 * (from.p.ratings.pas / 100) + (this.diff.steal - 1) * 0.2 - 0.05 * this.pk.passing, 0.06, 0.8);
             if (Math.random() < p) { this.ball.x = d.x; this.ball.y = d.y; this.turnover('intercept', d); return; }
           }
         }
@@ -797,7 +812,7 @@ export class Arcade {
       if (closing) { const m = this.off[i]; t = { x: m.x + (HOOP.x - m.x) * 0.07, y: m.y + (HOOP.y - m.y) * 0.07 }; if (Math.hypot(d.x - m.x, d.y - m.y) < 14) { d.armsUp = 0.2; if (this.phase === 'shot') d.lift = 3; } }
       d.slow = Math.max(0, d.slow - dt);
       // sliding with the ball is slower than sprinting, so a quicker handler can turn the corner
-      this.steer(d, t.x, t.y, this.speed(d) * this.diff.dspd * (i === this.handler ? 0.9 : 0.9) * (d.slow > 0 ? 0.45 : 1), dt);
+      this.steer(d, t.x, t.y, this.speed(d) * this.diff.dspd * (i === this.handler ? 0.9 : 0.9) * (d.slow > 0 ? 0.45 : 1) * (this.practice ? 0.7 : 1), dt);
       const sp = Math.hypot(d.vx, d.vy);
       d.run = sp > 5 ? (d.run < 0 ? 0 : d.run + dt * 5) : -1;
       d.face = Math.abs(d.vx) > 4 ? (d.vx > 0 ? 1 : -1) : 0;
@@ -867,7 +882,7 @@ export class Arcade {
         g.fillRect(Math.round(x0 + (dx / d) * m) - 1, Math.round(y0 + (dy / d) * m) - 1, 3, 3);
       }
       // shot clock
-      if (this.phase !== 'over' && this.phase !== 'idle' && !this.periodEnds) {
+      if (this.phase !== 'over' && this.phase !== 'idle' && !this.periodEnds && !this.practice) {
         const sc = Math.ceil(this.shotClock);
         g.fillStyle = PAL.ink; g.fillRect(W - 23, BASE_Y + 3, 19, 14);
         drawText(g, String(sc).padStart(2, '0'), W - 21, BASE_Y + 5, sc <= 5 ? PAL.red : PAL.yellow, { scale: 2 });

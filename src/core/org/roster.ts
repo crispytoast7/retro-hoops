@@ -2,11 +2,13 @@ import { DEAD_CAP_RATE } from '../constants';
 import { fixLineup } from '../lineup';
 import { round1 } from '../ratings';
 import type { Contract, Save } from '../types';
+import type { SigningVia } from './finance';
 
-/** Put a free agent (or prospect) on a team with a contract. */
-export function signPlayer(save: Save, playerId: number, teamId: number, contract: Contract): void {
+/** Put a free agent (or prospect) on a team with a contract. Pass the signing path (from signingPath) so a mid-level deal marks the exception as used for the season. */
+export function signPlayer(save: Save, playerId: number, teamId: number, contract: Contract, via?: SigningVia): void {
   const p = save.players[playerId];
   const team = save.teams[teamId];
+  if (via === 'mle' || via === 'taxMle') team.mleUsed = true;
   save.freeAgents = save.freeAgents.filter(id => id !== playerId);
   p.teamId = teamId;
   p.contract = { salary: round1(contract.salary), years: contract.years };

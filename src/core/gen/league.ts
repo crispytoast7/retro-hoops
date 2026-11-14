@@ -1,15 +1,16 @@
 // League, team and player generation.
-import { MIN_SALARY, NUM_TEAMS, PROSPECTS, SALARY_CAP, SAVE_VERSION } from '../constants';
+import { MAX_SALARY, MIN_SALARY, NUM_TEAMS, PROSPECTS, SAVE_VERSION, SECOND_APRON } from '../constants';
 import { marketSalary } from '../gm/value';
 import { autoLineup } from '../lineup';
 import { payroll } from '../org/finance';
 import { clamp, emptyStats, overallOf, round1 } from '../ratings';
 import { Rng } from '../rng';
 import type {
-  CoachCareer, Facility, FacilityKey, Player, Pos, RatingKey, Ratings, Save, Settings, StaffMember, Team,
+  Calendar, CoachCareer, Facility, FacilityKey, Player, Pos, RatingKey, Ratings, Save, Settings, StaffMember, Team,
 } from '../types';
 import { FACILITY_KEYS, POSITIONS, RATING_KEYS, TRAITS } from '../types';
 import { FIRST_NAMES, LAST_NAMES, OWNER_NAMES } from '../../data/names';
+import { CLUBS, COLLEGES, DEV_TEAMS } from '../../data/origins';
 import { TEAM_TEMPLATES } from '../../data/teams';
 
 const ARCHETYPE: Record<Pos, Ratings> = {
@@ -94,6 +95,8 @@ export function genProspects(save: Save, rng: Rng): number[] {
     // most prospects top out as role players; a few each year have star ceilings
     p.potential = clamp(overallOf(p.ratings, pos) + 3 + Math.round(Math.abs(rng.gauss()) * 8 * (1 - tier * 0.4)), overallOf(p.ratings, pos), 99);
     p.scouted = false;
+    const src = rng.next();
+    p.origin = src < 0.68 ? rng.pick(COLLEGES) : src < 0.92 ? rng.pick(CLUBS) : rng.pick(DEV_TEAMS);
     save.players[p.id] = p;
     ids.push(p.id);
   }
@@ -109,11 +112,16 @@ export function genFreeAgents(save: Save, rng: Rng, n: number): void {
   }
 }
 
+/** Starting contracts vs market value: the league-wide level, and how much it leans against team strength. */
+const DEAL_BASE = 1.07;
+const DEAL_SLOPE = 0.03;
+
 export interface NewGameOpts {
   seed: number;
   coachName: string;
   coachLook: CoachCareer['look'];
   settings: Settings;
+  calendar?: Calendar;
 }
 
 /** Build a whole league. The user's team is chosen afterwards with `chooseTeam`. */
@@ -128,7 +136,7 @@ export function newLeague(opts: NewGameOpts): Save {
     credits: 10,
     owner: { name: rng.pick(OWNER_NAMES), approval: 60, goals: [] },
     fans: 50, captainId: null, news: [], pendingEvent: null, seenEvents: [], history: [], records: {},
-    hallOfFame: [], offseason: null, settings: opts.settings, fired: null, tradeDemands: [], scoutPoints: 0, milestones: [], draftClass: [], tradeOffer: null,
+    hallOfFame: [], offseason: null, settings: opts.settings, fired: null, tradeDemands: [], scoutPoints: 0, milestones: [], draftClass: [], tradeOffer: null, calendar: opts.calendar, creditCarry: 0,
   };
   const templates = rng.shuffle(TEAM_TEMPLATES.slice()).slice(0, NUM_TEAMS);
   // spread of team strength: a few contenders, a few bottom-feeders
@@ -159,14 +167,18 @@ export function newLeague(opts: NewGameOpts): Save {
     };
     POSITIONS.forEach((pos, i) => add(pos, base + startBoost[i] + rng.gauss() * 2, genAge(rng)));
     benchPos.forEach((pos, i) => add(pos, base - 6 - i * 1.5 + rng.gauss() * 2.5, i >= 3 ? rng.int(20, 23) : genAge(rng)));
-    // contracts
+    // contracts: around market value. Good teams got there on team-friendly deals; bad teams had to overpay
+    // to get anyone to come, so payrolls spread less than talent does.
+    const dealMood = DEAL_BASE - (base - 70.5) * DEAL_SLOPE;
     for (const pid of team.roster) {
       const p = save.players[pid];
-      p.contract = { salary: round1(Math.max(MIN_SALARY, marketSalary(p) * rng.range(0.85, 1.12))), years: rng.int(1, 4) };
+      p.contract = { salary: round1(clamp(marketSalary(p) * dealMood * rng.range(0.88, 1.12), MIN_SALARY, MAX_SALARY)), years: rng.int(1, 4) };
     }
+    // nobody starts above the second apron: the rare team that would trims its two biggest deals
     let guard = 0;
-    while (payroll(save, team) > SALARY_CAP - 2 && guard++ < 20) {
-      for (const pid of team.roster) { const p = save.players[pid]; p.contract.salary = round1(Math.max(MIN_SALARY, p.contract.salary * 0.94)); }
+    while (payroll(save, team) > SECOND_APRON - 2 && guard++ < 20) {
+      const top = team.roster.map(pid => save.players[pid]).sort((a, b) => b.contract.salary - a.contract.salary).slice(0, 2);
+      for (const p of top) p.contract.salary = round1(Math.max(MIN_SALARY, p.contract.salary * 0.95));
     }
     team.lineup = autoLineup(team.roster.map(pid => save.players[pid]));
     const used = new Set<number>();

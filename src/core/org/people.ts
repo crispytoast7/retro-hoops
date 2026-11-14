@@ -9,8 +9,9 @@ import { INJURIES } from '../../data/names';
 import { teamStrength } from '../gm/value';
 import { effLevel, headline, pushNews, teamName } from './economy';
 import { payroll } from './finance';
-import { SALARY_CAP } from '../constants';
+import { LUXURY_TAX } from '../constants';
 import { shortName } from '../gen/league';
+import { perk } from './progress';
 
 const bump = (save: Save, k: 'fans', v: number) => { save[k] = clamp(save[k] + v, 0, 100); };
 export const bumpOwner = (save: Save, v: number): void => { save.owner.approval = clamp(save.owner.approval + v, 0, 100); };
@@ -19,14 +20,14 @@ export const bumpRep = (save: Save, v: number): void => { save.coach.rep = clamp
 const bumpMorale = (p: Player, v: number) => { p.morale = clamp(p.morale + v, 0, 100); };
 
 // ---- after a user game ---------------------------------------------------------------
-export function afterUserGame(save: Save, won: boolean, margin: number, playoff: boolean): void {
+export function afterUserGame(save: Save, won: boolean, margin: number, playoff: boolean, scale = 1): void {
   const team = save.teams[save.userTeamId];
   const streak = team.record.streak;
   const arena = effLevel(team.facilities.arena);
-  bumpOwner(save, won ? (playoff ? 5 : 2) : (playoff ? -3 : -3) - (streak <= -3 ? 2 : 0));
-  bumpFans(save, won ? 2 + (arena >= 3 ? 1 : 0) + (margin <= 3 ? 1 : 0) : -2 - (streak <= -3 ? 1 : 0));
-  bumpRep(save, won ? (playoff ? 2 : 0.6) : -0.3);
-  if (!won && payroll(save, team) > SALARY_CAP - 4 && team.record.w < team.record.l) bumpOwner(save, -1); // paying a lot to lose
+  bumpOwner(save, scale * (won ? (playoff ? 5 : 2) : (-3 - (streak <= -3 ? 2 : 0)) * (1 - 0.2 * perk(save, 'trust'))));
+  bumpFans(save, scale * (won ? 2 + (arena >= 3 ? 1 : 0) + (margin <= 3 ? 1 : 0) : -2 - (streak <= -3 ? 1 : 0)));
+  bumpRep(save, scale * (won ? (playoff ? 2 : 0.6) : -0.3));
+  if (!won && payroll(save, team) > LUXURY_TAX && team.record.w < team.record.l) bumpOwner(save, -1 * scale); // paying the luxury tax to lose
   // morale
   const captain = save.captainId !== null ? save.players[save.captainId] : null;
   const capBoost = captain && team.roster.includes(captain.id) ? (captain.trait === 'Leader' ? 2 : 1) : 0;
@@ -34,7 +35,7 @@ export function afterUserGame(save: Save, won: boolean, margin: number, playoff:
   const starters = new Set(team.lineup);
   for (const id of team.roster) {
     const p = save.players[id];
-    let d = (won ? 2 : -2) + fanMood;
+    let d = (won ? 2 : perk(save, 'locker') ? -1 : -2) + fanMood;
     if (!won) d += capBoost; // a captain softens losses
     if (starters.has(id)) d += 1;
     else {
@@ -48,7 +49,7 @@ export function afterUserGame(save: Save, won: boolean, margin: number, playoff:
     if (p.contract.years <= 1 && ovr(p) >= 75) d -= 0.5; // wants an extension
     // drift toward 60
     d += (60 - p.morale) * 0.04;
-    bumpMorale(p, Math.round(d));
+    bumpMorale(p, d * scale);
     if (p.morale < 22 && ovr(p) >= 72 && !save.tradeDemands.includes(id) && p.trait !== 'Loyal') {
       save.tradeDemands.push(id);
       pushNews(save, 'team', `${p.name} is unhappy and has asked for a trade.`, true);
@@ -63,13 +64,14 @@ export function setOwnerGoals(save: Save): void {
   const me = save.teams[save.userTeamId];
   const ranked = save.teams.slice().sort((a, b) => teamStrength(save, b) - teamStrength(save, a));
   const rank = ranked.indexOf(me); // 0 = strongest
+  const g14 = (save.calendar?.games ?? 14) / 14;
   const goals: OwnerGoal[] = [];
   if (rank < 3) goals.push({ kind: 'finals', text: 'Reach the championship game' });
   else if (rank < 6) goals.push({ kind: 'semis', text: 'Win a playoff game' });
   else if (rank < 10) goals.push({ kind: 'playoffs', text: 'Make the playoffs' });
-  else if (rank < 13) goals.push({ kind: 'wins', target: 6, text: 'Win 6 games' });
-  else goals.push({ kind: 'wins', target: 4, text: 'Win 4 games' });
-  const w = clamp(11 - Math.floor(rank * 0.55), 4, 11);
+  else if (rank < 13) goals.push({ kind: 'wins', target: Math.round(6 * g14), text: `Win ${Math.round(6 * g14)} games` });
+  else goals.push({ kind: 'wins', target: Math.round(4 * g14), text: `Win ${Math.round(4 * g14)} games` });
+  const w = Math.round(clamp(11 - Math.floor(rank * 0.55), 4, 11) * g14);
   if (goals[0].kind !== 'wins') goals.push({ kind: 'wins', target: w, text: `Win ${w} games` });
   else goals.push({ kind: 'develop', text: 'Start a player aged 23 or younger' });
   save.owner.goals = goals;
@@ -205,7 +207,7 @@ export function rollInjuries(save: Save, team: Team, lines: BoxLine[], rng: Rng)
     const p = save.players[l.playerId];
     if (!p || p.injury) continue;
     const ageK = p.age >= 32 ? 1.4 : 1;
-    if (!rng.chance(0.011 * (l.min / 40) * (1.25 - 0.17 * med) * ageK)) continue;
+    if (!rng.chance((save.calendar && save.calendar.games > 20 ? 0.005 : 0.011) * (l.min / 40) * (1.25 - 0.17 * med) * ageK)) continue;
     const inj = rng.pick(INJURIES);
     const weeks = Math.max(1, Math.round(rng.int(inj.min, inj.max) * (1.1 - 0.1 * med)));
     p.injury = { weeks, desc: inj.desc, fresh: true };

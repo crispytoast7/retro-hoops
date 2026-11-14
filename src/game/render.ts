@@ -48,7 +48,8 @@ export function shade(hex: string, f: number): string {
 }
 
 /** Pre-render the static court (floor, lines, paint) once per game. */
-export function makeCourt(paint: string, accent: string, banners: number): HTMLCanvasElement {
+export function makeCourt(paint: string, accent: string, banners: number, wood?: { wood: string; wood2: string; grain: string }): HTMLCanvasElement {
+  const W1 = wood?.wood ?? PAL.wood, W2 = wood?.wood2 ?? PAL.wood2, WG = wood?.grain ?? PAL.woodDark;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const g = c.getContext('2d')!;
@@ -58,10 +59,10 @@ export function makeCourt(paint: string, accent: string, banners: number): HTMLC
   g.fillStyle = '#2a2644'; g.fillRect(0, BASE_Y - 4, W, 2);
   // floor planks
   for (let x = 0; x < W; x += 12) {
-    g.fillStyle = (x / 12) % 2 ? PAL.wood : PAL.wood2;
+    g.fillStyle = (x / 12) % 2 ? W1 : W2;
     g.fillRect(x, BASE_Y - 2, 12, H);
   }
-  g.fillStyle = PAL.woodDark;
+  g.fillStyle = WG;
   for (let x = 0; x < W; x += 12) for (let y = BASE_Y + ((x * 7) % 40); y < H; y += 46) g.fillRect(x, y, 12, 1);
   // out-of-bounds apron
   g.fillStyle = shade(paint, 0.55);

@@ -11,7 +11,9 @@ const streakStr = (n: number) => (n === 0 ? '-' : n > 0 ? `W${n}` : `L${-n}`);
 
 function Series({ save, s }: { save: Save; s: PlayoffSeries }) {
   const g = s.gameId != null ? save.schedule.find(x => x.id === s.gameId) : undefined;
-  const score = (id: number) => (g?.played ? (g.homeId === id ? g.homeScore : g.awayScore) : undefined);
+  const single = (save.calendar?.seriesWins ?? 1) === 1;
+  // one-off games show the score; series show games won
+  const score = (id: number) => (single ? (g?.played ? (g.homeId === id ? g.homeScore : g.awayScore) : undefined) : id === s.highId ? s.highW : s.lowW);
   const row = (id: number) => {
     const t = save.teams[id];
     const win = s.winnerId === id;

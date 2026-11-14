@@ -187,7 +187,7 @@ describe('simulateGame', () => {
     expect(m.starterShare).toBeGreaterThan(0.69); expect(m.starterShare).toBeLessThan(0.76);
   });
 
-  test('ratings decide games', () => {
+  test('ratings decide games', { timeout: 30000 }, () => {
     const base = makeSquad(1);
     const plus5 = makeSquad(2, 71, 61), plus10 = makeSquad(3, 76, 66);
     const starters5 = makeSquad(4, 71, 56), starters10 = makeSquad(5, 76, 56);

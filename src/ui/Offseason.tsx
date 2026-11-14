@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'preact/hooks';
-import { FA_DAYS, ROSTER_MAX, ROSTER_MIN, SALARY_CAP } from '../core/constants';
-import { askingContract } from '../core/gm/value';
+import { FA_DAYS, LUXURY_TAX, MAX_CONTRACT_YEARS, ROSTER_MAX, ROSTER_MIN } from '../core/constants';
+import { askingContract, supermaxEligible } from '../core/gm/value';
 import { advanceOffseason, draftDone, expiringPlayers, faNextDay, faOver, resignPlayer } from '../core/offseason/offseason';
+import { payroll, statusOf, taxBill } from '../core/org/finance';
 import { takeJob } from '../core/org/people';
 import { ovr } from '../core/ratings';
 import type { OffseasonStep, Player, Save, SeasonHistory } from '../core/types';
@@ -10,7 +11,7 @@ import { Btn, Meter, Panel, PlayerRow, Screen, Stars, confirmDialog, fullName, m
 import { CampStep } from './OffseasonCamp';
 import { DraftStep } from './OffseasonDraft';
 import { FreeAgencyStep } from './OffseasonFA';
-import { NameLink, committedSpace, contractText, dealText } from './OffseasonParts';
+import { CapBar, CapTag, NameLink, STATUS_CLASS, STATUS_PUSH, contractText, dealText } from './OffseasonParts';
 import { nav, replace, reset } from './router';
 
 type Step = Exclude<OffseasonStep, 'done'>;
@@ -23,9 +24,9 @@ const TITLE: Record<Step, string> = {
 const BLURB: Record<Step, string> = {
   awards: 'The champions are crowned and the awards handed out. Here is how your season went.',
   retirements: 'Veterans hang up their sneakers. Everyone else is a year older, and the summer changed their game.',
-  contracts: 'Decide who stays. Expiring players you do not re-sign leave when you continue.',
-  draft: 'Two rounds. The worst records pick first.',
-  freeAgency: `${FA_DAYS} days to sign free agents. Make offers, then move to the next day.`,
+  contracts: 'Decide who stays. You may re-sign your own players even when you are over the cap. Anyone you do not re-sign leaves when you continue.',
+  draft: 'Two rounds. The eight teams that missed the playoffs draw for the top three picks; everyone else picks by record, worst first.',
+  freeAgency: `${FA_DAYS} days to sign free agents. Under the cap you can offer anything that fits; over it you have one mid-level exception and minimum deals.`,
   camp: 'Last chance to train your players before the season tips off.',
 };
 export const FINISH: Record<SeasonHistory['userPlayoff'], string> = {
@@ -151,6 +152,7 @@ function AwardsStep({ save }: { save: Save }) {
   if (!h) return <Panel><div class="dim">No season to review.</div></Panel>;
   const mine = save.teams[h.userTeamId];
   const goals = off.log.filter(l => l.startsWith('MET:') || l.startsWith('MISSED:'));
+  const taxLine = off.log.find(l => l.startsWith('Luxury tax:'));
   const mvp = h.awards.find(a => a.award === 'MVP');
   const others = h.awards.filter(a => a.award !== 'MVP' && !a.award.startsWith('All-League'));
   const allLeague = h.awards.filter(a => a.award.startsWith('All-League'));
@@ -204,6 +206,7 @@ function AwardsStep({ save }: { save: Save }) {
               return <div class="item"><span class={`tag ${met ? 'good' : 'bad'}`}>{met ? 'MET' : 'MISSED'}</span><span class="grow">{l.replace(/^(MET|MISSED):\s*/, '')}</span></div>;
             })
             : <div class="item dim">No goals were set.</div>}
+          {taxLine && <div class="item"><span class="tag bad">TAX</span><span class="grow">{taxLine.replace(/^Luxury tax:\s*/, '')}</span></div>}
         </div>
         <div style={{ height: '8px' }} />
         <Meter label="OWNER APPROVAL" value={save.owner.approval} />
@@ -300,32 +303,34 @@ function RetirementsStep({ save }: { save: Save }) {
 }
 
 // ---- contracts -----------------------------------------------------------------------
-/** resignPlayer only takes the re-signed player's own old salary off the books, but every expiring deal is off the books. Zero the others for its cap check. */
-function resignUser(s: Save, id: number): string | null {
-  const me = s.teams[s.userTeamId];
-  const others = me.roster.map(x => s.players[x]).filter(p => p && p.id !== id && p.contract.years <= 0);
-  const keep = others.map(p => p.contract.salary);
-  for (const p of others) p.contract.salary = 0;
-  try { return resignPlayer(s, id); } finally { others.forEach((p, i) => { p.contract.salary = keep[i]; }); }
-}
-
 function ContractsStep({ save, letGo, setLetGo }: { save: Save; letGo: number[]; setLetGo: (v: number[]) => void }) {
   const me = save.teams[save.userTeamId];
   const exp = expiringPlayers(save).sort((a, b) => ovr(b) - ovr(a));
-  const space = committedSpace(save, me.id, SALARY_CAP);
+  // expired deals are already off the books: this is what next season is committed to
+  const pay = payroll(save, me);
+  const status = statusOf(pay);
   const signed = me.roster.map(id => save.players[id]).filter(p => p && p.contract.years > 0).sort((a, b) => ovr(b) - ovr(a));
   const resign = (p: Player) => {
-    const err = act(s => resignUser(s, p.id));
+    const err = act(s => resignPlayer(s, p.id));
     if (err) toast(err); else toast(`${p.name} re-signed!`, true);
   };
+  const bill = taxBill(pay);
 
   return (
     <>
       <Panel team title="EXPIRING CONTRACTS">
-        <div class="dim" style={{ fontSize: '18px' }}>Re-sign the players you want to keep at their asking price. Anyone you do not re-sign leaves for free agency when you continue: letting a player go needs no action.</div>
-        <div class="grid2" style={{ marginTop: '8px' }}>
-          <div><h3>CAP SPACE NEXT SEASON</h3><div class={`head ${space < 0 ? 'bad' : 'good'}`} style={{ fontSize: '13px', marginTop: '4px' }}>{money(space)}</div></div>
-          <div><h3>UNDER CONTRACT</h3><div class="head" style={{ fontSize: '13px', marginTop: '4px' }}>{signed.length} / {ROSTER_MAX}</div></div>
+        <div class="dim" style={{ fontSize: '18px' }}>
+          Re-sign the players you want to keep at their asking price. <b class="gold">You can always re-sign your own players, even over the cap and the aprons</b>, for up to {MAX_CONTRACT_YEARS} years. Anyone you do not re-sign leaves for free agency when you continue: letting a player go needs no action.
+        </div>
+        <div class="row between" style={{ marginTop: '8px' }}>
+          <span>Payroll next season <b>{money(pay)}</b></span><CapTag status={status} />
+        </div>
+        <CapBar pay={pay} />
+        <div class="row between wrap cap-note">
+          <span>Under contract <b>{signed.length} / {ROSTER_MAX}</b></span>
+          {bill.over > 0
+            ? <span class="bad">Stay above {money(LUXURY_TAX)} all season and the tax is ◉ {bill.credits} and −{bill.ownerHit} owner approval</span>
+            : <span class="dim">{money(Math.round((LUXURY_TAX - pay) * 10) / 10)} under the tax line</span>}
         </div>
       </Panel>
 
@@ -334,16 +339,23 @@ function ContractsStep({ save, letGo, setLetGo }: { save: Save; letGo: number[];
         {exp.map(p => {
           const ask = askingContract(save, p, me.id);
           const gone = letGo.includes(p.id);
+          const after = statusOf(pay + ask.salary);
           return (
             <div class={`item ${gone ? 'ox-faded' : ''}`}>
               <span class="tag pos">{p.pos}</span>
               <div class="grow">
                 <div class="nowrap"><NameLink id={p.id} name={p.name} /> {moraleTag(p.morale)}</div>
-                <div class="row dim ox-sub"><Stars v={ovr(p)} /><span>Age {p.age}</span><span>{p.trait}</span></div>
+                <div class="row dim ox-sub"><Stars v={ovr(p)} /><span>Age {p.age}</span><span>{p.trait}</span>{supermaxEligible(p) && <span class="tag gold">SUPERMAX ELIGIBLE</span>}</div>
                 <div class="ox-sub">
                   {gone ? <span class="dim">Leaving in free agency</span>
                     : ask.refuses ? <span class="bad">Will not re-sign</span>
-                    : <span>Asks <b class="gold">{dealText(ask.salary, ask.years)}</b>{ask.salary > space && <span class="bad"> · over your space</span>}</span>}
+                    : (
+                      <span>
+                        Asks <b class="gold">{dealText(ask.salary, ask.years)}</b>
+                        {ask.supermax && <span class="tag gold" style={{ marginLeft: '6px' }}>SUPERMAX</span>}
+                        {after !== status && <span class={STATUS_CLASS[after] || 'dim'}> · {STATUS_PUSH[after]}</span>}
+                      </span>
+                    )}
                 </div>
               </div>
               <div class="col" style={{ gap: '6px', flex: 'none' }}>
@@ -360,6 +372,9 @@ function ContractsStep({ save, letGo, setLetGo }: { save: Save; letGo: number[];
           );
         })}
       </div>
+      {exp.some(p => supermaxEligible(p)) && (
+        <div class="dim cap-note">Supermax: a player with an MVP or All-League award can be paid up to $52.5M by his own team, above the $45M maximum anyone else can offer. Only the very best ask for it.</div>
+      )}
 
       <Panel title="TRADES ARE OPEN">
         <div class="dim" style={{ fontSize: '18px', marginBottom: '6px' }}>You can trade players and picks all offseason.</div>

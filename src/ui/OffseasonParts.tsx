@@ -1,8 +1,10 @@
 // Pieces shared by the Trades, Scouting and Offseason screens.
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
-import { DEAD_CAP_RATE, ROSTER_MIN } from '../core/constants';
+import { DEAD_CAP_RATE, FIRST_APRON, LUXURY_TAX, ROSTER_MIN, SALARY_CAP, SECOND_APRON } from '../core/constants';
 import { scoutProspect, scoutedRating } from '../core/org/economy';
+import { statusOf } from '../core/org/finance';
+import type { CapStatus, SigningVia } from '../core/org/finance';
 import { releaseDeadCap, releasePlayer } from '../core/org/roster';
 import { overallOf, ovr, round1, stars } from '../core/ratings';
 import type { DraftPick, Player, Pos, RatingKey, Ratings, Save } from '../core/types';
@@ -110,6 +112,7 @@ export function ProspectRow(p: { save: Save; player: Player; onClick?: () => voi
           <span class="row" style={{ gap: '4px' }}>{v.known ? 'Now' : 'Est.'} <Stars v={v.est} /></span>
           {v.known && <span class="row" style={{ gap: '4px' }}>Ceiling <Stars v={pl.potential} /></span>}
         </div>
+        {pl.origin && <div class="dim" style={{ fontSize: '16px' }}>{pl.origin}</div>}
         <div class="ox-rgrid">
           {RATING_KEYS.map(k => (
             <div><span class="k">{RATING_ABBR[k]}</span><StarRange lo={v.ranges[k].lo} hi={v.ranges[k].hi} /></div>
@@ -199,10 +202,50 @@ export function ReleaseModal(p: { save: Save; onClose: () => void; text?: string
   );
 }
 
-/** Cap space a team will have next season: contracts with years left, plus dead money. */
-export function committedSpace(save: Save, teamId: number, cap: number): number {
-  const t = save.teams[teamId];
-  let pay = t.deadCap;
-  for (const id of t.roster) { const pl = save.players[id]; if (pl && pl.contract.years > 0) pay += pl.contract.salary; }
-  return round1(cap - pay);
+// ---- cap status ----------------------------------------------------------------------
+export const STATUS_LABEL: Record<CapStatus, string> = {
+  'under cap': 'UNDER THE CAP', 'over cap': 'OVER THE CAP', taxpayer: 'TAXPAYER', 'first apron': 'OVER APRON 1', 'second apron': 'OVER APRON 2',
+};
+export const STATUS_CLASS: Record<CapStatus, string> = {
+  'under cap': 'good', 'over cap': '', taxpayer: 'gold', 'first apron': 'bad', 'second apron': 'bad',
+};
+/** "This signing ..." for a move that changes the status. */
+export const STATUS_PUSH: Record<CapStatus, string> = {
+  'under cap': 'keeps you under the cap', 'over cap': 'puts you over the cap', taxpayer: 'puts you in the luxury tax',
+  'first apron': 'puts you over the first apron', 'second apron': 'puts you over the second apron',
+};
+/** A team's cap status as a tag. */
+export function CapTag(p: { status: CapStatus }) {
+  return <span class={`tag ${STATUS_CLASS[p.status]}`}>{STATUS_LABEL[p.status]}</span>;
+}
+/** How a signing gets done, in the words the screens use. */
+export const VIA_TEXT: Record<SigningVia, string> = {
+  space: 'Cap space', bird: 'Own free agent', mle: 'Mid-level exception', taxMle: 'Taxpayer mid-level', min: 'Minimum deal',
+};
+
+const CAP_LINES: { key: string; name: string; at: number }[] = [
+  { key: 'cap', name: 'CAP', at: SALARY_CAP }, { key: 'tax', name: 'TAX', at: LUXURY_TAX },
+  { key: 'a1', name: 'APRON 1', at: FIRST_APRON }, { key: 'a2', name: 'APRON 2', at: SECOND_APRON },
+];
+const BAR_LO = 100, BAR_HI = 215;
+const barPct = (v: number): number => Math.max(0, Math.min(100, ((v - BAR_LO) / (BAR_HI - BAR_LO)) * 100));
+/** One payroll bar with the four lines marked on it, and a legend that shows which have been crossed. */
+export function CapBar(p: { pay: number }) {
+  const status = statusOf(p.pay);
+  return (
+    <div class="cap-bar-wrap">
+      <div class="cap-bar" role="img" aria-label={`Payroll ${money(p.pay)}: ${status}`}>
+        <div class={`cap-fill ${STATUS_CLASS[status] || 'plain'}`} style={{ width: `${Math.max(2, barPct(p.pay))}%` }} />
+        {CAP_LINES.map(l => <i class={`cap-mark ${l.key}`} style={{ left: `${barPct(l.at)}%` }} />)}
+      </div>
+      <div class="cap-legend">
+        {CAP_LINES.map(l => (
+          <div class={p.pay > l.at ? 'over' : ''}>
+            <span class="k"><i class={`cap-chip ${l.key}`} />{l.name}</span>
+            <span>${l.at}M</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

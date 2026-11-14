@@ -1,5 +1,4 @@
 // Playing games, advancing weeks, playoffs.
-import { REG_WEEKS, TRADE_DEADLINE_WEEK } from '../constants';
 import { aiMaintainRosters } from '../gm/teamAi';
 import { aiOfferToUser, aiTradesWeek, validateTrade } from '../gm/trade';
 import { shortName } from '../gen/league';
@@ -7,11 +6,13 @@ import { fixLineup } from '../lineup';
 import { beginOffseason } from '../offseason/offseason';
 import { CreditLine, checkMilestones, effLevel, gameCredits, headline, pushNews, weeklyFacilities } from '../org/economy';
 import { afterUserGame, checkFired, healWeek, rollEvent, rollInjuries } from '../org/people';
+import { checkTrophies, gameProgress, isUnlocked, perk, seasonProgress } from '../org/progress';
 import { addStats } from '../ratings';
 import type { Rng } from '../rng';
 import { createLiveGame, simulateGame } from '../sim/engine';
 import type { GameSetup, LiveGame, SideInput } from '../sim/api';
 import type { GameResult, PlayoffSeries, Save, ScheduledGame, Team } from '../types';
+import { cal, perGame, playoffRound } from './calendar';
 import { gamesInWeek, standings, userGame } from './schedule';
 
 export const CONTROLLED_POSSESSIONS = 16;
@@ -20,7 +21,8 @@ export function sideInput(save: Save, teamId: number): SideInput {
   const team = save.teams[teamId];
   return {
     team, players: team.roster.map(id => save.players[id]),
-    ocStars: team.staff.oc?.stars ?? 0, dcStars: team.staff.dc?.stars ?? 0,
+    ocStars: team.staff.oc?.stars ?? 0,
+    dcStars: (team.staff.dc?.stars ?? 0) + (teamId === save.userTeamId ? 0.5 * perk(save, 'film') : 0),
     arenaLevel: effLevel(team.facilities.arena),
     captainId: teamId === save.userTeamId ? save.captainId : null,
   };
@@ -37,7 +39,7 @@ export function buildSetup(save: Save, g: ScheduledGame, controlled: number): Ga
 }
 export function startLiveGame(save: Save, g: ScheduledGame, rng: Rng): LiveGame {
   fixLineup(save, save.teams[g.homeId]); fixLineup(save, save.teams[g.awayId]);
-  return createLiveGame(buildSetup(save, g, CONTROLLED_POSSESSIONS), rng);
+  return createLiveGame(buildSetup(save, g, CONTROLLED_POSSESSIONS + 2 * perk(save, 'clutch')), rng);
 }
 
 function bumpRecord(team: Team, pf: number, pa: number, conf: boolean): void {
@@ -85,6 +87,7 @@ export function applyGame(save: Save, g: ScheduledGame, result: GameResult, rng:
 
 export interface PostGame {
   gameId: number; won: boolean; credits: CreditLine[]; total: number; topPerformer: number; playoff: boolean;
+  xp: number; levelUp: number | null; trophies: string[];
 }
 /** After the user's own game (played or simmed): credits, coach record, morale, owner, fans. */
 export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult, highlights: string[], rng: Rng): PostGame {
@@ -95,7 +98,9 @@ export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult,
   const c = save.coach, stop = c.stops[c.stops.length - 1];
   if (g.playoff) { if (won) c.playoffW++; else c.playoffL++; }
   else { if (won) { c.w++; if (stop) stop.w++; } else { c.l++; if (stop) stop.l++; } }
-  afterUserGame(save, won, Math.abs(my - their), !!g.playoff);
+  // a playoff game in a seven-game series counts for less than a one-off
+  const scale = g.playoff ? (cal(save).seriesWins > 1 ? 0.3 : 1) : perGame(save);
+  afterUserGame(save, won, Math.abs(my - their), !!g.playoff, scale);
   // franchise single-game records
   const lines = home ? result.box.home : result.box.away;
   for (const l of lines) {
@@ -106,68 +111,88 @@ export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult,
       if (v > 0 && (!cur || v > cur.value)) save.records[k] = { value: v, playerId: p.id, name: p.name, year: save.year, teamId: save.userTeamId };
     }
   }
-  const credits = [...gameCredits(save, result, highlights, !!g.playoff), ...checkMilestones(save)];
-  const total = credits.reduce((s, x) => s + x.amount, 0);
+  const credits = [...gameCredits(save, result, highlights, !!g.playoff, scale), ...checkMilestones(save)];
+  // fractions of a credit carry over to the next game
+  const exact = credits.reduce((s, x) => s + x.amount, 0) + (save.creditCarry ?? 0);
+  const total = Math.floor(exact + 1e-9);
+  save.creditCarry = exact - total;
   save.credits += total;
   const me = save.teams[save.userTeamId];
   if (!g.playoff && me.record.streak === -4) pushNews(save, 'owner', headline(rng, 'ownerAngry', { owner: save.owner.name, team: me.name }), true);
   if (!g.playoff && me.record.streak === 4) pushNews(save, 'owner', headline(rng, 'ownerHappy', { owner: save.owner.name, team: me.name }), true);
-  return { gameId: g.id, won, credits, total, topPerformer: result.topPerformer, playoff: !!g.playoff };
+  const gp = gameProgress(save, result, highlights, !!g.playoff, scale);
+  return { gameId: g.id, won, credits, total, topPerformer: result.topPerformer, playoff: !!g.playoff, ...gp };
 }
 
-/** Simulate every unplayed game of the current week. If the user's game is unplayed it is simmed too. */
-export function simWeekGames(save: Save, rng: Rng): PostGame | null {
-  let post: PostGame | null = null;
-  for (const g of gamesInWeek(save, save.week)) {
-    if (g.played) continue;
-    fixLineup(save, save.teams[g.homeId]); fixLineup(save, save.teams[g.awayId]);
-    const result = simulateGame(buildSetup(save, g, 0), rng);
-    if (g.homeId === save.userTeamId || g.awayId === save.userTeamId) post = finishUserGame(save, g, result, [], rng);
-    else applyGame(save, g, result, rng);
-  }
-  return post;
+function simGame(save: Save, g: ScheduledGame, rng: Rng): PostGame | null {
+  fixLineup(save, save.teams[g.homeId]); fixLineup(save, save.teams[g.awayId]);
+  const result = simulateGame(buildSetup(save, g, 0), rng);
+  if (g.homeId === save.userTeamId || g.awayId === save.userTeamId) return finishUserGame(save, g, result, [], rng);
+  applyGame(save, g, result, rng);
+  return null;
 }
 
 // ---- playoffs ------------------------------------------------------------------------
-function addSeries(save: Save, round: 1 | 2 | 3, conf: number, high: Team, low: Team): void {
-  const id = save.year * 1000 + 500 + (save.playoffs?.series.length ?? 0);
-  const week = REG_WEEKS + round;
-  save.schedule.push({ id, week, homeId: high.id, awayId: low.id, played: false, playoff: true });
-  save.playoffs!.series.push({ round, conf, highId: high.id, lowId: low.id, gameId: id });
+function nextSeriesGame(save: Save, s: PlayoffSeries, day: number): void {
+  const n = s.games.length + 1; // game number in the series
+  const need = cal(save).seriesWins;
+  // higher seed hosts games 1, 2, 5, 7 (and the only game of a one-off)
+  const highHome = need === 1 || n === 1 || n === 2 || n === 5 || n === 7;
+  const id = save.year * 10000 + 5000 + save.schedule.filter(g => g.playoff).length;
+  save.schedule.push({ id, week: cal(save).regWeeks + s.round, day, homeId: highHome ? s.highId : s.lowId, awayId: highHome ? s.lowId : s.highId, played: false, playoff: true });
+  s.games.push(id); s.gameId = id;
 }
+function addSeries(save: Save, round: 1 | 2 | 3, conf: number, high: Team, low: Team, day: number): void {
+  const s: PlayoffSeries = { round, conf, highId: high.id, lowId: low.id, highW: 0, lowW: 0, games: [] };
+  save.playoffs!.series.push(s);
+  nextSeriesGame(save, s, day);
+}
+const lastDay = (save: Save): number => save.schedule.reduce((m, g) => Math.max(m, g.day), 0);
 function startPlayoffs(save: Save, rng: Rng): void {
   save.phase = 'playoffs';
   save.playoffs = { series: [] };
+  const day = lastDay(save) + 1;
   for (const conf of [0, 1]) {
     const s = standings(save, conf);
-    addSeries(save, 1, conf, s[0], s[3]);
-    addSeries(save, 1, conf, s[1], s[2]);
+    addSeries(save, 1, conf, s[0], s[3], day);
+    addSeries(save, 1, conf, s[1], s[2], day);
     for (const t of s.slice(0, 4)) pushNews(save, 'league', headline(rng, 'playoffClinch', { team: t.name }), t.id === save.userTeamId);
   }
   save.tradeOffer = null;
 }
 const seedOf = (save: Save, t: Team): number => standings(save, t.conf).indexOf(t);
+/** After a playoff game day: update series, schedule the next game of any series still alive. */
+function afterPlayoffDay(save: Save, day: number, rng: Rng): void {
+  const need = cal(save).seriesWins;
+  for (const s of save.playoffs!.series) {
+    if (s.winnerId !== undefined) continue;
+    const g = save.schedule.find(x => x.id === s.gameId);
+    if (!g || !g.played || g.day !== day) continue;
+    const winner = (g.homeScore ?? 0) > (g.awayScore ?? 0) ? g.homeId : g.awayId;
+    if (winner === s.highId) s.highW++; else s.lowW++;
+    if (s.highW >= need || s.lowW >= need) {
+      s.winnerId = s.highW >= need ? s.highId : s.lowId;
+      const loser = s.winnerId === s.highId ? s.lowId : s.highId;
+      if (s.round < 3) pushNews(save, 'league', headline(rng, 'eliminated', { team: save.teams[loser].name }), loser === save.userTeamId);
+    } else nextSeriesGame(save, s, day + 1);
+  }
+}
+/** All series of the round are decided: build the next round, or crown the champion. */
 function advancePlayoffs(save: Save, rng: Rng): void {
   const po = save.playoffs!;
-  const round = (save.week - REG_WEEKS) as 1 | 2 | 3;
-  const done: PlayoffSeries[] = [];
-  for (const s of po.series.filter(x => x.round === round)) {
-    const g = save.schedule.find(x => x.id === s.gameId)!;
-    s.winnerId = (g.homeScore ?? 0) > (g.awayScore ?? 0) ? g.homeId : g.awayId;
-    const loser = s.winnerId === g.homeId ? g.awayId : g.homeId;
-    if (round < 3) pushNews(save, 'league', headline(rng, 'eliminated', { team: save.teams[loser].name }), loser === save.userTeamId);
-    done.push(s);
-  }
+  const round = playoffRound(save) as 1 | 2 | 3;
+  const done = po.series.filter(x => x.round === round);
+  const day = lastDay(save) + 1;
   if (round === 1) {
     for (const conf of [0, 1]) {
       const [a, b] = done.filter(s => s.conf === conf).map(s => save.teams[s.winnerId!]);
       const [hi, lo] = seedOf(save, a) < seedOf(save, b) ? [a, b] : [b, a];
-      addSeries(save, 2, conf, hi, lo);
+      addSeries(save, 2, conf, hi, lo, day);
     }
   } else if (round === 2) {
     const [a, b] = done.map(s => save.teams[s.winnerId!]);
-    const better = a.record.w > b.record.w || (a.record.w === b.record.w && a.record.pf - a.record.pa >= b.record.pf - b.record.pa);
-    addSeries(save, 3, 2, better ? a : b, better ? b : a);
+    const better = cmpRecord(a, b) <= 0;
+    addSeries(save, 3, 2, better ? a : b, better ? b : a, day);
   } else {
     const f = done[0];
     po.championId = f.winnerId;
@@ -175,38 +200,68 @@ function advancePlayoffs(save: Save, rng: Rng): void {
     pushNews(save, 'league', headline(rng, 'champion', { team: `${champ.city} ${champ.name}`, opp: other.name }), champ.id === save.userTeamId);
   }
 }
+const cmpRecord = (a: Team, b: Team): number => b.record.w - a.record.w || (b.record.pf - b.record.pa) - (a.record.pf - a.record.pa);
 
-/**
- * Close out the current week once the user's game (if any) is done: sim the rest, heal,
- * wear facilities, AI moves, roll next week's event, then move the calendar on.
- */
-export function endWeek(save: Save, rng: Rng): PostGame | null {
-  const post = simWeekGames(save, rng);
+/** Week-end housekeeping, then move the calendar on. */
+function closeWeek(save: Save, rng: Rng): void {
+  const c = cal(save);
   healWeek(save, rng);
+  weeklyFacilities(save, rng);
   if (save.phase === 'regular') {
-    weeklyFacilities(save, rng);
-    if (save.week <= TRADE_DEADLINE_WEEK) aiTradesWeek(save, rng);
+    if (save.week <= c.deadlineWeek) aiTradesWeek(save, rng);
     aiMaintainRosters(save, rng);
-    if (save.week === TRADE_DEADLINE_WEEK) { pushNews(save, 'league', 'The trade deadline has passed. Rosters are locked until the offseason.'); save.tradeOffer = null; }
+    if (save.week === c.deadlineWeek) { pushNews(save, 'league', 'The trade deadline has passed. Rosters are locked until the offseason.'); save.tradeOffer = null; }
     save.week++;
-    if (save.week > REG_WEEKS) startPlayoffs(save, rng);
+    if (save.week > c.regWeeks) startPlayoffs(save, rng);
     else {
       if (save.tradeOffer && validateTrade(save, save.tradeOffer)) save.tradeOffer = null;
-      if (!save.tradeOffer && save.week <= TRADE_DEADLINE_WEEK) {
+      if (!save.tradeOffer && save.week <= c.deadlineWeek && isUnlocked(save, 'trades')) {
         const offer = aiOfferToUser(save, rng);
         if (offer) save.tradeOffer = offer;
       }
-      rollEvent(save, rng);
+      if (isUnlocked(save, 'staff')) rollEvent(save, rng);
     }
   } else if (save.phase === 'playoffs') {
-    weeklyFacilities(save, rng);
     advancePlayoffs(save, rng);
-    if (save.playoffs!.championId !== undefined) beginOffseason(save, rng);
+    if (save.playoffs!.championId !== undefined) { beginOffseason(save, rng); seasonProgress(save); }
     else save.week++;
   }
   for (const t of save.teams) fixLineup(save, t);
+  checkTrophies(save);
   checkFired(save);
-  return post;
+}
+
+/**
+ * Move the season forward.
+ *  - 'afterUser': the user has just played his game by hand; finish that day, then run on until
+ *    his next game (or the end of the week).
+ *  - 'simGame': simulate the user's next game too, then behave like 'afterUser'.
+ *  - 'simWeek': simulate everything left this week.
+ * Returns the post-game summaries of any user games that were simulated.
+ */
+export function advance(save: Save, rng: Rng, mode: 'afterUser' | 'simGame' | 'simWeek'): PostGame[] {
+  const posts: PostGame[] = [];
+  const mine = (g: ScheduledGame) => g.homeId === save.userTeamId || g.awayId === save.userTeamId;
+  let userSims = mode === 'simWeek' ? Infinity : mode === 'simGame' ? 1 : 0;
+  const week = save.week, phase = save.phase;
+  for (let guard = 0; guard < 400; guard++) {
+    if (save.fired || save.week !== week || save.phase !== phase) break;
+    const open = gamesInWeek(save, save.week).filter(g => !g.played);
+    if (!open.length) { closeWeek(save, rng); break; }
+    const day = open.reduce((m, g) => Math.min(m, g.day), Infinity);
+    const today = open.filter(g => g.day === day);
+    const ug = today.find(mine);
+    if (ug && userSims <= 0) break; // his game: wait for him to play or sim it
+    for (const g of today) { const post = simGame(save, g, rng); if (post) posts.push(post); }
+    if (ug) userSims--;
+    if (save.phase === 'playoffs') afterPlayoffDay(save, day, rng);
+  }
+  return posts;
+}
+/** Simulate the rest of the current week. Returns the last user game simulated, if any. */
+export function endWeek(save: Save, rng: Rng): PostGame | null {
+  const posts = advance(save, rng, 'simWeek');
+  return posts.length ? posts[posts.length - 1] : null;
 }
 
 export const userInPlayoffs = (save: Save): boolean => !!userGame(save);

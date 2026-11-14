@@ -2,11 +2,11 @@ import { useState } from 'preact/hooks';
 import { NUM_TEAMS, ROSTER_MAX } from '../core/constants';
 import { rookieContract } from '../core/gm/draft';
 import { draftDone, runDraftUntilUser, userDraftPick, userOnClock } from '../core/offseason/offseason';
-import { capSpace } from '../core/org/finance';
+import { capStatus, payroll } from '../core/org/finance';
 import type { Player, Save } from '../core/types';
 import { act } from '../state/store';
 import { Btn, Modal, Panel, confirmDialog, money, toast } from './kit';
-import { PlayerLine, ProspectBoard, ProspectRow, ReleaseModal, dealText } from './OffseasonParts';
+import { CapTag, PlayerLine, ProspectBoard, ProspectRow, ReleaseModal, dealText } from './OffseasonParts';
 
 export function DraftStep({ save }: { save: Save }) {
   const off = save.offseason!;
@@ -33,7 +33,9 @@ export function DraftStep({ save }: { save: Save }) {
   };
 
   const upcoming = off.draftOrder.slice(off.draftIdx, off.draftIdx + 8);
-  const log = off.log.slice().reverse();
+  const lottery = off.log.filter(l => l.startsWith('Lottery: ')).map(l => l.slice('Lottery: '.length));
+  const log = off.log.filter(l => !l.startsWith('Lottery: ')).reverse();
+  const topThree = off.draftOrder.filter(s => s.round === 1 && s.pick <= 3);
   const myClass = Object.values(save.players)
     .filter(p => p.draft && p.draft.year === save.year && p.draft.teamId === me.id && p.teamId === me.id)
     .sort((a, b) => (a.draft!.round - b.draft!.round) || (a.draft!.pick - b.draft!.pick));
@@ -41,6 +43,20 @@ export function DraftStep({ save }: { save: Save }) {
 
   return (
     <>
+      {lottery.length > 0 && (
+        <Panel team title="DRAFT LOTTERY">
+          <div class="row" style={{ gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
+            {topThree.map(s => {
+              const t = save.teams[s.teamId];
+              return <span class={`tag ${s.teamId === me.id ? 'gold' : ''}`}><span class="swatch" style={{ background: t.colors.primary, width: '8px', height: '8px', border: 0, marginRight: '4px' }} />#{s.pick} {t.abbr}</span>;
+            })}
+          </div>
+          <div class="list ox-log">
+            {lottery.map(l => <div class={`item ${l.startsWith(`${me.city} `) || l.includes(`belongs to ${me.city})`) ? 'gold' : ''}`}>{l}</div>)}
+          </div>
+          <div class="dim cap-note" style={{ marginTop: '4px' }}>The eight teams that missed the playoffs drew for the top three picks. The worst record had a 25% chance at #1.</div>
+        </Panel>
+      )}
       {onClock && slot && (
         <>
           <div class="ox-clock">YOU ARE ON THE CLOCK: ROUND {slot.round}, PICK {slot.pick}</div>
@@ -117,7 +133,8 @@ export function DraftStep({ save }: { save: Save }) {
           <h3>ROUND {slot.round}, PICK {slot.pick} · #{(slot.round - 1) * NUM_TEAMS + slot.pick} OVERALL</h3>
           <div class="list"><ProspectRow save={save} player={pickPlayer} /></div>
           <div class="row between"><span class="dim">Rookie deal</span><span class="gold">{dealText(rookieContract(slot.round, slot.pick).salary, rookieContract(slot.round, slot.pick).years)}</span></div>
-          <div class="row between"><span class="dim">Cap space · roster</span><span>{money(capSpace(save, me))} · {me.roster.length}/{ROSTER_MAX}</span></div>
+          <div class="row between"><span class="dim">Payroll · roster</span><span class="row" style={{ gap: '6px' }}>{money(payroll(save, me))} <CapTag status={capStatus(save, me)} /> {me.roster.length}/{ROSTER_MAX}</span></div>
+          <div class="dim cap-note">A drafted player can always be signed to his rookie deal, whatever your payroll.</div>
           <div class="row">
             <Btn class="grow" onClick={() => setSel(null)}>Cancel</Btn>
             <Btn class="grow" kind="primary" onClick={() => draft(pickPlayer.id)}>Draft</Btn>

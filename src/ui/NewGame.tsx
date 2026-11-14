@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { teamRatings } from '../core/sim/engine';
+import { CALENDARS } from '../core/season/calendar';
 import type { Difficulty, Save } from '../core/types';
 import { pickTeam, startLeague } from '../state/store';
 import { Btn, Panel, Screen, Sprite, Stars, fullName, teamStarCount } from './kit';
@@ -15,10 +16,11 @@ export function NewGameScreen(_p: { params: Record<string, any> }) {
   const [name, setName] = useState('');
   const [look, setLook] = useState({ skin: 1, hair: 1, hairColor: 0 });
   const [diff, setDiff] = useState<Difficulty>('normal');
+  const [season, setSeason] = useState<'full' | 'classic'>('full');
   const [league, setLeague] = useState<Save | null>(null);
   const [seed, setSeed] = useState(() => (Date.now() ^ (Math.random() * 1e9)) >>> 0);
 
-  const make = (s = seed) => setLeague(startLeague({ seed: s, coachName: name.trim() || 'Coach', coachLook: look, settings: { sound: true, difficulty: diff, haptics: true } }));
+  const make = (s = seed) => setLeague(startLeague({ seed: s, coachName: name.trim() || 'Coach', coachLook: look, settings: { sound: true, difficulty: diff, haptics: true }, calendar: CALENDARS[season] }));
 
   if (!league) {
     const fake: any = { id: -1, look: { ...look, height: 1 } };
@@ -44,6 +46,16 @@ export function NewGameScreen(_p: { params: Record<string, any> }) {
                 <div class="grow"><div class="head">{d.label}</div><div class="dim">{d.desc}</div></div>
               </div>
             ))}
+          </div>
+        </Panel>
+        <Panel title="SEASON LENGTH">
+          <div class="col">
+            <div class={`item tap ${season === 'full' ? 'sel' : ''}`} onClick={() => setSeason('full')}>
+              <div class="grow"><div class="head">Full · 82 games</div><div class="dim">About four games a week. Play or sim each one. Best-of-seven playoffs.</div></div>
+            </div>
+            <div class={`item tap ${season === 'classic' ? 'sel' : ''}`} onClick={() => setSeason('classic')}>
+              <div class="grow"><div class="head">Classic · 14 games</div><div class="dim">One game a week, single-game playoffs. A season in one sitting.</div></div>
+            </div>
           </div>
         </Panel>
         <Btn kind="primary big" onClick={() => make()}>Generate League</Btn>

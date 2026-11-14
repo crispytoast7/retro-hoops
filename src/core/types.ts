@@ -66,6 +66,8 @@ export interface Player {
   /** Jersey number. */
   num: number;
   retired?: boolean;
+  /** College, overseas club or academy he was drafted from. */
+  origin?: string;
   /** Draft prospects only: which ratings the user's scouts have revealed. */
   scouted?: boolean;
 }
@@ -156,8 +158,10 @@ export interface GameResult {
 
 export interface ScheduledGame {
   id: number;
-  /** 1-14 regular season; 15-17 playoffs */
+  /** Week number: regular-season weeks, then one playoff round per week. */
   week: number;
+  /** Game day within the season (every team plays at most once a day). */
+  day: number;
   homeId: number; awayId: number;
   played: boolean;
   homeScore?: number; awayScore?: number;
@@ -172,7 +176,10 @@ export interface PlayoffSeries {
   conf: number;
   highId: number; lowId: number;
   winnerId?: number;
+  /** Most recent game of the series. */
   gameId?: number;
+  highW: number; lowW: number;
+  games: number[];
 }
 export interface Playoffs { series: PlayoffSeries[]; championId?: number }
 
@@ -251,6 +258,19 @@ export interface HallOfFamer {
 export type Difficulty = 'easy' | 'normal' | 'hard';
 export interface Settings { sound: boolean; difficulty: Difficulty; haptics: boolean }
 
+/** Season shape, chosen at New Game. */
+export interface Calendar {
+  /** Regular-season games per team. */
+  games: number;
+  /** Game days per week. */
+  perWeek: number;
+  regWeeks: number;
+  /** Trades close once this week has been played. */
+  deadlineWeek: number;
+  /** Wins needed to take a playoff series. */
+  seriesWins: number;
+}
+
 export type Phase = 'regular' | 'playoffs' | 'offseason';
 export type OffseasonStep = 'awards' | 'retirements' | 'contracts' | 'draft' | 'freeAgency' | 'camp' | 'done';
 
@@ -316,6 +336,9 @@ export interface Save {
   scoutPoints: number;
   /** Milestones already paid out, e.g. 'wins10'. */
   milestones: string[];
+  calendar?: Calendar;
+  /** Fractions of a credit earned but not yet paid out. */
+  creditCarry?: number;
   /** Next draft's prospects (player ids); scoutable during the season. */
   draftClass: number[];
   /** A trade an AI team has put to the user, waiting for an answer. */

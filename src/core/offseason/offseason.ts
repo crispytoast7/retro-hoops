@@ -1,17 +1,18 @@
 // Offseason: awards, retirements, contracts, draft, free agency, training camp, new season.
-import { FA_DAYS, MIN_SALARY, ROSTER_MAX, ROSTER_MIN, SALARY_CAP } from '../constants';
+import { FA_DAYS, MIN_SALARY, ROSTER_MAX, ROSTER_MIN } from '../constants';
 import { genFreeAgents, genProspects, genStaffPool, shortName } from '../gen/league';
 import { aiDraftChoice, rookieContract } from '../gm/draft';
 import { aiFillRosters, runFreeAgencyDay } from '../gm/freeAgency';
-import { aiMaintainRosters, aiResignPhase, updateStrategies } from '../gm/teamAi';
+import { aiMakeRoom, aiMaintainRosters, aiResignPhase, updateStrategies } from '../gm/teamAi';
 import { askingContract, marketSalary } from '../gm/value';
 import { fixLineup } from '../lineup';
 import { effLevel, headline, maybePoach, pushNews, scoutPointsPerSeason, teamName } from '../org/economy';
-import { capSpace } from '../org/finance';
+import { luxuryTax, signingPath } from '../org/finance';
 import { bumpFans, bumpOwner, bumpRep, checkFired, evaluateGoals, progressPlayer, setOwnerGoals } from '../org/people';
 import { releasePlayer, signPlayer } from '../org/roster';
 import { careerStats, clamp, emptyStats, gameScore, ovr, round1 } from '../ratings';
 import type { Rng } from '../rng';
+import { cal } from '../season/calendar';
 import { cmpTeams, genSchedule } from '../season/schedule';
 import type { OffseasonStep, Player, Save, SeasonHistory, StatLine, Team, TeamSeason } from '../types';
 
@@ -31,7 +32,7 @@ function playoffFinish(save: Save, teamId: number): TeamSeason['playoff'] {
 }
 
 function computeAwards(save: Save): SeasonHistory['awards'] {
-  const active = save.teams.flatMap(t => t.roster.map(id => save.players[id])).filter(p => p.season.gp >= 8);
+  const active = save.teams.flatMap(t => t.roster.map(id => save.players[id])).filter(p => p.season.gp >= Math.ceil(cal(save).games * 0.55));
   const winPct = (p: Player) => { const r = save.teams[p.teamId!].record; return r.w / Math.max(1, r.w + r.l); };
   const best = (pool: Player[], f: (p: Player) => number): Player | null =>
     pool.length ? pool.reduce((a, b) => (f(b) > f(a) ? b : a)) : null;
@@ -105,6 +106,16 @@ export function beginOffseason(save: Save, rng: Rng): void {
   else if (myFinish === 'R1') bumpRep(save, 1);
   else if (me.record.w < me.record.l) bumpRep(save, -3);
   const log = evaluateGoals(save);
+  // luxury tax: the user's payroll as the season ends
+  const tax = luxuryTax(save, me);
+  if (tax.over > 0) {
+    const paid = Math.min(save.credits, tax.credits);
+    save.credits -= paid;
+    bumpOwner(save, -tax.ownerHit);
+    const text = `Luxury tax: ${me.city} finished $${tax.over}M over the tax line. It cost ${paid} credit${paid === 1 ? '' : 's'} and ${tax.ownerHit} owner approval.`;
+    log.push(text);
+    pushNews(save, 'owner', text, true);
+  }
   updateSeasonRecords(save);
   save.phase = 'offseason';
   save.pendingEvent = null; save.tradeOffer = null;
@@ -170,17 +181,59 @@ function ageAndRetire(save: Save, rng: Rng): void {
   }
 }
 
-function buildDraftOrder(save: Save): void {
+/** Chances at each of the top three picks for the eight teams that missed the playoffs, worst record first. */
+export const LOTTERY_WEIGHTS = [25, 20, 16, 13, 10, 7, 5, 4];
+const ordinal = (n: number): string => (n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`);
+
+/** Draft order for both rounds. Round 1: the non-playoff teams enter a lottery for picks 1-3 (weights above, worst record first); the rest of them follow by record, worst first; then the playoff teams by record, champion last. Round 2 is strict reverse record. A slot belongs to whoever holds that team's pick. Lottery results go to save.offseason.log ("Lottery: ...") and the news. */
+export function buildDraftOrder(save: Save, rng: Rng): void {
   const off = save.offseason!;
   const champ = save.playoffs?.championId;
-  const order = save.teams.slice().sort((a, b) => (a.id === champ ? 1 : b.id === champ ? -1 : -cmpTeams(a, b)));
-  off.draftOrder = [];
-  for (const round of [1, 2] as const) {
-    order.forEach((orig, i) => {
-      const owner = save.teams.find(t => t.picks.some(p => p.year === save.year && p.round === round && p.origTeamId === orig.id)) ?? orig;
-      off.draftOrder.push({ teamId: owner.id, round, pick: i + 1 });
-    });
+  const worstFirst = save.teams.slice().sort((a, b) => -cmpTeams(a, b));
+  const playoff = new Set<number>();
+  for (const s of save.playoffs?.series ?? []) { playoff.add(s.highId); playoff.add(s.lowId); }
+  // no bracket on record: the better half of the table counts as the playoff field
+  if (!playoff.size) for (const t of worstFirst.slice(Math.ceil(worstFirst.length / 2))) playoff.add(t.id);
+  const lottery = worstFirst.filter(t => !playoff.has(t.id));
+  const seed = (t: Team): number => lottery.indexOf(t) + 1;
+
+  const pool = lottery.slice();
+  const winners: Team[] = [];
+  while (winners.length < 3 && pool.length) {
+    const i = rng.weighted(pool.map(t => LOTTERY_WEIGHTS[seed(t) - 1] ?? 1));
+    winners.push(pool.splice(i, 1)[0]);
   }
+  const first = [
+    ...winners, ...pool,
+    ...worstFirst.filter(t => playoff.has(t.id) && t.id !== champ),
+    ...worstFirst.filter(t => playoff.has(t.id) && t.id === champ),
+  ];
+
+  const ownerOf = (orig: Team, round: 1 | 2): Team =>
+    save.teams.find(t => t.picks.some(p => p.year === save.year && p.round === round && p.origTeamId === orig.id)) ?? orig;
+  off.draftOrder = [];
+  first.forEach((orig, i) => off.draftOrder.push({ teamId: ownerOf(orig, 1).id, round: 1, pick: i + 1 }));
+  worstFirst.forEach((orig, i) => off.draftOrder.push({ teamId: ownerOf(orig, 2).id, round: 2, pick: i + 1 }));
+
+  // what the lottery changed: the top three, and anyone it pushed out of the top three
+  const involved = new Set<number>();
+  first.slice(0, lottery.length).forEach((orig, i) => {
+    const was = seed(orig), now = i + 1;
+    if (now > 3 && was > 3) return;
+    const owner = ownerOf(orig, 1);
+    const via = owner.id !== orig.id ? ` (the pick belongs to ${owner.city})` : '';
+    const what = now === was ? `keep the #${now} pick`
+      : now < was ? `jump from ${ordinal(was)} to the #${now} pick`
+      : `fall from ${ordinal(was)} to the #${now} pick`;
+    off.log.push(`Lottery: ${orig.city} ${what}${via}`);
+    if (now <= 3) { involved.add(orig.id); involved.add(owner.id); }
+  });
+  if (winners.length) {
+    const name = (t: Team): string => { const o = ownerOf(t, 1); return o.id !== t.id ? `${o.city} (via ${t.abbr})` : t.city; };
+    const others = winners.slice(1).map((t, i) => `${name(t)} ${i === 0 ? 'second' : 'third'}`);
+    pushNews(save, 'draft', `Draft lottery: ${name(winners[0])} win the #1 pick${others.length ? `. Then ${others.join(', ')}` : ''}.`, involved.has(save.userTeamId));
+  }
+
   for (const t of save.teams) t.picks = t.picks.filter(p => p.year !== save.year);
   off.draftIdx = 0;
   off.prospects = save.draftClass.slice();
@@ -227,23 +280,24 @@ export function userDraftPick(save: Save, playerId: number | null, rng: Rng): st
   if (playerId === null) { off.log.push(`${save.teams[save.userTeamId].abbr} pass.`); off.draftIdx++; }
   else {
     const team = save.teams[save.userTeamId];
-    const slot = off.draftOrder[off.draftIdx];
     if (team.roster.length >= ROSTER_MAX) return `Roster is full (${ROSTER_MAX}). Release someone or pass.`;
-    if (capSpace(save, team) < rookieContract(slot.round, slot.pick).salary) return 'Not enough cap space for this pick.';
+    // a drafted player can always be signed to his rookie deal, whatever the payroll
     makePick(save, playerId, rng);
   }
   runDraftUntilUser(save, rng);
   return null;
 }
 
-/** Re-sign one of the user's expiring players at his asking price. */
+/** Re-sign one of the user's expiring players at his asking price. A team may always re-sign its own player, over the cap and over both aprons; only the roster limit can stop it. */
 export function resignPlayer(save: Save, playerId: number): string | null {
   const p = save.players[playerId];
   const team = save.teams[save.userTeamId];
+  if (!p || p.teamId !== team.id) return 'He is not on your team.';
   const ask = askingContract(save, p, team.id);
   if (ask.refuses) return `${shortName(p.name)} is not interested in returning.`;
-  const space = capSpace(save, team);
-  if (ask.salary > space) return `Not enough cap space ($${ask.salary}M needed, $${space}M free).`;
+  if (team.roster.length > ROSTER_MAX) return `Your roster is over the limit (${team.roster.length} of ${ROSTER_MAX}). Release someone first.`;
+  const path = signingPath(save, team, ask.salary, { ownPlayer: true, years: ask.years });
+  if (!path.ok) return path.reason;
   p.contract = { salary: ask.salary, years: ask.years };
   p.morale = clamp(p.morale + 8, 0, 100);
   pushNews(save, 'signing', `${p.name} re-signs with ${teamName(team)} (${ask.years} yr${ask.years === 1 ? '' : 's'}, $${ask.salary}M).`, true);
@@ -282,7 +336,7 @@ export function advanceOffseason(save: Save, rng: Rng): void {
     }
     for (const id of save.freeAgents) { const p = save.players[id]; p.contract = { salary: marketSalary(p), years: 0 }; }
     off.log = [];
-    buildDraftOrder(save);
+    buildDraftOrder(save, rng);
     off.step = 'draft';
     runDraftUntilUser(save, rng);
     return;
@@ -290,6 +344,7 @@ export function advanceOffseason(save: Save, rng: Rng): void {
     // anyone left on the board becomes a free agent
     for (const id of off.prospects) { const p = save.players[id]; p.scouted = true; p.contract = { salary: MIN_SALARY, years: 0 }; save.freeAgents.push(id); }
     off.prospects = [];
+    aiMakeRoom(save);
     off.faDay = 1; off.userOffers = {}; off.log = [];
   } else if (off.step === 'freeAgency') {
     aiFillRosters(save, rng);
@@ -307,14 +362,15 @@ export function startNewSeason(save: Save, rng: Rng): void {
   // make sure the user can field a team
   const pool = () => save.freeAgents.map(id => save.players[id]).sort((a, b) => ovr(b) - ovr(a));
   while (me.roster.length < ROSTER_MIN) {
-    const fa = pool().find(p => MIN_SALARY <= capSpace(save, me)) ?? pool()[0];
+    const fa = pool()[0];
     if (!fa) break;
-    signPlayer(save, fa.id, me.id, { salary: MIN_SALARY, years: 1 });
+    signPlayer(save, fa.id, me.id, { salary: MIN_SALARY, years: 1 }, 'min');
     pushNews(save, 'signing', `${fa.name} joins ${me.name} on a minimum deal to fill out the roster.`, true);
   }
+  // plans first, then payrolls: a team that is no longer contending gets under the tax before tip-off
+  updateStrategies(save);
   aiFillRosters(save, rng);
   aiMaintainRosters(save, rng);
-  updateStrategies(save);
   for (const f of Object.values(me.facilities)) if (f.pending) { f.level = f.pending; delete f.pending; f.condition = 100; }
   save.year++;
   save.week = 1;
@@ -325,12 +381,16 @@ export function startNewSeason(save: Save, rng: Rng): void {
   save.tradeOffer = null;
   for (const t of save.teams) {
     t.record = { w: 0, l: 0, pf: 0, pa: 0, confW: 0, confL: 0, streak: 0 };
+    t.mleUsed = false; // the mid-level exception comes back at tip-off
     for (const round of [1, 2] as const) if (!save.teams.some(x => x.picks.some(p => p.year === save.year + 2 && p.round === round && p.origTeamId === t.id))) t.picks.push({ year: save.year + 2, round, origTeamId: t.id });
     for (const id of t.roster) { const p = save.players[id]; p.injury = null; p.morale = clamp(Math.round(p.morale + (62 - p.morale) * 0.4), 0, 100); }
     fixLineup(save, t);
     // AI clubs slowly invest
     if (t.id !== me.id && rng.chance(0.25)) { const k = rng.pick(['arena', 'training', 'medical', 'scouting'] as const); t.facilities[k].level = clamp(t.facilities[k].level + (rng.chance(t.facilities[k].level < 3 ? 0.7 : 0.35) ? 1 : -1), 1, 5); }
-    if (t.id !== me.id) t.prestige = clamp(Math.round(t.prestige * 0.9 + (t.history[t.history.length - 1]?.w ?? 7) * 0.9 + (t.titles.includes(save.year - 1) ? 8 : 0)), 5, 99);
+    // last season's win percentage, on the scale a 14-game season used to give (so it means the same over 82 games)
+    const last = t.history[t.history.length - 1];
+    const lastPct = last && last.w + last.l > 0 ? last.w / (last.w + last.l) : 0.5;
+    if (t.id !== me.id) t.prestige = clamp(Math.round(t.prestige * 0.9 + lastPct * 12.6 + (t.titles.includes(save.year - 1) ? 8 : 0)), 5, 99);
   }
   // prune: retired players nobody references, and the dregs of free agency
   const fas = pool();

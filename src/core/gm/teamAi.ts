@@ -1,4 +1,4 @@
-import { MIN_SALARY, ROSTER_MAX, ROSTER_NORMAL, SALARY_CAP } from '../constants';
+import { LUXURY_TAX, MIN_SALARY, ROSTER_MAX, ROSTER_NORMAL, SECOND_APRON } from '../constants';
 import { autoLineup } from '../lineup';
 import { payroll } from '../org/finance';
 import { releasePlayer } from '../org/roster';
@@ -6,11 +6,12 @@ import { ovr } from '../ratings';
 import type { Rng } from '../rng';
 import type { Save, Team } from '../types';
 import { aiFillRosters, worstContract } from './freeAgency';
-import { askingContract, playerValue, teamStrength, teamSuccess, valueWithContract } from './value';
+import { aiDumpSalary } from './trade';
+import { askingContract, keepCeiling, playerValue, teamStrength, teamSuccess, valueWithContract } from './value';
 
 const aiTeams = (save: Save): Team[] => save.teams.filter(t => t.id !== save.userTeamId);
 
-/** Offseason, before the draft: every AI team decides on players with contract.years === 0: re-sign at askingContract if he is worth it and fits the cap/plan, else release to free agency (no dead cap). */
+/** Offseason, before the draft: every AI team decides on players with contract.years === 0: re-sign at askingContract if he is worth it and fits the plan, else release to free agency (no dead cap). A team may always re-sign its own player, over the cap and the aprons, so the limit is what it is willing to pay: contenders go into the tax (up to the second apron) for players who matter, everyone else stops at the tax line. */
 export function aiResignPhase(save: Save, rng: Rng): void {
   for (const team of aiTeams(save)) {
     const expiring = team.roster.filter(id => save.players[id].contract.years <= 0);
@@ -34,10 +35,13 @@ export function aiResignPhase(save: Save, rng: Rng): void {
       const worth = valueWithContract(save, p, { salary: ask.salary, years: ask.years });
       // Leave minimum money for every roster spot still to fill.
       const reserve = Math.max(0, ROSTER_NORMAL - kept - 1) * MIN_SALARY;
-      const fits = committed + ask.salary + reserve <= SALARY_CAP;
+      const after = committed + ask.salary + reserve;
+      const fits = after <= keepCeiling(team);
+      // Tax dollars are only for players who move the needle.
+      const bar = after > LUXURY_TAX ? 14 : 4;
 
-      let keep = !ask.refuses && fits && worth >= 4 && kept < ROSTER_MAX;
-      if (keep && team.strategy === 'rebuild' && p.age >= 31 && ask.salary > 3) keep = false;
+      let keep = !ask.refuses && fits && worth >= bar && kept < ROSTER_MAX;
+      if (keep && team.strategy === 'rebuild' && p.age >= 31 && ask.salary > 6) keep = false;
       if (keep && team.strategy === 'contend' && o < 60 && p.age >= 30) keep = false;
       // Some good players test the market anyway; the franchise player does not.
       if (keep && o < bestOvr && rng.chance(o >= 75 ? 0.1 : 0.2)) keep = false;
@@ -81,23 +85,40 @@ export function updateStrategies(save: Save): void {
   });
 }
 
-/** AI roster hygiene, safe to call any week: cut down to ROSTER_MAX, shed salary if over the cap (release worst value-per-dollar, no dead cap for AI), fill via aiFillRosters, set lineup to autoLineup. Never touches the user's team. */
+/** Release the least valuable players until the roster is down to `size`. */
+function trimTo(save: Save, team: Team, size: number): void {
+  let guard = 0;
+  while (team.roster.length > size && guard++ < 30) {
+    let worst = team.roster[0], wv = 1e9;
+    for (const id of team.roster) {
+      const v = playerValue(save, save.players[id]);
+      if (v < wv) { wv = v; worst = id; }
+    }
+    releasePlayer(save, worst, { deadCap: false });
+  }
+}
+
+/** After the draft, before free agency: every AI team clears the end of its bench so it has a roster spot to offer (the rookies it just drafted pushed most of them to the limit). */
+export function aiMakeRoom(save: Save): void {
+  for (const team of aiTeams(save)) {
+    trimTo(save, team, ROSTER_MAX - 1);
+    team.lineup = autoLineup(team.roster.map(id => save.players[id]));
+  }
+}
+
+/** AI roster hygiene, safe to call any week: cut down to ROSTER_MAX, shed salary only when the payroll is above the second apron (or above the tax line for a team that is not contending), releasing the worst value-per-dollar first (no dead cap for AI), fill via aiFillRosters, set lineup to autoLineup. Never touches the user's team. */
 export function aiMaintainRosters(save: Save, rng: Rng): void {
   for (const team of aiTeams(save)) {
+    trimTo(save, team, ROSTER_MAX);
     let guard = 0;
-    while (team.roster.length > ROSTER_MAX && guard++ < 30) {
-      let worst = team.roster[0], wv = 1e9;
-      for (const id of team.roster) {
-        const v = playerValue(save, save.players[id]);
-        if (v < wv) { wv = v; worst = id; }
-      }
-      releasePlayer(save, worst, { deadCap: false });
-    }
-    guard = 0;
-    while (payroll(save, team) > SALARY_CAP && guard++ < 30) {
+    const limit = team.strategy === 'contend' ? SECOND_APRON : LUXURY_TAX;
+    // count the minimum deals it will take to get back to a full ten
+    const projected = () => payroll(save, team) + Math.max(0, ROSTER_NORMAL - team.roster.length) * MIN_SALARY;
+    while (projected() > limit && guard++ < 30) {
       const worst = worstContract(save, team);
       if (worst === null) break;
-      releasePlayer(save, worst, { deadCap: false });
+      // a team with cap space may take him off their hands; otherwise he is cut
+      if (!aiDumpSalary(save, team.id, worst)) releasePlayer(save, worst, { deadCap: false });
     }
   }
   aiFillRosters(save, rng);

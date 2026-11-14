@@ -1,10 +1,11 @@
 import { useState } from 'preact/hooks';
 import { ROSTER_MAX, SALARY_CAP } from '../core/constants';
-import { payroll } from '../core/org/finance';
+import { capStatus, payroll } from '../core/org/finance';
 import { ovr } from '../core/ratings';
 import { POSITIONS } from '../core/types';
 import { useSave } from '../state/store';
 import { Btn, Panel, PlayerRow, Screen, Tabs, money, moraleTag } from './kit';
+import { CapTag } from './OffseasonParts';
 import { nav } from './router';
 
 export function RosterScreen(_p: { params: Record<string, any> }) {
@@ -20,7 +21,8 @@ export function RosterScreen(_p: { params: Record<string, any> }) {
   return (
     <Screen title="Roster" right={<Btn kind="small" onClick={() => nav('lineup')}>Lineup</Btn>}>
       <div class="row between dim" style={{ fontSize: '18px' }}>
-        <span>{me.roster.length}/{ROSTER_MAX} players</span><span>Payroll {money(payroll(save, me))} / {money(SALARY_CAP)}</span>
+        <span>{me.roster.length}/{ROSTER_MAX} players</span>
+        <span class="row" style={{ gap: '6px' }}>Payroll {money(payroll(save, me))} / cap {money(SALARY_CAP)} <CapTag status={capStatus(save, me)} /></span>
       </div>
       <Tabs tabs={['Position', 'Overall', 'Salary', 'Age'] as const} value={sort} onChange={setSort} />
       <Panel>

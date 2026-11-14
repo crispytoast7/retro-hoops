@@ -1,11 +1,12 @@
-import { FA_DAYS, MAX_CONTRACT_YEARS, MAX_SALARY, MIN_SALARY, ROSTER_MAX, ROSTER_NORMAL } from '../constants';
-import { capSpace } from '../org/finance';
-import { releasePlayer, signPlayer } from '../org/roster';
+import { FA_DAYS, MAX_FA_YEARS, MAX_SALARY, MIN_DEAL_YEARS, MIN_SALARY, ROSTER_MAX, ROSTER_NORMAL, TAX_MLE } from '../constants';
+import { maxOffer, payroll, signingPath } from '../org/finance';
+import type { SigningVia } from '../org/finance';
+import { signPlayer } from '../org/roster';
 import { clamp, ovr, round1 } from '../ratings';
 import type { Rng } from '../rng';
 import type { FreeAgentOffer, Player, Save, Team } from '../types';
 import { FACILITY_KEYS, POSITIONS } from '../types';
-import { askingContract, leaguePosAverages, marketSalary, needsForRoster, playerValue, teamSuccess } from './value';
+import { addCeiling, askingContract, leaguePosAverages, needsForRoster, playerValue, teamSuccess } from './value';
 
 function formerTeamId(p: Player): number | null {
   return p.seasons.length ? p.seasons[p.seasons.length - 1].teamId : null;
@@ -53,12 +54,9 @@ function dayThreshold(day: number): number {
   return Math.max(64, 88 - (day - 1) * 6);
 }
 
-const canFit = (save: Save, team: Team, salary: number): boolean =>
-  team.roster.length < ROSTER_MAX && capSpace(save, team) >= salary - 1e-9;
-
 const dealText = (years: number, salary: number): string => `(${years} yr${years === 1 ? '' : 's'}, $${round1(salary)}M)`;
 
-/** The offers AI teams put on the table today. */
+/** The offers AI teams put on the table today. Each bids what the rules let it: cap space, its mid-level, or the minimum; and only as far as its plan allows (contenders up to the second apron, middle teams up to the tax line, rebuilders into cap space only). */
 function aiOffers(save: Save, rng: Rng, day: number): Map<number, FreeAgentOffer[]> {
   const out = new Map<number, FreeAgentOffer[]>();
   const avg = leaguePosAverages(save);
@@ -66,43 +64,50 @@ function aiOffers(save: Save, rng: Rng, day: number): Map<number, FreeAgentOffer
   const teams = rng.shuffle(save.teams.filter(t => t.id !== save.userTeamId));
   for (const team of teams) {
     if (team.roster.length >= ROSTER_MAX) continue;
-    const space = capSpace(save, team);
-    if (space < MIN_SALARY) continue;
+    const pay = payroll(save, team);
+    const short = team.roster.length < ROSTER_NORMAL;
+    // The most this team can and will pay one player today.
+    const room = round1(Math.min(maxOffer(save, team).salary, addCeiling(team) - pay));
+    const top = Math.max(MIN_SALARY, room);
+    if (top <= MIN_SALARY && !short) continue;
     const needs = needsForRoster(save, team.roster, avg);
     const os = team.roster.map(id => ovr(save.players[id])).sort((a, b) => b - a);
-    const short = team.roster.length < ROSTER_NORMAL;
-    // With a full ten, only a real upgrade to the rotation is worth a spot.
-    const bar = short ? (os[7] ?? 0) - 6 : (os[4] ?? 0);
+    // With a full ten, only someone who cracks the top seven is worth a spot.
+    const bar = short ? (os[7] ?? 0) - 6 : (os[6] ?? 0) + 1;
     const cands: { p: Player; fit: number; salary: number; years: number }[] = [];
     for (const p of pool) {
       const o = ovr(p);
       if (o < bar) continue;
-      if (team.strategy === 'rebuild' && p.age >= 31 && !short) continue;
+      if (team.strategy === 'rebuild' && p.age >= 31 && o < 78 && !short) continue;
       if (team.strategy === 'contend' && p.age <= 22 && o < 66 && !short) continue;
       const ask = askingContract(save, p, team.id);
       // Bid around his number, a little higher as the days run out and for a position of need.
       const f = rng.range(0.93, 1.08) + needs[p.pos] * 0.06 + (day - 1) * 0.01;
-      const salary = round1(clamp(ask.salary * f, MIN_SALARY, MAX_SALARY));
-      if (salary > space) continue;
-      let v = Math.max(0.5, playerValue(save, { ...p, contract: { salary, years: ask.years } }));
+      let salary = round1(clamp(ask.salary * f, MIN_SALARY, MAX_SALARY));
+      if (salary > top) {
+        // Cannot reach his number: put the whole exception (or all the room) on the table if that is close.
+        if (top < ask.salary * 0.78) continue;
+        salary = top;
+      }
+      let years = clamp(ask.years, 1, MAX_FA_YEARS);
+      if (salary <= MIN_SALARY) years = Math.min(years, MIN_DEAL_YEARS);
+      if (!signingPath(save, team, salary, { years }).ok) continue;
+      let v = Math.max(0.5, playerValue(save, { ...p, contract: { salary, years } }));
       if (team.strategy === 'rebuild' && p.age >= 29) v *= 0.7;
       if (team.strategy === 'contend' && o >= 75) v *= 1.15;
-      cands.push({ p, fit: v * (0.6 + 0.8 * needs[p.pos]), salary, years: ask.years });
+      cands.push({ p, fit: v * (0.6 + 0.8 * needs[p.pos]), salary, years });
     }
     cands.sort((a, b) => b.fit - a.fit);
-    let committed = 0;
     for (const c of cands.slice(0, short ? 3 : 2)) {
-      if (committed + c.salary > space) continue;
-      committed += c.salary;
       const list = out.get(c.p.id) ?? [];
-      list.push({ teamId: team.id, salary: c.salary, years: clamp(c.years, 1, MAX_CONTRACT_YEARS) });
+      list.push({ teamId: team.id, salary: c.salary, years: c.years });
       out.set(c.p.id, list);
     }
   }
   return out;
 }
 
-/** One offseason free-agency day. AI teams with needs and cap space make offers to the best-fitting free agents; each free agent with offers (AI ones plus save.offseason.userOffers[playerId]) picks the best by offerScore if it clears a threshold that drops each day (day 1 picky, last day takes the best available); signs via signPlayer. Never exceed cap or ROSTER_MAX. Clears resolved user offers. Returns log lines for the user ("M. Reyes signs with Harbor City (3 yrs, $12.5M)", "T. Banks turned down your offer."). Pushes news for notable signings. Reads the day from save.offseason.faDay; the caller advances it. */
+/** One offseason free-agency day. AI teams with needs make the offers their cap position allows (cap space, the mid-level, the taxpayer mid-level or the minimum); each free agent with offers (AI ones plus save.offseason.userOffers[playerId]) picks the best by offerScore if it clears a threshold that drops each day (day 1 picky, last day takes the best available); signs via signPlayer. Every signing must be legal by signingPath at the moment it happens: an offer that no longer is gets passed over (and a user offer is withdrawn with a line saying why). A mid-level deal marks team.mleUsed. Never exceeds ROSTER_MAX. Clears resolved user offers. Returns log lines for the user ("M. Reyes signs with Harbor City (3 yrs, $12.5M)", "T. Banks turned down your offer."). Pushes news for notable signings. Reads the day from save.offseason.faDay; the caller advances it. */
 export function runFreeAgencyDay(save: Save, rng: Rng): string[] {
   const log: string[] = [];
   const off = save.offseason;
@@ -133,24 +138,29 @@ export function runFreeAgencyDay(save: Save, rng: Rng): string[] {
       .sort((a, b) => b.s - a.s);
 
     let signedWith: Team | null = null;
-    let userCouldNotFit = false;
+    let userBlocked: string | null = null;
     for (const { o, s } of scored) {
       if (s < threshold) break;
       const team = save.teams[o.teamId];
+      const isUser = team.id === userId;
       const salary = round1(clamp(o.salary, MIN_SALARY, MAX_SALARY));
-      const years = clamp(Math.round(o.years), 1, MAX_CONTRACT_YEARS);
-      if (!canFit(save, team, salary)) {
-        if (o.teamId === userId) userCouldNotFit = true;
+      const years = clamp(Math.round(o.years), 1, MAX_FA_YEARS);
+      if (team.roster.length >= ROSTER_MAX) {
+        if (isUser) userBlocked = `your roster is full (${ROSTER_MAX})`;
         continue;
       }
-      signPlayer(save, id, team.id, { salary, years });
+      const path = signingPath(save, team, salary, { years });
+      if (!path.ok) {
+        if (isUser) userBlocked = path.reason;
+        continue;
+      }
+      signPlayer(save, id, team.id, { salary, years }, path.via);
       signedWith = team;
-      const isUser = team.id === userId;
       log.push(`${p.name} signs with ${team.city} ${dealText(years, salary)}`);
       if (isUser || ovr(p) >= 76) {
         save.news.unshift({
           year: save.year, week: save.week, kind: 'signing',
-          text: `${p.name} signs with ${team.city} ${dealText(years, salary)}.`,
+          text: `${p.name} signs with ${team.city} ${dealText(years, salary)}${VIA_NOTE[path.via]}.`,
           ...(isUser ? { mine: true } : {}),
         });
       }
@@ -158,11 +168,12 @@ export function runFreeAgencyDay(save: Save, rng: Rng): string[] {
     }
 
     if (!mine) continue;
-    if (signedWith) {
-      if (signedWith.id !== userId) log.push(`${p.name} turned down your offer.`);
+    if (userBlocked) {
+      // he would have taken it, but the rules did not allow the deal
+      log.push(`Your offer to ${p.name} was not allowed and has been withdrawn: ${userBlocked.replace(/\.$/, '')}.`);
       delete userOffers[id];
-    } else if (userCouldNotFit) {
-      log.push(`You could not fit ${p.name} under the cap or on the roster. Offer withdrawn.`);
+    } else if (signedWith) {
+      if (signedWith.id !== userId) log.push(`${p.name} turned down your offer.`);
       delete userOffers[id];
     } else {
       const s = offerScore(save, p, { ...mine, teamId: userId });
@@ -178,7 +189,11 @@ export function runFreeAgencyDay(save: Save, rng: Rng): string[] {
   return log;
 }
 
-/** After the last day and during the season: AI teams under ROSTER_NORMAL sign the best affordable free agents to 1-year minimum-ish deals so every AI team has at least 10 (and at least one natural player per position where possible). */
+const VIA_NOTE: Record<SigningVia, string> = {
+  space: '', bird: '', min: '', mle: ' with the mid-level exception', taxMle: ' with the taxpayer mid-level',
+};
+
+/** After the last day and during the season: AI teams under ROSTER_NORMAL sign the best free agents still out there to one-year minimum deals (always legal, whatever the payroll) so every AI team has at least 10 (and at least one natural player per position where possible). */
 export function aiFillRosters(save: Save, rng: Rng): void {
   for (const team of save.teams) {
     if (team.id === save.userTeamId) continue;
@@ -186,14 +201,6 @@ export function aiFillRosters(save: Save, rng: Rng): void {
     while (team.roster.length < ROSTER_NORMAL && guard++ < 30) {
       const pool = save.freeAgents.map(id => save.players[id]).filter(p => p && !p.retired);
       if (!pool.length) break;
-      const space = capSpace(save, team);
-      if (space < MIN_SALARY) {
-        // No room even for a minimum deal: move on from the worst contract (AI pays no dead cap).
-        const worst = worstContract(save, team);
-        if (worst === null) break;
-        releasePlayer(save, worst, { deadCap: false });
-        continue;
-      }
       const have = new Set(team.roster.map(id => save.players[id].pos));
       const missing = POSITIONS.filter(pos => !have.has(pos));
       let best: Player | null = null, bs = -1e9;
@@ -203,10 +210,24 @@ export function aiFillRosters(save: Save, rng: Rng): void {
         if (s > bs) { bs = s; best = p; }
       }
       if (!best) break;
-      const salary = round1(clamp(Math.min(marketSalary(best) * 0.5, 3, space), MIN_SALARY, MAX_SALARY));
-      signPlayer(save, best.id, team.id, { salary, years: 1 });
+      signPlayer(save, best.id, team.id, { salary: MIN_SALARY, years: 1 }, 'min');
     }
   }
+}
+
+/** Signing a free agent on the spot, outside the bidding days (the user, in season or at camp). He wants his asking deal by whichever path fits it. Once the market has closed, a fringe player (asking no more than the taxpayer mid-level) will settle for a one-year minimum from a team that cannot fit his number, so a capped-out team can still fill its bench. */
+export function instantSigning(save: Save, p: Player, teamId: number):
+  { ok: true; salary: number; years: number; via: SigningVia; settled: boolean } | { ok: false; reason: string } {
+  const team = save.teams[teamId];
+  const ask = askingContract(save, p, teamId);
+  if (team.roster.length >= ROSTER_MAX) return { ok: false, reason: `Your roster is full (${ROSTER_MAX}). Release someone first.` };
+  let years = clamp(ask.years, 1, MAX_FA_YEARS);
+  if (ask.salary <= MIN_SALARY) years = Math.min(years, MIN_DEAL_YEARS);
+  const path = signingPath(save, team, ask.salary, { years });
+  if (path.ok) return { ok: true, salary: ask.salary, years, via: path.via, settled: false };
+  const marketClosed = save.phase !== 'offseason' || save.offseason?.step === 'camp';
+  if (marketClosed && ask.salary <= TAX_MLE) return { ok: true, salary: MIN_SALARY, years: 1, via: 'min', settled: true };
+  return { ok: false, reason: path.reason };
 }
 
 /** Player id with the worst value per dollar, or null if the roster is empty. */

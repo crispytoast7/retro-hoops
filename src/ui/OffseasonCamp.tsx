@@ -1,14 +1,14 @@
 import { useState } from 'preact/hooks';
 import { ROSTER_MAX, ROSTER_MIN } from '../core/constants';
 import { upgradeCost, upgradeRating } from '../core/org/economy';
-import { capSpace } from '../core/org/finance';
+import { capStatus, payroll } from '../core/org/finance';
 import { ovr } from '../core/ratings';
 import type { Player, RatingKey, Save } from '../core/types';
 import { RATING_KEYS, RATING_NAMES } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { act } from '../state/store';
 import { Btn, Modal, Panel, Sprite, Stars, money, toast } from './kit';
-import { NameLink, PlayerLine, contractText, releaseWithConfirm } from './OffseasonParts';
+import { NameLink, PlayerLine, STATUS_CLASS, contractText, releaseWithConfirm } from './OffseasonParts';
 import { nav } from './router';
 
 /** How far a rating is through its current half star (0-1), so an upgrade that does not yet add half a star still shows. */
@@ -33,7 +33,7 @@ export function CampStep({ save }: { save: Save }) {
         <div class="ox-stats">
           <div><h3>CREDITS</h3><div class="head gold">◉ {save.credits}</div></div>
           <div><h3>ROSTER</h3><div class={`head ${n > ROSTER_MAX || n < ROSTER_MIN ? 'bad' : ''}`}>{n}/{ROSTER_MAX}</div></div>
-          <div><h3>CAP SPACE</h3><div class="head">{money(capSpace(save, me))}</div></div>
+          <div><h3>PAYROLL</h3><div class={`head ${STATUS_CLASS[capStatus(save, me)]}`}>{money(payroll(save, me))}</div></div>
         </div>
         <div style={{ marginTop: '6px' }}>Rating upgrades cost <b class="good">25% less</b> during camp. Tap a player to train him.</div>
         {off.campSpent > 0 && <div class="dim" style={{ fontSize: '18px' }}>Spent at camp so far: ◉ {off.campSpent}</div>}

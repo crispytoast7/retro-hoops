@@ -3,7 +3,7 @@ import type { Difficulty } from '../core/types';
 import { setSound, sfx } from '../audio/sfx';
 import { exportSave, getSave, hasSave, importSave, resetSave, touch, useSave } from '../state/store';
 import { Btn, Panel, Screen, Tabs, confirmDialog, toast } from './kit';
-import { reset } from './router';
+import { nav, reset } from './router';
 
 function SaveSettings() {
   const save = useSave();
@@ -69,6 +69,7 @@ export function SettingsScreen(_p: { params: Record<string, any> }) {
         </Panel>
       )}
       <Panel title="HOW TO PLAY">
+        {has && getSave().schedule.length > 0 && <><Btn class="block" kind="primary" onClick={() => nav('practice')}>Practice the controls</Btn><div style={{ height: '8px' }} /></>}
         <div class="list" style={{ fontSize: '19px' }}>
           <div class="item">Drag anywhere: dribble and drive</div>
           <div class="item">Quick flick: crossover or spin move</div>

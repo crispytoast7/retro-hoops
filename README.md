@@ -18,12 +18,19 @@ iPhone) to play offline.
 | Shoot | Press and hold still, release in the green | Hold Space |
 | Layup / dunk | Drive at the rim with a lane | same |
 
-You play about a dozen of your team's possessions each game; defense and the rest are
-simulated from ratings.
+You play about sixteen of your team's possessions each game (more late in close games);
+defense and the rest are simulated from ratings. Games are full length: 12-minute quarters,
+scores around 110.
 
 ## Features
 
-- 16-team generated league, 2 conferences, 14-game season, 8-team playoffs, endless seasons.
+- 16-team generated league, 2 conferences, endless seasons. Choose a full 82-game season
+  (about four games a week, play or sim each one, best-of-seven playoffs) or a classic
+  14-game season with single-game playoffs.
+- A hands-on Practice tutorial for the controls, and a hub that opens up over your first
+  games with a short explainer each time something unlocks.
+- Coach progression: XP and levels, perks you choose, 30 trophies that pay credits, and
+  unlockable home-court floors.
 - Arcade possessions: shot meter sized by Shooting, distance and defense; handles moves;
   interceptable passes; layups, dunks, and-ones, blocks, offensive rebounds; sped-up shot
   clock; crowd meter; buzzer-beaters; three difficulty levels.
@@ -32,7 +39,8 @@ simulated from ratings.
   schedule, stats, history, news.
 - Players: seven star ratings, age curve, contracts, morale, personality traits, injuries,
   credit-funded rating upgrades, a team captain.
-- Organization: hard salary cap, coordinators to hire (and lose), four upgradable
+- Organization: an NBA-style soft salary cap (luxury tax, two aprons, mid-level and
+  minimum exceptions, salary matching in trades), coordinators to hire (and lose), four upgradable
   facilities that wear down, credits economy, owner goals and approval, fan support,
   weekly events with choices, getting fired and taking a new job.
 - Trades with AI teams that value age, contract, needs and picks; AI-to-AI trades; a
@@ -48,7 +56,7 @@ Needs Node 20 or newer.
 ```sh
 npm install
 npm run dev        # http://localhost:5173
-npm test           # logic tests (sim, AI GM, seasons, org)
+npm test           # logic tests (sim, AI GM, seasons, calendar, org, progression)
 npm run build      # type-check + production build into dist/
 npm run preview    # serve the production build
 ```

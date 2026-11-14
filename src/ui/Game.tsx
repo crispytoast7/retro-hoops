@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { REG_WEEKS } from '../core/constants';
+import { cal, ROUND_NAMES } from '../core/season/calendar';
+import { courtStyle, perk } from '../core/org/progress';
 import { Rng } from '../core/rng';
 import { finishUserGame, startLiveGame, PostGame } from '../core/season/flow';
 import type { PossessionResult } from '../core/sim/api';
@@ -7,7 +8,6 @@ import { Arcade } from '../game/arcade';
 import { setCrowd, sfx, stopCrowd } from '../audio/sfx';
 import { act, getSave } from '../state/store';
 import { Btn, Stars, short } from './kit';
-import { ROUND_NAME } from './Hub';
 import { replace } from './router';
 
 const fmtClock = (s: number): string => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`;
@@ -55,6 +55,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
     const arcade = new Arcade(canvas.current!, {
       paint: home.colors.primary, accent: home.colors.secondary, banners: home.titles.length,
       crowdA: home.colors.primary, crowdB: home.colors.secondary,
+      wood: iAmHome ? courtStyle(save) : undefined,
     });
     arcade.onClock = clock => { if (clockEl.current) clockEl.current.textContent = fmtClock(clock); };
     const live = startLiveGame(save, g, new Rng((save.rng ^ (g.id * 2654435761)) >>> 0));
@@ -76,7 +77,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
           push(step.result);
           if (!c.skip) {
             if (step.result.points > 0 && !c.fast) (step.result.offense === me.id ? sfx.swish : sfx.rim)();
-            await sleep(c.fast ? 70 : 420);
+            await sleep(c.fast ? 25 : 170);
           }
         } else if (step.kind === 'user') {
           if (c.skip) { push(live.simUser()); continue; }
@@ -90,6 +91,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
             poss: s, offense: s.offense.map(id => save.players[id]), defense: s.defense.map(id => save.players[id]),
             offColors: me.colors, defColors: (iAmHome ? away : home).colors,
             ocStars: me.staff.oc?.stars ?? 0, difficulty: save.settings.difficulty,
+            perks: { shooting: perk(save, 'shooting'), handles: perk(save, 'handles'), passing: perk(save, 'passing'), rim: perk(save, 'rim') },
           });
           if (c.cancel) break;
           setPlaying(false);
@@ -133,7 +135,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
         <canvas ref={canvas} />
         {overlay?.kind === 'intro' && (
           <div class="overlay dimmed">
-            <div class="head dim">{g.playoff ? ROUND_NAME[g.week - REG_WEEKS].toUpperCase() : `WEEK ${g.week}`}</div>
+            <div class="head dim">{g.playoff ? ROUND_NAMES[g.week - cal(save).regWeeks].toUpperCase() : `WEEK ${g.week}`}</div>
             <div class="bigcall">{away.name.toUpperCase()}<br />AT<br />{home.name.toUpperCase()}</div>
             <div class="panel" style={{ maxWidth: '330px', fontSize: '19px', textAlign: 'left' }}>
               {seen ? <div class="dim">You play about a dozen of your possessions. The rest is simulated.</div> : (
@@ -147,7 +149,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
                 </div>
               )}
             </div>
-            <Btn kind="primary big" onClick={start}>Tip Off</Btn>
+            <div class="row"><Btn kind="primary big" onClick={start}>Tip Off</Btn>{!seen && <Btn onClick={() => replace('practice')}>Practice first</Btn>}</div>
           </div>
         )}
         {overlay?.kind === 'ball' && <div class="overlay"><div class="bigcall">{overlay.text}</div><div class="head">{overlay.sub}</div></div>}

@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
-import { REG_WEEKS } from '../core/constants';
+import { cal } from '../core/season/calendar';
+import { userGame } from '../core/season/schedule';
 import type { BoxLine, GameResult, ScheduledGame } from '../core/types';
 import { useSave } from '../state/store';
 import { Btn, Modal, Panel, Screen, fullName, recordStr, short } from './kit';
@@ -10,7 +11,9 @@ export function ScheduleScreen(_p: { params: Record<string, any> }) {
   const save = useSave();
   const me = save.userTeamId;
   const [open, setOpen] = useState<ScheduledGame | null>(null);
-  const games = save.schedule.filter(g => g.homeId === me || g.awayId === me).sort((a, b) => a.week - b.week);
+  const games = save.schedule.filter(g => g.homeId === me || g.awayId === me).sort((a, b) => a.day - b.day);
+  const REG_WEEKS = cal(save).regWeeks;
+  const nextId = save.phase === 'offseason' ? -1 : userGame(save)?.id;
 
   const box = (r: GameResult, lines: BoxLine[], teamId: number, q: number[]) => (
     <div>
@@ -43,7 +46,7 @@ export function ScheduleScreen(_p: { params: Record<string, any> }) {
             const done = g.played && g.homeScore != null && g.awayScore != null;
             const mine = home ? g.homeScore! : g.awayScore!;
             const theirs = home ? g.awayScore! : g.homeScore!;
-            const isNext = !g.played && g.week === save.week;
+            const isNext = g.id === nextId;
             const label = g.playoff || g.week > REG_WEEKS ? ROUND[g.week - REG_WEEKS] ?? 'Playoffs' : `Wk ${g.week}`;
             const tappable = !!g.result;
             return (

@@ -4,10 +4,11 @@ import type { Rng } from '../rng';
 import type { Facility, FacilityKey, GameResult, Player, RatingKey, Save, StaffMember, Team } from '../types';
 import { FACILITY_KEYS } from '../types';
 import { NEWS } from '../../data/news';
+import { perk } from './progress';
 
 export function pushNews(save: Save, kind: Save['news'][number]['kind'], text: string, mine = false): void {
   save.news.unshift({ year: save.year, week: save.week, kind, text, mine });
-  if (save.news.length > 120) save.news.length = 120;
+  if (save.news.length > 200) save.news.length = 200;
 }
 export function headline(rng: Rng, key: string, tokens: Record<string, string | number>): string {
   const tpl = rng.pick(NEWS[key] ?? ['{team}']);
@@ -115,7 +116,7 @@ export const UPGRADE_POINTS = 4;
 export function upgradeCost(save: Save, p: Player, key: RatingKey): number {
   const base = [0, 2, 3, 5, 8, 12][starLevel(p.ratings[key])];
   const training = effLevel(save.teams[save.userTeamId].facilities.training);
-  let c = base * (training >= 4 ? 0.8 : 1);
+  let c = base * (training >= 4 ? 0.8 : 1) - perk(save, 'develop');
   if (save.phase === 'offseason' && save.offseason?.step === 'camp') c *= 0.75;
   return Math.max(1, Math.round(c));
 }
@@ -131,7 +132,7 @@ export function upgradeRating(save: Save, playerId: number, key: RatingKey): str
 }
 
 // ---- scouting ------------------------------------------------------------------------
-export const scoutPointsPerSeason = (save: Save): number => effLevel(save.teams[save.userTeamId].facilities.scouting) * 3;
+export const scoutPointsPerSeason = (save: Save): number => effLevel(save.teams[save.userTeamId].facilities.scouting) * 3 + 3 * perk(save, 'scout');
 export function scoutProspect(save: Save, playerId: number): string | null {
   const p = save.players[playerId];
   if (p.scouted) return 'Already scouted.';
@@ -156,15 +157,17 @@ export function scoutedRating(save: Save, p: Player, key: RatingKey): { lo: numb
 
 // ---- credits from games --------------------------------------------------------------
 export interface CreditLine { label: string; amount: number }
-export function gameCredits(save: Save, result: GameResult, highlights: string[], playoff: boolean): CreditLine[] {
+/** `scale` shrinks per-game pay in long seasons; highlight bonuses are always paid in full. */
+export function gameCredits(save: Save, result: GameResult, highlights: string[], playoff: boolean, scale = 1): CreditLine[] {
   const me = save.userTeamId;
   const home = result.homeId === me;
   const won = home ? result.homeScore > result.awayScore : result.awayScore > result.homeScore;
   const out: CreditLine[] = [];
-  out.push(won ? { label: playoff ? 'Playoff win' : 'Win', amount: playoff ? 5 : 3 } : { label: 'Showed up', amount: 1 });
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  out.push(won ? { label: playoff ? 'Playoff win' : 'Win', amount: r2((playoff ? 5 : 3) * scale) } : { label: 'Showed up', amount: r2(scale) });
   if (home) {
     const arena = effLevel(save.teams[me].facilities.arena);
-    const gate = Math.round((save.fans / 100) * (1 + arena) * 0.75);
+    const gate = r2((save.fans / 100) * (1 + arena) * 0.75 * scale * (1 + 0.25 * perk(save, 'gate')));
     if (gate > 0) out.push({ label: 'Home gate', amount: gate });
   }
   const big = highlights.filter(h => h === 'dunk' || h === 'buzzer' || h === 'andone' || h === 'ankles' || h === 'perfect').length;
@@ -182,11 +185,13 @@ export function checkMilestones(save: Save): CreditLine[] {
     save.milestones.push(key);
     out.push({ label, amount });
   };
-  if (t.record.streak >= 4) give('streak4', '4-game win streak', 2);
-  if (t.record.streak >= 7) give('streak7', '7-game win streak', 4);
-  if (t.record.w >= 8) give('w8', 'Winning season', 3);
-  if (t.record.w >= 11) give('w11', '11 wins', 4);
+  const n = save.calendar?.games ?? 14;
+  const long = n > 20;
+  if (t.record.streak >= (long ? 6 : 4)) give('streak4', `${long ? 6 : 4}-game win streak`, 2);
+  if (t.record.streak >= (long ? 10 : 7)) give('streak7', `${long ? 10 : 7}-game win streak`, 4);
+  if (t.record.w > n / 2) give('w8', 'Winning season', 3);
+  if (t.record.w >= Math.round(n * 0.75)) give('w11', `${Math.round(n * 0.75)} wins`, 4);
   if (save.coach.w === 1 && !save.milestones.includes('firstwin')) { save.milestones.push('firstwin'); out.push({ label: 'First career win', amount: 3 }); }
-  for (const n of [25, 50, 100, 200]) if (save.coach.w >= n && !save.milestones.includes(`cw${n}`)) { save.milestones.push(`cw${n}`); out.push({ label: `${n} career wins`, amount: 5 }); }
+  for (const n of long ? [100, 250, 500, 1000] : [25, 50, 100, 200]) if (save.coach.w >= n && !save.milestones.includes(`cw${n}`)) { save.milestones.push(`cw${n}`); out.push({ label: `${n} career wins`, amount: 5 }); }
   return out;
 }

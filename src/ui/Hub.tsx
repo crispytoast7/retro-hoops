@@ -1,26 +1,27 @@
 import { useEffect, useState } from 'preact/hooks';
-import { REG_WEEKS, TRADE_DEADLINE_WEEK } from '../core/constants';
-import { capSpace } from '../core/org/finance';
+import { capStatus, payroll } from '../core/org/finance';
 import { EventOutcome, currentEvent, eventText, resolveEvent, teamMorale } from '../core/org/people';
-import { endWeek } from '../core/season/flow';
-import { userGame } from '../core/season/schedule';
+import { Feature, gamesToUnlock, isUnlocked, perkPoints, rankName, xpBar } from '../core/org/progress';
+import { cal, ROUND_NAMES } from '../core/season/calendar';
+import { advance } from '../core/season/flow';
+import { gamesInWeek, userGame, userGamesInWeek } from '../core/season/schedule';
 import { teamRatings } from '../core/sim/engine';
 import type { Effect, Save } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { act, useSave } from '../state/store';
-import { Btn, Meter, Modal, Panel, Stars, fullName, money, recordStr, teamStarCount } from './kit';
+import { Btn, Meter, Modal, Panel, Stars, fullName, money, recordStr, teamStarCount, toast } from './kit';
 import { nav, replace, reset } from './router';
 
 const TILES: [string, string, string][] = [
   ['roster', 'Roster', '☻'], ['lineup', 'Lineup', '≡'], ['staff', 'Staff', '♟'], ['facilities', 'Facilities', '⌂'],
   ['finances', 'Finances', '$'], ['trades', 'Trades', '⇄'], ['scouting', 'Scouting', '◎'], ['standings', 'Standings', '▤'],
   ['schedule', 'Schedule', '▦'], ['stats', 'Stats', '%'], ['history', 'History', '♛'], ['news', 'News', '✉'],
+  ['coach', 'Coach', '★'], ['practice', 'Practice', '◉'],
 ];
 const EFFECT_LABEL: Record<Effect['k'], string> = {
   morale: 'Player morale', teamMorale: 'Team morale', fans: 'Fans', owner: 'Owner', credits: 'Credits', rep: 'Reputation',
   injury: 'Out (weeks)', suspend: 'Suspended (weeks)', tradeDemand: 'Trade demand',
 };
-export const ROUND_NAME = ['', 'Conference Semifinal', 'Conference Final', 'Championship'];
 
 function EventModal({ save }: { save: Save }) {
   const [out, setOut] = useState<EventOutcome | null>(null);
@@ -64,8 +65,23 @@ export function HubScreen(_p: { params: Record<string, any> }) {
   const injuredStarters = me.lineup.filter(id => save.players[id]?.injury).length;
   const expiring = me.roster.filter(id => save.players[id].contract.years <= 1).length;
   const rundown = Object.values(me.facilities).filter(f => f.condition < 50).length;
-  const simWeek = () => { const post = act((s, rng) => endWeek(s, rng)); if (post) nav('postgame', { post, simmed: true }); };
-  const round = save.phase === 'playoffs' ? ROUND_NAME[save.week - REG_WEEKS] : '';
+  const c = cal(save);
+  const xp = xpBar(save);
+  const REG_WEEKS = c.regWeeks, TRADE_DEADLINE_WEEK = c.deadlineWeek;
+  const sim = (mode: 'simGame' | 'simWeek') => {
+    const before = save.credits;
+    const posts = act((s, rng) => advance(s, rng, mode));
+    if (posts.length === 1) nav('postgame', { post: posts[0], simmed: true });
+    else if (posts.length > 1) { const w = posts.filter(p => p.won).length; toast(`Simulated ${posts.length} games: ${w}-${posts.length - w}. Credits +${save.credits - before}.`, true); }
+  };
+  const simWeek = () => sim('simWeek');
+  const round = save.phase === 'playoffs' ? ROUND_NAMES[save.week - REG_WEEKS] : '';
+  const weekGames = save.phase === 'regular' ? userGamesInWeek(save) : [];
+  const gameNo = g ? weekGames.findIndex(x => x.id === g.id) + 1 : 0;
+  const series = save.phase === 'playoffs' && g ? save.playoffs?.series.find(s => s.winnerId === undefined && (s.highId === me.id || s.lowId === me.id)) : undefined;
+  const myW = series ? (series.highId === me.id ? series.highW : series.lowW) : 0, oppW = series ? (series.highId === me.id ? series.lowW : series.highW) : 0;
+  const seriesText = !series || c.seriesWins === 1 ? '' : myW === oppW ? `Series tied ${myW}-${oppW}` : myW > oppW ? `You lead ${myW}-${oppW}` : `You trail ${myW}-${oppW}`;
+  const openGames = save.phase !== 'offseason' && gamesInWeek(save, save.week).some(x => !x.played);
 
   return (
     <div class="screen">
@@ -84,6 +100,10 @@ export function HubScreen(_p: { params: Record<string, any> }) {
           <Meter label="FANS" value={save.fans} />
           <Meter label="MORALE" value={teamMorale(save, me)} />
         </div>
+        <div class="panel row tap" style={{ gap: '10px', padding: '6px 10px' }} onClick={() => isUnlocked(save, 'coach') ? nav('coach') : toast('The coach profile unlocks after 2 games.')}>
+          <span class="head gold" style={{ whiteSpace: 'nowrap' }}>LV {xp.level}</span>
+          <Meter label={rankName(xp.level).toUpperCase()} value={xp.pct} color="var(--gold)" text={xp.need ? `${xp.into}/${xp.need} XP` : 'MAX'} />
+        </div>
 
         {save.phase === 'offseason' ? (
           <Panel team title="OFFSEASON">
@@ -91,14 +111,8 @@ export function HubScreen(_p: { params: Record<string, any> }) {
             <div style={{ height: '8px' }} />
             <Btn kind="primary big block" onClick={() => nav('offseason')}>Go to Offseason</Btn>
           </Panel>
-        ) : g && opp && g.played ? (
-          <Panel team title={`WEEK ${save.week}`}>
-            <div>Your game is in the books. Wrap up the rest of the week.</div>
-            <div style={{ height: '8px' }} />
-            <Btn kind="primary block" onClick={() => { act((s, rng) => { endWeek(s, rng); }); }}>Finish Week</Btn>
-          </Panel>
         ) : g && opp ? (
-          <Panel team title={save.phase === 'playoffs' ? round.toUpperCase() : `WEEK ${save.week} · ${g.homeId === me.id ? 'HOME' : 'AWAY'}`}>
+          <Panel team title={save.phase === 'playoffs' ? `${round.toUpperCase()}${c.seriesWins > 1 ? ` · GAME ${myW + oppW + 1}` : ''}` : `WEEK ${save.week}${weekGames.length > 1 ? ` · GAME ${gameNo} OF ${weekGames.length}` : ''} · ${g.homeId === me.id ? 'HOME' : 'AWAY'}`}>
             <div class="row between">
               <div class="col" style={{ gap: '2px' }}><div class="head">{me.abbr}</div><Stars n={teamStarCount(rate(me.id))} /><div class="dim">{recordStr(me)}</div></div>
               <div class="head dim">{g.homeId === me.id ? 'VS' : 'AT'}</div>
@@ -107,21 +121,23 @@ export function HubScreen(_p: { params: Record<string, any> }) {
             <div style={{ height: '10px' }} />
             <div class="row">
               <Btn kind="primary big" class="grow" disabled={me.lineup.length < 5} onClick={() => nav('game', { gameId: g.id })}>Play</Btn>
-              <Btn onClick={simWeek}>Sim</Btn>
+              <Btn onClick={() => sim('simGame')}>Sim</Btn>
             </div>
+            {seriesText && <div class="gold center" style={{ marginTop: '8px' }}>{seriesText} · best of {c.seriesWins * 2 - 1}</div>}
+            {(weekGames.length > 1 || c.seriesWins > 1) && <><div style={{ height: '8px' }} /><Btn kind="small block" onClick={simWeek}>{save.phase === 'playoffs' ? 'Sim the rest of the round' : 'Sim the rest of the week'}</Btn></>}
           </Panel>
         ) : (
           <Panel team title={save.phase === 'playoffs' ? 'PLAYOFFS' : 'BYE'}>
-            <div>{save.phase === 'playoffs' ? 'Your season is over. The playoffs go on without you.' : 'No game this week.'}</div>
+            <div>{save.phase === 'playoffs' ? (save.playoffs?.series.some(x => x.round === save.week - REG_WEEKS && (x.highId === me.id || x.lowId === me.id)) ? 'Your series is decided. The rest of the round plays out.' : 'Your season is over. The playoffs go on without you.') : openGames ? 'Your games this week are done.' : 'No game this week.'}</div>
             <div style={{ height: '8px' }} />
-            <Btn kind="primary block" onClick={simWeek}>{save.phase === 'playoffs' ? `Sim ${round}` : 'Sim Week'}</Btn>
+            <Btn kind="primary block" onClick={simWeek}>{save.phase === 'playoffs' ? `Sim ${round}` : 'Finish Week'}</Btn>
           </Panel>
         )}
 
         {(save.tradeOffer || injuredStarters > 0 || rundown > 0 || save.tradeDemands.length > 0 || me.roster.length < 8) && (
           <Panel title="NEEDS ATTENTION">
             <div class="list">
-              {save.tradeOffer && <div class="item tap" onClick={() => nav('trades')}><span class="grow">Trade offer from {save.teams[save.tradeOffer.aId].name}</span><span class="tag gold">VIEW</span></div>}
+              {save.tradeOffer && isUnlocked(save, 'trades') && <div class="item tap" onClick={() => nav('trades')}><span class="grow">Trade offer from {save.teams[save.tradeOffer.aId].name}</span><span class="tag gold">VIEW</span></div>}
               {injuredStarters > 0 && <div class="item tap" onClick={() => nav('lineup')}><span class="grow">{injuredStarters} injured starter{injuredStarters > 1 ? 's' : ''}</span><span class="tag bad">LINEUP</span></div>}
               {save.tradeDemands.filter(id => me.roster.includes(id)).map(id => <div class="item tap" onClick={() => nav('player', { id })}><span class="grow">{save.players[id].name} wants a trade</span><span class="tag bad">UNHAPPY</span></div>)}
               {rundown > 0 && <div class="item tap" onClick={() => nav('facilities')}><span class="grow">{rundown} facilit{rundown > 1 ? 'ies need' : 'y needs'} maintenance</span><span class="tag gold">FIX</span></div>}
@@ -131,11 +147,20 @@ export function HubScreen(_p: { params: Record<string, any> }) {
         )}
 
         <div class="grid3">
-          {TILES.map(([name, label, ico]) => (
-            <Btn class="tile" onClick={() => nav(name)}>
-              <span class="ico">{ico}</span><span>{label}{name === 'trades' && save.tradeOffer ? <span class="badge">1</span> : null}</span>
-            </Btn>
-          ))}
+          {TILES.map(([name, label, ico]) => {
+            const open = name === 'practice' || isUnlocked(save, name as Feature);
+            const left = open ? 0 : gamesToUnlock(save, name as Feature);
+            if (!open) return (
+              <Btn class="tile locked" onClick={() => toast(`${label} unlocks after ${left} more game${left === 1 ? '' : 's'}.`)} silent>
+                <span class="ico">▣</span><span>{label}</span><span class="dim" style={{ fontSize: '7px' }}>{left} GAME{left === 1 ? '' : 'S'}</span>
+              </Btn>
+            );
+            return (
+              <Btn class="tile" onClick={() => nav(name)}>
+                <span class="ico">{ico}</span><span>{label}{name === 'trades' && save.tradeOffer ? <span class="badge">1</span> : null}{name === 'coach' && perkPoints(save) > 0 ? <span class="badge">{perkPoints(save)}</span> : null}</span>
+              </Btn>
+            );
+          })}
         </div>
 
         <Panel title="OWNER'S GOALS">
@@ -143,7 +168,7 @@ export function HubScreen(_p: { params: Record<string, any> }) {
             {save.owner.goals.map(gl => <div class="item"><span class="grow">{gl.text}</span>{gl.done ? <span class="tag good">MET</span> : gl.failed ? <span class="tag bad">MISSED</span> : null}</div>)}
           </div>
           <div class="dim" style={{ fontSize: '17px', marginTop: '4px' }}>
-            Cap space {money(capSpace(save, me))} · {expiring} contract{expiring === 1 ? '' : 's'} in final year
+            Payroll {money(payroll(save, me))} ({capStatus(save, me)}) · {expiring} contract{expiring === 1 ? '' : 's'} in final year
             {save.phase === 'regular' && save.week <= TRADE_DEADLINE_WEEK ? ` · Trade deadline after week ${TRADE_DEADLINE_WEEK}` : ''}
           </div>
         </Panel>

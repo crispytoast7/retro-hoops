@@ -1,4 +1,4 @@
-import { NUM_TEAMS } from '../constants';
+import { MIN_SALARY, NUM_TEAMS } from '../constants';
 import { clamp, ovr, round1 } from '../ratings';
 import type { Rng } from '../rng';
 import type { Contract, Save } from '../types';
@@ -25,9 +25,9 @@ export function aiDraftChoice(save: Save, teamId: number, rng: Rng): number {
   return best;
 }
 
-/** Rookie contract for a draft slot: round 1 pick 1 about $4M x 3 yrs sliding to about $1.2M at pick 16; round 2 $0.6M x 2 yrs. */
+/** Rookie contract for a draft slot: round 1 pick 1 about $10M x 3 yrs sliding to $3M at pick 16; round 2 the minimum x 2 yrs. A drafted player can always be signed, whatever the payroll. */
 export function rookieContract(round: 1 | 2, pick: number): Contract {
-  if (round === 2) return { salary: 0.6, years: 2 };
+  if (round === 2) return { salary: MIN_SALARY, years: 2 };
   const slot = clamp(pick, 1, NUM_TEAMS);
-  return { salary: round1(4 - ((slot - 1) * 2.8) / (NUM_TEAMS - 1)), years: 3 };
+  return { salary: round1(10 - ((slot - 1) * 7) / (NUM_TEAMS - 1)), years: 3 };
 }

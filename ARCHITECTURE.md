@@ -22,9 +22,10 @@ src/
     ratings.ts   Overall-by-position, stars
     gen/         League, team and player generation
     sim/         Possession-by-possession game simulation, box scores
-    season/      Schedule, standings, playoffs, week advance
+    season/      Calendar (14 or 82 games), schedule, standings, playoff series, day/week advance
     gm/          AI general managers: trade value, free agency, draft
-    org/         Finances, contracts, staff, facilities, morale, owner, events
+    org/         Finances, contracts, staff, facilities, morale, owner, events,
+                 coach progression (levels, perks, trophies, feature unlocks)
     offseason/   Awards, retirements, re-signing, draft, free agency, camp
   data/        Name lists, cities, team names, event and news text
   game/        The arcade part: court renderer, sprites, input, shot meter,
@@ -42,7 +43,7 @@ arcade game call into `core/` and hand results back to the store.
 
 ## How a game is played
 
-A game is a list of possessions. `core/sim` simulates each one from ratings. For 10 to 14
+A game is a list of possessions. `core/sim` simulates each one from ratings. For about 16
 of the user's offensive possessions, the sim pauses and `game/` lets the player play the
 possession on the court; the result (points, who shot, assists, rebounds, turnovers) is
 fed back into the same box score. Everything else is shown as quick score updates.

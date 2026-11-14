@@ -91,6 +91,7 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
           <div class="item"><div class="grow"><div>{p.trait}</div><div class="dim" style={{ fontSize: '16px' }}>{TRAIT_DESC[p.trait]}</div></div></div>
           {team && <div class="item"><Meter label="MORALE" value={p.morale} /></div>}
           <div class="item"><span class="grow">Contract</span><span>{p.teamId !== null ? `${money(p.contract.salary)} · ${p.contract.years} yr${p.contract.years === 1 ? '' : 's'} left` : prospect ? 'Rookie deal when drafted' : `Asks about ${money(marketSalary(p))}`}</span></div>
+          {p.origin && <div class="item"><span class="grow">From</span><span>{p.origin}</span></div>}
           {p.draft && <div class="item"><span class="grow">Drafted</span><span>Season {p.draft.year}, round {p.draft.round}, pick {p.draft.pick} ({save.teams[p.draft.teamId].abbr})</span></div>}
           {p.awards.length > 0 && <div class="item"><span class="grow">Awards</span><span class="gold right">{p.awards.join(', ')}</span></div>}
         </div>
