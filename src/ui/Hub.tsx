@@ -8,9 +8,10 @@ import { gamesInWeek, userGame, userGamesInWeek } from '../core/season/schedule'
 import { teamRatings } from '../core/sim/engine';
 import type { Effect, Save } from '../core/types';
 import { sfx } from '../audio/sfx';
-import { act, useSave } from '../state/store';
+import { act, touch, useSave } from '../state/store';
 import { Btn, Meter, Modal, Panel, Stars, fullName, money, recordStr, teamStarCount, toast } from './kit';
 import { nav, replace, reset } from './router';
+import { holdTips } from './Tips';
 
 const TILES: [string, string, string][] = [
   ['roster', 'Roster', '☻'], ['lineup', 'Lineup', '≡'], ['staff', 'Staff', '♟'], ['facilities', 'Facilities', '⌂'],
@@ -35,7 +36,7 @@ function EventModal({ save }: { save: Save }) {
         <div class="row wrap">
           {out.effects.map(e => <span class={`tag ${e.k === 'tradeDemand' || e.k === 'injury' || e.k === 'suspend' || e.v < 0 ? 'bad' : 'good'}`}>{EFFECT_LABEL[e.k]}{e.k === 'tradeDemand' ? '' : ` ${e.v > 0 && e.k !== 'injury' && e.k !== 'suspend' ? '+' : ''}${e.v}`}</span>)}
         </div>
-        <Btn kind="primary" onClick={() => setOut(null)}>OK</Btn>
+        <Btn kind="primary" onClick={() => { holdTips(false); setOut(null); touch(); }}>OK</Btn>
       </Modal>
     );
   }
@@ -47,7 +48,7 @@ function EventModal({ save }: { save: Save }) {
       <div>{eventText(save, t!.text)}</div>
       {subject && <div class="dim">{subject.name} · {subject.pos} · {subject.trait}</div>}
       <div class="col">
-        {t!.choices.map((c, i) => <Btn class="block" onClick={() => { const o = act(s => resolveEvent(s, i)); sfx.select(); setOut(o); }}>{eventText(save, c.label)}</Btn>)}
+        {t!.choices.map((c, i) => <Btn class="block" onClick={() => { holdTips(true); const o = act(s => resolveEvent(s, i)); sfx.select(); if (o) setOut(o); else holdTips(false); }}>{eventText(save, c.label)}</Btn>)}
       </div>
     </Modal>
   );
