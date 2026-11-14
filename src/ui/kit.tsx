@@ -115,14 +115,14 @@ export function ConfirmHost() {
 /** Pixel portrait of a player in his team's colours. */
 export function Sprite(p: { player: Player; team?: Team | null; scale?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const scale = p.scale ?? 3;
+  const scale = p.scale ?? 2;
   useEffect(() => {
     const c = ref.current!;
     const g = c.getContext('2d')!;
-    g.clearRect(0, 0, 14, 22);
-    drawPlayer(g, { x: 7, y: 19, player: p.player, jersey: p.team?.colors.primary ?? '#77738f', trim: p.team?.colors.secondary ?? '#d8d4ea', run: -1, face: 0, armsUp: false, lift: 0 });
+    g.clearRect(0, 0, 20, 34);
+    drawPlayer(g, { x: 10, y: 31, player: p.player, jersey: p.team?.colors.primary ?? '#77738f', trim: p.team?.colors.secondary ?? '#d8d4ea', run: -1, face: 0, lift: 0 });
   }, [p.player.id, p.team?.id]);
-  return <canvas ref={ref} width={14} height={22} style={{ width: `${14 * scale}px`, height: `${22 * scale}px`, flex: 'none' }} />;
+  return <canvas ref={ref} width={20} height={34} style={{ width: `${20 * scale}px`, height: `${34 * scale}px`, flex: 'none' }} />;
 }
 
 export function moraleTag(m: number) {

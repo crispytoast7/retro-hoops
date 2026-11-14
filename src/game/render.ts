@@ -1,9 +1,13 @@
 // Court and sprite drawing for the low-resolution game canvas. Everything is drawn in
 // code with whole-pixel rectangles; there are no image assets.
 import type { Player } from '../core/types';
+import { drawText, textWidth } from './font';
 
 export const W = 240;
 export const H = 270;
+/** Rows above the court for the stands and the backboard. Court coordinates start below it. */
+export const TOP = 24;
+export const VIEW_H = H + TOP;
 export const HOOP = { x: 120, y: 44 };
 export const BASE_Y = 20;
 export const SIDE_L = 8;
@@ -51,12 +55,13 @@ export function shade(hex: string, f: number): string {
 export function makeCourt(paint: string, accent: string, banners: number, wood?: { wood: string; wood2: string; grain: string }): HTMLCanvasElement {
   const W1 = wood?.wood ?? PAL.wood, W2 = wood?.wood2 ?? PAL.wood2, WG = wood?.grain ?? PAL.woodDark;
   const c = document.createElement('canvas');
-  c.width = W; c.height = H;
+  c.width = W; c.height = VIEW_H;
   const g = c.getContext('2d')!;
-  g.fillStyle = PAL.bg; g.fillRect(0, 0, W, H);
-  // stands
-  g.fillStyle = '#1e1b30'; g.fillRect(0, 0, W, BASE_Y - 3);
-  g.fillStyle = '#2a2644'; g.fillRect(0, BASE_Y - 4, W, 2);
+  g.translate(0, TOP);
+  g.fillStyle = PAL.bg; g.fillRect(0, -TOP, W, VIEW_H);
+  // stands, with a courtside board in front of them
+  g.fillStyle = '#1e1b30'; g.fillRect(0, -TOP, W, TOP + BASE_Y - 3);
+  for (let row = 0; row < 6; row++) { g.fillStyle = row % 2 ? '#262240' : '#201d36'; g.fillRect(0, -TOP + 1 + row * 6, W, 6); }
   // floor planks
   for (let x = 0; x < W; x += 12) {
     g.fillStyle = (x / 12) % 2 ? W1 : W2;
@@ -64,12 +69,23 @@ export function makeCourt(paint: string, accent: string, banners: number, wood?:
   }
   g.fillStyle = WG;
   for (let x = 0; x < W; x += 12) for (let y = BASE_Y + ((x * 7) % 40); y < H; y += 46) g.fillRect(x, y, 12, 1);
-  // out-of-bounds apron
+  // floor sheen: the middle of the court catches the light
+  g.fillStyle = 'rgba(255,255,255,0.05)'; g.fillRect(48, BASE_Y, 144, H);
+  g.fillStyle = 'rgba(255,255,255,0.04)'; g.fillRect(84, BASE_Y, 72, H);
+  // out-of-bounds apron in team colour
   g.fillStyle = shade(paint, 0.55);
   g.fillRect(0, BASE_Y - 2, SIDE_L, H); g.fillRect(SIDE_R + 1, BASE_Y - 2, W - SIDE_R, H);
   g.fillRect(0, BASE_Y - 2, W, 2);
-  // paint
+  g.fillStyle = shade(paint, 0.42);
+  for (let y = BASE_Y + 6; y < H; y += 14) { g.fillRect(2, y, 3, 6); g.fillRect(W - 5, y, 3, 6); }
+  // courtside advertising boards
+  g.fillStyle = '#0e0c18'; g.fillRect(0, BASE_Y - 7, W, 5);
+  const ads = [accent, paint, '#f4e9d0', paint, accent, '#f4e9d0', paint, accent];
+  ads.forEach((c, i) => { g.fillStyle = c; g.fillRect(4 + i * 30, BASE_Y - 6, 24, 3); g.fillStyle = '#0e0c18'; for (let k = 0; k < 5; k++) g.fillRect(7 + i * 30 + k * 4, BASE_Y - 5, 2, 1); });
+  // paint, a touch darker toward the baseline
   g.fillStyle = paint; g.fillRect(PAINT.x0, PAINT.y0, PAINT.x1 - PAINT.x0, PAINT.y1 - PAINT.y0);
+  g.fillStyle = 'rgba(0,0,0,0.10)'; g.fillRect(PAINT.x0, PAINT.y0, PAINT.x1 - PAINT.x0, 26);
+  g.fillStyle = 'rgba(255,255,255,0.07)'; g.fillRect(PAINT.x0, PAINT.y1 - 30, PAINT.x1 - PAINT.x0, 30);
   g.fillStyle = PAL.line;
   // boundary
   g.fillRect(SIDE_L, BASE_Y, SIDE_R - SIDE_L + 1, 1);
@@ -85,129 +101,260 @@ export function makeCourt(paint: string, accent: string, banners: number, wood?:
   g.fillRect(Math.round(HOOP.x + CORNER_DX), BASE_Y, 1, CORNER_Y - BASE_Y);
   const a0 = Math.asin((CORNER_Y - HOOP.y) / ARC_R);
   pxArc(g, HOOP.x, HOOP.y, ARC_R, a0, Math.PI - a0);
-  // restricted arc + centre circle
+  // lane blocks and hash marks
+  for (const yy of [48, 62, 74, 86]) { g.fillRect(PAINT.x0 - 3, yy, 3, yy === 48 ? 4 : 1); g.fillRect(PAINT.x1 + 1, yy, 3, yy === 48 ? 4 : 1); }
+  // restricted arc
   pxArc(g, HOOP.x, HOOP.y, 18, 0, Math.PI);
-  pxArc(g, HOOP.x, HALF_Y, 27, Math.PI, Math.PI * 2);
-  g.fillStyle = accent; pxArc(g, HOOP.x, HALF_Y, 26, Math.PI, Math.PI * 2);
+  // centre circle: a team-colour disc with a ring
+  for (let y = HALF_Y - 26; y < HALF_Y; y++) {
+    const half = Math.floor(Math.sqrt(26 * 26 - (HALF_Y - y) * (HALF_Y - y)));
+    g.fillStyle = paint; g.fillRect(HOOP.x - half, y, half * 2, 1);
+  }
+  for (let y = HALF_Y - 14; y < HALF_Y; y++) {
+    const half = Math.floor(Math.sqrt(14 * 14 - (HALF_Y - y) * (HALF_Y - y)));
+    g.fillStyle = accent; g.fillRect(HOOP.x - half, y, half * 2, 1);
+  }
+  g.fillStyle = PAL.line; pxArc(g, HOOP.x, HALF_Y, 27, Math.PI, Math.PI * 2);
+  g.fillRect(SIDE_L, HALF_Y, SIDE_R - SIDE_L + 1, 1);
+  // darker corners so the eye goes to the basket
+  g.fillStyle = 'rgba(10,8,20,0.10)';
+  g.fillRect(0, HALF_Y + 12, W, H); g.fillRect(0, BASE_Y, 20, H); g.fillRect(W - 20, BASE_Y, 20, H);
   // championship banners
   for (let i = 0; i < Math.min(banners, 12); i++) {
-    const bx = 10 + i * 9;
-    g.fillStyle = paint; g.fillRect(bx, 1, 7, 9);
-    g.fillStyle = accent; g.fillRect(bx, 1, 7, 2); g.fillRect(bx + 3, 5, 1, 2);
-    g.fillStyle = '#1e1b30'; g.fillRect(bx, 9, 2, 1); g.fillRect(bx + 5, 9, 2, 1);
+    const bx = 6 + i * 10, by = -TOP + 1;
+    g.fillStyle = '#0e0c18'; g.fillRect(bx - 1, by, 9, 13);
+    g.fillStyle = paint; g.fillRect(bx, by, 7, 12);
+    g.fillStyle = accent; g.fillRect(bx, by, 7, 2); g.fillRect(bx + 2, by + 5, 3, 3);
+    g.fillStyle = '#0e0c18'; g.fillRect(bx + 2, by + 11, 3, 1); g.fillRect(bx + 3, by + 10, 1, 1);
   }
   return c;
 }
 
-/** Flickering crowd in the stands; `level` 0-100 controls how many are up and waving. */
+/** The crowd in the stands; `level` 0-100 controls how many are on their feet waving. */
 export function drawCrowd(ctx: CanvasRenderingContext2D, t: number, level: number, a: string, b: string, skipLeft: number): void {
-  const cols = ['#3a3558', '#4b4470', a, b, '#6b6490'];
-  for (let row = 0; row < 3; row++) {
-    for (let i = 0; i < 40; i++) {
-      const x = 2 + i * 6 + (row % 2) * 3;
-      if (x < skipLeft) continue;
+  const cols = ['#3a3558', '#4b4470', a, b, '#6b6490', '#55507a'];
+  for (let row = 0; row < 5; row++) {
+    for (let i = 0; i < 31; i++) {
+      const x = 1 + i * 8 + (row % 2) * 4;
+      const y = -TOP + 3 + row * 6;
+      if (x < skipLeft && row < 2) continue;
       const seed = (i * 37 + row * 91) % 100;
       const hyped = seed < level * 0.9;
       const up = hyped && Math.sin(t * (6 + (seed % 5)) + seed) > 0.2 ? 1 : 0;
-      ctx.fillStyle = cols[seed % 5];
-      ctx.fillRect(x, 3 + row * 4 - up, 4, 3);
+      ctx.fillStyle = cols[seed % 6];
+      ctx.fillRect(x, y + 2 - up, 6, 4);
       ctx.fillStyle = SKIN[seed % 5];
-      ctx.fillRect(x + 1, 2 + row * 4 - up, 2, 1);
+      ctx.fillRect(x + 1, y - up, 4, 3);
+      ctx.fillStyle = HAIR[(seed >> 2) % 5];
+      ctx.fillRect(x + 1, y - up, 4, 1);
+      if (up) { ctx.fillStyle = SKIN[seed % 5]; ctx.fillRect(x - 1, y - 1, 1, 3); ctx.fillRect(x + 6, y - 1, 1, 3); }
     }
   }
 }
 
-export function drawHoop(ctx: CanvasRenderingContext2D, netKick: number): void {
-  ctx.fillStyle = '#8888a0'; ctx.fillRect(HOOP.x - 1, BASE_Y - 4, 2, 14);
-  ctx.fillStyle = PAL.board; ctx.fillRect(HOOP.x - 13, HOOP.y - 9, 26, 3);
-  ctx.fillStyle = PAL.rim; ctx.fillRect(HOOP.x - 4, HOOP.y - 7, 8, 1);
-  ctx.fillStyle = PAL.rim;
-  ctx.fillRect(HOOP.x - 5, HOOP.y - 4, 10, 1); ctx.fillRect(HOOP.x - 5, HOOP.y + 3, 10, 1);
-  ctx.fillRect(HOOP.x - 6, HOOP.y - 3, 1, 6); ctx.fillRect(HOOP.x + 5, HOOP.y - 3, 1, 6);
-  ctx.fillRect(HOOP.x - 1, HOOP.y - 6, 2, 2);
-  ctx.fillStyle = PAL.net;
-  const k = Math.round(netKick * 2);
-  for (let i = 0; i < 4; i++) ctx.fillRect(HOOP.x - 4 + i * 3 - (i < 2 ? 0 : 1), HOOP.y - 2 + (i % 2), 1, 4 + k);
+/** Screen height of the rim above its spot on the floor. */
+export const RIM_Z = 34;
+
+/**
+ * The basket, drawn standing up like the players: stanchion, glass backboard with the
+ * shooter's square, orange rim and a mesh net. `netKick` (0-1) stretches and sways the net
+ * after a make; `shake` (0-1) rattles the whole thing on a dunk.
+ */
+export function drawHoop(ctx: CanvasRenderingContext2D, netKick: number, shake = 0, t = 0): void {
+  const cx = HOOP.x + (shake > 0 ? Math.round(Math.sin(t * 60) * shake * 1.5) : 0);
+  const ry = HOOP.y - RIM_Z + (shake > 0 ? Math.round(Math.abs(Math.sin(t * 45)) * shake * 2) : 0); // rim line
+  // shadow on the floor under the rim
+  ctx.fillStyle = PAL.shadow;
+  ctx.fillRect(HOOP.x - 4, HOOP.y - 1, 8, 3); ctx.fillRect(HOOP.x - 6, HOOP.y, 12, 1);
+  // stanchion: padded base behind the baseline and the arm up to the board
+  ctx.fillStyle = '#2b2f4a'; ctx.fillRect(cx - 4, BASE_Y - 7, 8, 6);
+  ctx.fillStyle = '#3d4266'; ctx.fillRect(cx - 4, BASE_Y - 7, 8, 1);
+  ctx.fillStyle = '#6a7090'; ctx.fillRect(cx - 1, ry - 2, 2, BASE_Y - 7 - (ry - 2));
+  // backboard: glass you can half see through, bright frame, red shooter's square
+  const bx = cx - 15, by = ry - 19, bw = 30, bh = 18;
+  ctx.fillStyle = 'rgba(214,228,246,0.62)'; ctx.fillRect(bx, by, bw, bh);
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  for (let i = 0; i < 6; i++) { ctx.fillRect(bx + 3 + i, by + 7 - i, 1, 1); ctx.fillRect(bx + 21 + i, by + 9 - i, 1, 1); }
+  ctx.fillStyle = '#f6f8ff';
+  ctx.fillRect(bx, by, bw, 1); ctx.fillRect(bx, by, 1, bh); ctx.fillRect(bx + bw - 1, by, 1, bh);
+  ctx.fillStyle = '#9aa6c4'; ctx.fillRect(bx, by + bh - 1, bw, 1);
+  ctx.fillStyle = '#e8463c';
+  ctx.fillRect(cx - 5, ry - 10, 10, 1); ctx.fillRect(cx - 5, ry - 10, 1, 8); ctx.fillRect(cx + 4, ry - 10, 1, 8); ctx.fillRect(cx - 5, ry - 3, 10, 1);
+  ctx.fillStyle = '#c53030'; ctx.fillRect(bx + 1, by + bh, bw - 2, 1); // bottom padding
+  // bracket
+  ctx.fillStyle = '#b4401c'; ctx.fillRect(cx - 1, ry - 1, 2, 2);
+  // net: a tapering mesh hanging from the rim
+  const stretch = Math.round(netKick * 3);
+  const sway = netKick > 0 ? Math.round(Math.sin(t * 40) * netKick * 1.5) : 0;
+  const rows = 8 + stretch;
+  for (let r = 0; r < rows; r++) {
+    const half = Math.max(2, 5 - Math.floor((r * 3.2) / rows));
+    const ox = Math.round((sway * r) / rows);
+    const y = ry + 3 + r;
+    for (let x = -half; x <= half; x++) {
+      const edge = x === -half || x === half;
+      if (!edge && (x + r) % 2 !== 0) continue;
+      ctx.fillStyle = edge ? '#ffffff' : (r % 2 ? '#e6e9f5' : '#c9cee0');
+      ctx.fillRect(cx + x + ox, y, 1, 1);
+    }
+  }
+  // rim: an ellipse, far edge dark, near edge bright
+  ctx.fillStyle = '#b4401c';
+  ctx.fillRect(cx - 3, ry, 7, 1); ctx.fillRect(cx - 5, ry + 1, 2, 1); ctx.fillRect(cx + 4, ry + 1, 2, 1);
+  ctx.fillStyle = '#ff6a3c';
+  ctx.fillRect(cx - 6, ry + 2, 1, 1); ctx.fillRect(cx + 6, ry + 2, 1, 1);
+  ctx.fillRect(cx - 5, ry + 3, 2, 1); ctx.fillRect(cx + 4, ry + 3, 2, 1); ctx.fillRect(cx - 3, ry + 4, 7, 1);
+  ctx.fillStyle = '#ffb08a'; ctx.fillRect(cx - 2, ry + 4, 3, 1);
 }
 
+export type Pose = 'stand' | 'dribble' | 'shoot' | 'jump' | 'defend';
 export interface SpriteOpts {
   x: number; y: number;
   player: Player;
   jersey: string; trim: string;
-  /** 0..1 run cycle phase; <0 = standing */
+  /** 0..1 run cycle phase; <0 = standing still */
   run: number;
+  /** -1 left, 0 straight, 1 right */
   face: number;
-  armsUp: boolean;
-  /** vertical lift in px (jump) */
+  /** Facing away from the camera (toward the basket): shows his back and number. */
+  up?: boolean;
+  pose?: Pose;
+  /** Kept for callers that only know "arms up". */
+  armsUp?: boolean;
+  /** Height off the floor in px (jump). */
   lift: number;
   ring?: string;
   dim?: boolean;
   dizzy?: number;
 }
 
+const OUTLINE = '#1b1726';
+/** Sprite height in px for a height class 0-2 (guards to centers). */
+export const spriteHeight = (p: Player): number => 23 + (p.look.height > 0 ? 1 : 0) + (p.look.height > 1 ? 1 : 0);
+
 export function drawPlayer(ctx: CanvasRenderingContext2D, o: SpriteOpts): void {
   const x = Math.round(o.x), yb = Math.round(o.y);
-  const tall = o.player.look.height; // 0..2
-  const skin = SKIN[o.player.look.skin % 5];
-  const hair = HAIR[o.player.look.hairColor % 5];
-  // shadow
+  const pl = o.player;
+  const tall = pl.look.height;
+  const skin = SKIN[pl.look.skin % 5], skinD = shade(skin, 0.8);
+  const hair = HAIR[pl.look.hairColor % 5];
+  const pose: Pose = o.pose ?? (o.armsUp ? 'shoot' : 'stand');
+  const up = !!o.up;
+  const lift = Math.round(o.lift);
+  // shadow shrinks as he leaves the floor
   ctx.fillStyle = PAL.shadow;
-  ctx.fillRect(x - 4, yb - 1, 8, 2); ctx.fillRect(x - 3, yb + 1, 6, 1);
+  const sw = lift > 4 ? 3 : 5;
+  ctx.fillRect(x - sw, yb - 1, sw * 2, 2); ctx.fillRect(x - sw + 1, yb + 1, sw * 2 - 2, 1);
   if (o.ring) {
     ctx.fillStyle = o.ring;
-    ctx.fillRect(x - 5, yb - 2, 1, 3); ctx.fillRect(x + 4, yb - 2, 1, 3);
-    ctx.fillRect(x - 4, yb + 1, 1, 1); ctx.fillRect(x + 3, yb + 1, 1, 1);
-    ctx.fillRect(x - 3, yb + 2, 6, 1); ctx.fillRect(x - 4, yb - 3, 1, 1); ctx.fillRect(x + 3, yb - 3, 1, 1);
+    ctx.fillRect(x - 5, yb + 2, 10, 1); ctx.fillRect(x - 7, yb + 1, 2, 1); ctx.fillRect(x + 5, yb + 1, 2, 1);
+    ctx.fillRect(x - 8, yb - 1, 1, 2); ctx.fillRect(x + 7, yb - 1, 1, 2);
+    ctx.fillRect(x - 7, yb - 2, 2, 1); ctx.fillRect(x + 5, yb - 2, 2, 1);
   }
-  const y = yb - Math.round(o.lift);
-  const legH = 3 + (tall > 1 ? 1 : 0);
-  const bodyH = 5 + (tall > 0 ? 1 : 0);
-  const step = o.run >= 0 ? (o.run % 1 < 0.5 ? 1 : -1) : 0;
-  // shoes + legs
-  ctx.fillStyle = PAL.white;
-  ctx.fillRect(x - 3, y - 1 - (step > 0 ? 1 : 0), 2, 1); ctx.fillRect(x + 1, y - 1 - (step < 0 ? 1 : 0), 2, 1);
-  ctx.fillStyle = skin;
-  ctx.fillRect(x - 3, y - 1 - legH + (step > 0 ? 0 : 1) - (step > 0 ? 1 : 0), 2, legH - 1);
-  ctx.fillRect(x + 1, y - 1 - legH + (step < 0 ? 0 : 1) - (step < 0 ? 1 : 0), 2, legH - 1);
+  const rects: [number, number, number, number, string][] = [];
+  const R = (rx: number, ry: number, w: number, h: number, c: string) => { if (w > 0 && h > 0) rects.push([x + rx, ry, w, h, c]); };
+
+  const frame = o.run >= 0 ? Math.floor((o.run % 1) * 4) : -1; // 0 left leg up, 2 right leg up
+  const bob = frame === 1 || frame === 3 ? 1 : 0;
+  const y = yb - lift;
+  const crouch = pose === 'defend' ? 1 : 0;
+  const tuck = pose === 'jump' ? 2 : 0;
+  const legH = 6 + (tall > 1 ? 1 : 0) - crouch - tuck;
+  const torsoH = 6 + (tall > 0 ? 1 : 0);
+  const wide = pose === 'defend' ? 1 : 0;
+  // legs + shoes
+  const lUp = frame === 0 ? 2 : 0, rUp = frame === 2 ? 2 : 0;
+  const lx = -3 - wide, rx = 1 + wide;
+  const legTop = y - 2 - legH;
+  R(lx, legTop, 2, legH - lUp, skin); R(rx, legTop, 2, legH - rUp, skin);
+  R(lx, y - 3 - lUp, 2, 1, '#f4f4f4'); R(rx, y - 3 - rUp, 2, 1, '#f4f4f4'); // socks
+  R(lx - 1, y - 2 - lUp, 3, 2, '#f4f4f4'); R(rx, y - 2 - rUp, 3, 2, '#f4f4f4'); // shoes
+  R(lx - 1, y - 1 - lUp, 3, 1, o.trim); R(rx, y - 1 - rUp, 3, 1, o.trim);
   // shorts
-  const ys = y - legH - 2;
-  ctx.fillStyle = o.trim; ctx.fillRect(x - 3, ys, 6, 2);
-  // jersey
-  const yj = ys - bodyH;
-  ctx.fillStyle = o.jersey; ctx.fillRect(x - 3, yj, 6, bodyH);
-  ctx.fillStyle = o.trim; ctx.fillRect(x - 1, yj + 2, 2, 2);
+  const shortsTop = legTop - 3 + bob;
+  R(-4, shortsTop, 8, 4, o.trim);
+  R(-4, shortsTop, 1, 4, o.jersey); R(3, shortsTop, 1, 4, o.jersey);
+  R(-1, shortsTop + 3, 2, 1, shade(o.trim, 0.6));
+  // torso
+  const torsoTop = shortsTop - torsoH;
+  R(-4, torsoTop, 8, torsoH, o.jersey);
+  R(-4, torsoTop + torsoH - 1, 8, 1, shade(o.jersey, 0.8));
+  if (!up) R(-1, torsoTop, 2, 1, skin); // neckline
   // arms
-  ctx.fillStyle = skin;
-  if (o.armsUp) { ctx.fillRect(x - 4, yj - 4, 1, 5); ctx.fillRect(x + 3, yj - 4, 1, 5); }
-  else { ctx.fillRect(x - 4, yj + 1 + (step > 0 ? 1 : 0), 1, 3); ctx.fillRect(x + 3, yj + 1 + (step < 0 ? 1 : 0), 1, 3); }
+  const armLen = 6;
+  const sh = torsoTop;
+  if (pose === 'shoot' || pose === 'jump') {
+    const reach = pose === 'jump' ? 8 : 7;
+    R(-6, sh - reach + 2, 2, reach, skin); R(4, sh - reach + 2 - (pose === 'jump' ? 1 : 0), 2, reach + (pose === 'jump' ? 1 : 0), skin);
+    R(-6, sh, 2, 2, skinD); R(4, sh, 2, 2, skinD);
+  } else if (pose === 'defend') {
+    R(-9, sh + 1, 5, 2, skin); R(4, sh + 1, 5, 2, skin);
+    R(-10, sh, 2, 2, skin); R(8, sh, 2, 2, skin);
+  } else if (pose === 'dribble') {
+    const side = o.face < 0 ? -1 : 1;
+    // dribbling arm reaches out and down, the other swings
+    if (side > 0) { R(-6, sh, 2, armLen, skin); R(4, sh, 2, 4, skin); R(5, sh + 4, 2, 4, skin); }
+    else { R(4, sh, 2, armLen, skin); R(-6, sh, 2, 4, skin); R(-7, sh + 4, 2, 4, skin); }
+  } else {
+    const ls = frame === 0 ? -1 : frame === 2 ? 1 : 0;
+    R(-6, sh + Math.max(0, ls), 2, armLen - Math.abs(ls), skin); R(4, sh + Math.max(0, -ls), 2, armLen - Math.abs(ls), skin);
+  }
   // head
-  const yh = yj - 4;
-  ctx.fillStyle = skin; ctx.fillRect(x - 2, yh, 4, 4);
-  ctx.fillStyle = hair;
-  const hs = o.player.look.hair % 6;
-  if (hs === 0) ctx.fillRect(x - 2, yh, 4, 1);
-  else if (hs === 1) { ctx.fillRect(x - 2, yh - 1, 4, 2); }
-  else if (hs === 2) { ctx.fillRect(x - 3, yh - 1, 6, 2); ctx.fillRect(x - 3, yh + 1, 1, 1); ctx.fillRect(x + 2, yh + 1, 1, 1); }
-  else if (hs === 3) { ctx.fillRect(x - 1, yh - 2, 2, 2); ctx.fillRect(x - 2, yh, 4, 1); }
-  else if (hs === 4) { ctx.fillRect(x - 2, yh, 4, 1); ctx.fillStyle = o.trim; ctx.fillRect(x - 2, yh + 1, 4, 1); }
-  // hs 5 = bald
-  ctx.fillStyle = PAL.ink;
-  if (o.face >= 0) ctx.fillRect(x + 1, yh + 2, 1, 1);
-  if (o.face <= 0) ctx.fillRect(x - 2, yh + 2, 1, 1);
+  const headTop = torsoTop - 7;
+  R(-1, torsoTop - 1, 2, 1, skinD); // neck
+  R(-3, headTop, 6, 6, skin);
+  const hs = pl.look.hair % 6;
+  if (up) {
+    // back of the head
+    if (hs !== 5) R(-3, headTop, 6, hs === 0 ? 3 : 4, hair);
+    if (hs === 2) { R(-4, headTop - 2, 8, 5, hair); }
+    if (hs === 3) R(-2, headTop - 3, 4, 3, hair);
+    if (hs === 4) R(-3, headTop + 2, 6, 1, o.trim);
+  } else {
+    if (hs === 0) { R(-3, headTop, 6, 1, hair); }
+    else if (hs === 1) { R(-3, headTop, 6, 2, hair); R(-3, headTop + 2, 1, 1, hair); R(2, headTop + 2, 1, 1, hair); }
+    else if (hs === 2) { R(-4, headTop - 2, 8, 4, hair); R(-4, headTop + 2, 1, 2, hair); R(3, headTop + 2, 1, 2, hair); }
+    else if (hs === 3) { R(-2, headTop - 3, 4, 3, hair); R(-3, headTop, 6, 1, hair); }
+    else if (hs === 4) { R(-3, headTop, 6, 1, hair); R(-3, headTop + 1, 6, 1, o.trim); }
+  }
+  // outline pass, then fills
+  ctx.fillStyle = OUTLINE;
+  for (const [rx2, ry2, w, h] of rects) ctx.fillRect(rx2 - 1, ry2 - 1, w + 2, h + 2);
+  for (const [rx2, ry2, w, h, c] of rects) { ctx.fillStyle = c; ctx.fillRect(rx2, ry2, w, h); }
+  // face or number on top of the fills
+  if (!up) {
+    const ex = o.face > 0 ? 1 : o.face < 0 ? -1 : 0;
+    ctx.fillStyle = OUTLINE;
+    ctx.fillRect(x - 2 + ex, headTop + 3, 1, 1); ctx.fillRect(x + 1 + ex, headTop + 3, 1, 1);
+    ctx.fillStyle = o.trim; ctx.fillRect(x - 1, torsoTop + 2, 2, 3);
+  } else {
+    const num = String(pl.num);
+    const tw = textWidth(num);
+    if (tw <= 7) drawText(ctx, num, x - Math.floor(tw / 2), torsoTop + 1, o.trim);
+    else { ctx.fillStyle = o.trim; ctx.fillRect(x - 2, torsoTop + 1, 4, 4); }
+  }
   if (o.dizzy && o.dizzy > 0) {
     ctx.fillStyle = PAL.yellow;
-    const a = o.dizzy * 14;
-    ctx.fillRect(Math.round(x + Math.cos(a) * 4), yh - 3 + Math.round(Math.sin(a) * 1), 1, 1);
-    ctx.fillRect(Math.round(x - Math.cos(a) * 4), yh - 3 - Math.round(Math.sin(a) * 1), 1, 1);
+    const a = o.dizzy * 12;
+    for (let k = 0; k < 3; k++) {
+      const aa = a + (k * Math.PI * 2) / 3;
+      ctx.fillRect(Math.round(x + Math.cos(aa) * 6), headTop - 4 + Math.round(Math.sin(aa) * 2), 2, 2);
+    }
   }
-  if (o.dim) { ctx.fillStyle = 'rgba(20,18,31,0.25)'; ctx.fillRect(x - 4, yh - 2, 8, y - yh + 2); }
+  if (o.dim) { ctx.fillStyle = 'rgba(20,18,31,0.25)'; ctx.fillRect(x - 7, headTop - 3, 14, y - headTop + 3); }
 }
 
 export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, z: number): void {
   const bx = Math.round(x), by = Math.round(y);
-  ctx.fillStyle = PAL.shadow; ctx.fillRect(bx - 1, by, 3, 1);
-  const yy = by - Math.round(z) - 3;
-  ctx.fillStyle = PAL.ball; ctx.fillRect(bx - 1, yy, 3, 3);
-  ctx.fillStyle = PAL.ballDark; ctx.fillRect(bx + 1, yy + 2, 1, 1); ctx.fillRect(bx, yy + 1, 1, 1);
-  ctx.fillStyle = '#ffc089'; ctx.fillRect(bx - 1, yy, 1, 1);
+  // shadow gets smaller and fainter with height
+  ctx.fillStyle = z > 24 ? 'rgba(20,18,31,0.18)' : PAL.shadow;
+  if (z > 12) ctx.fillRect(bx - 1, by, 3, 1); else { ctx.fillRect(bx - 2, by, 5, 1); ctx.fillRect(bx - 1, by + 1, 3, 1); }
+  const yy = by - Math.round(z) - 5;
+  ctx.fillStyle = OUTLINE;
+  ctx.fillRect(bx - 2, yy - 1, 5, 7); ctx.fillRect(bx - 3, yy, 7, 5);
+  ctx.fillStyle = PAL.ball;
+  ctx.fillRect(bx - 1, yy, 3, 5); ctx.fillRect(bx - 2, yy + 1, 5, 3);
+  ctx.fillStyle = PAL.ballDark;
+  ctx.fillRect(bx, yy, 1, 5); ctx.fillRect(bx - 2, yy + 2, 5, 1); ctx.fillRect(bx + 1, yy + 4, 1, 1); ctx.fillRect(bx + 2, yy + 3, 1, 1);
+  ctx.fillStyle = '#ffc089'; ctx.fillRect(bx - 1, yy + 1, 1, 1);
 }

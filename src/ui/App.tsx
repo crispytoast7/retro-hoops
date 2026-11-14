@@ -1,6 +1,8 @@
 import { useEffect } from 'preact/hooks';
+import { kickMusic, setTrack } from '../audio/music';
 import { unlockAudio } from '../audio/sfx';
-import { hasSave, useSave } from '../state/store';
+import { markTip, prog } from '../core/org/progress';
+import { hasSave, touch, useSave } from '../state/store';
 import { ConfirmHost, ToastHost } from './kit';
 import { useRoute } from './router';
 import { CoachScreen } from './Coach';
@@ -39,6 +41,7 @@ const SCREENS: Record<string, ScreenFn> = {
 
 function WithSave(p: { C: ScreenFn; params: Record<string, any>; route: string }) {
   const save = useSave();
+  useEffect(() => { if (save && !prog(save).seen.includes('v_' + p.route)) touch(s => markTip(s, 'v_' + p.route)); }, [p.route]);
   const t = save?.teams[save.userTeamId];
   return (
     <div class="app" style={t ? { '--team': t.colors.primary, '--team2': t.colors.secondary } as any : undefined}>
@@ -51,10 +54,11 @@ function WithSave(p: { C: ScreenFn; params: Record<string, any>; route: string }
 export function App() {
   const r = useRoute();
   useEffect(() => {
-    const f = () => unlockAudio();
+    const f = () => { unlockAudio(); kickMusic(); };
     window.addEventListener('pointerdown', f);
     return () => window.removeEventListener('pointerdown', f);
   }, []);
+  useEffect(() => { setTrack(r.name === 'game' || r.name === 'practice' ? 'game' : 'menu'); }, [r.name]);
   const C = SCREENS[r.name] ?? TitleScreen;
   const needsSave = r.name !== 'title' && r.name !== 'newgame' && r.name !== 'settings';
   return (

@@ -24,11 +24,11 @@ scores around 110.
 
 ## Features
 
-- 16-team generated league, 2 conferences, endless seasons. Choose a full 82-game season
-  (about four games a week, play or sim each one, best-of-seven playoffs) or a classic
-  14-game season with single-game playoffs.
-- A hands-on Practice tutorial for the controls, and a hub that opens up over your first
-  games with a short explainer each time something unlocks.
+- 16-team generated league, 2 conferences, 14-game season, 8-team single-game playoffs,
+  endless seasons.
+- A hands-on Practice tutorial (six guided drills with an on-court demo hand), a
+  "getting started" checklist, and a hub that opens up over your first games with a short
+  explainer each time something unlocks.
 - Coach progression: XP and levels, perks you choose, 30 trophies that pay credits, and
   unlockable home-court floors.
 - Arcade possessions: shot meter sized by Shooting, distance and defense; handles moves;

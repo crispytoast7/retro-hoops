@@ -4,6 +4,7 @@ import { newLeague, NewGameOpts } from '../core/gen/league';
 import { chooseTeam } from '../core/offseason/offseason';
 import { Rng } from '../core/rng';
 import type { Save } from '../core/types';
+import { setMusic } from '../audio/music';
 import { setSound } from '../audio/sfx';
 import { askPersistent, loadStored, migrate, store } from './persist';
 
@@ -53,7 +54,7 @@ export function touch(fn?: (save: Save) => void): void {
 
 export async function boot(): Promise<boolean> {
   save = await loadStored();
-  if (save) setSound(save.settings.sound);
+  if (save) { setSound(save.settings.sound); setMusic(save.settings.music !== false); }
   return save !== null;
 }
 export function startLeague(opts: NewGameOpts): Save {
@@ -77,7 +78,7 @@ export function importSave(text: string): string | null {
   try { parsed = migrate(JSON.parse(text)); } catch { /* not JSON */ }
   if (!parsed) return 'That file is not a Retro Hoops save.';
   save = parsed;
-  setSound(save.settings.sound);
+  setSound(save.settings.sound); setMusic(save.settings.music !== false);
   notify();
   void flush();
   return null;

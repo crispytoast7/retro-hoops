@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { capStatus, payroll } from '../core/org/finance';
 import { EventOutcome, currentEvent, eventText, resolveEvent, teamMorale } from '../core/org/people';
-import { Feature, gamesToUnlock, isUnlocked, perkPoints, rankName, xpBar } from '../core/org/progress';
+import { Feature, checklist, gamesToUnlock, isUnlocked, perkPoints, rankName, xpBar } from '../core/org/progress';
 import { cal, ROUND_NAMES } from '../core/season/calendar';
 import { advance } from '../core/season/flow';
 import { gamesInWeek, userGame, userGamesInWeek } from '../core/season/schedule';
@@ -68,6 +68,8 @@ export function HubScreen(_p: { params: Record<string, any> }) {
   const rundown = Object.values(me.facilities).filter(f => f.condition < 50).length;
   const c = cal(save);
   const xp = xpBar(save);
+  const steps = checklist(save);
+  const todo = steps.filter(x => !x.done);
   const REG_WEEKS = c.regWeeks, TRADE_DEADLINE_WEEK = c.deadlineWeek;
   const sim = (mode: 'simGame' | 'simWeek') => {
     const before = save.credits;
@@ -132,6 +134,20 @@ export function HubScreen(_p: { params: Record<string, any> }) {
             <div>{save.phase === 'playoffs' ? (save.playoffs?.series.some(x => x.round === save.week - REG_WEEKS && (x.highId === me.id || x.lowId === me.id)) ? 'Your series is decided. The rest of the round plays out.' : 'Your season is over. The playoffs go on without you.') : openGames ? 'Your games this week are done.' : 'No game this week.'}</div>
             <div style={{ height: '8px' }} />
             <Btn kind="primary block" onClick={simWeek}>{save.phase === 'playoffs' ? `Sim ${round}` : 'Finish Week'}</Btn>
+          </Panel>
+        )}
+
+        {todo.length > 0 && save.phase !== 'offseason' && (
+          <Panel title={`GETTING STARTED · ${steps.filter(x => x.done).length}/${steps.length}`}>
+            <div class="list">
+              {todo.slice(0, 3).map((st, i) => (
+                <div class={`item ${st.go ? 'tap' : ''}`} onClick={() => { if (st.go) nav(st.go); }}>
+                  <span class="tag gold" style={{ minWidth: '22px', textAlign: 'center' }}>{i === 0 ? 'NEXT' : '·'}</span>
+                  <div class="grow"><div>{st.text}</div>{i === 0 && <div class="dim" style={{ fontSize: '17px' }}>{st.why}</div>}</div>
+                  {st.go && <span class="dim">&gt;</span>}
+                </div>
+              ))}
+            </div>
           </Panel>
         )}
 

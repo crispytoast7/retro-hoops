@@ -1,23 +1,44 @@
 // Hands-on tutorial for the on-court controls: four short drills against a passive defense.
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Arcade, ArcadeResult } from '../game/arcade';
+import { VIEW_H } from '../game/render';
+import { Arcade, ArcadeResult, Guide, Phase } from '../game/arcade';
 import { courtStyle } from '../core/org/progress';
 import { sfx } from '../audio/sfx';
-import { getSave } from '../state/store';
+import { markTip } from '../core/org/progress';
+import { getSave, touch } from '../state/store';
 import { Btn } from './kit';
 import { back } from './router';
 
-interface Drill { title: string; how: string[]; done: (r: ArcadeResult) => boolean; retry: string }
+interface Drill {
+  title: string;
+  /** One line shown before the drill starts. */
+  brief: string;
+  /** What to do, shown on the court while playing. Keyed by possession phase where it changes. */
+  say: Partial<Record<Phase, string>> & { live: string };
+  guide: Guide;
+  done: (r: ArcadeResult) => boolean;
+  retry: string;
+}
 const shot = (r: ArcadeResult) => r.outcome.events.find(e => e.t === 'shot') as { type: string; made: boolean } | undefined;
 const DRILLS: Drill[] = [
-  { title: 'SHOOT', how: ['Press and HOLD STILL anywhere on the court. A meter rises next to your player.', 'RELEASE when the marker is in the GREEN zone.', 'Better shooters get a bigger green zone. Defenders shrink it.'],
-    done: r => { const s = shot(r); return !!s && (s.type === 'three' || s.type === 'mid') && (s.made || r.highlights.includes('perfect')); }, retry: 'Hold still, then let go in the green. Try again.' },
-  { title: 'DRIBBLE & DRIVE', how: ['DRAG in any direction to dribble. Drag further to go faster.', 'Drive all the way to the RIM. With a lane open, your player lays it in or dunks by himself.', 'Stay inside the lines.'],
-    done: r => { const s = shot(r); return !!s && (s.type === 'layup' || s.type === 'dunk'); }, retry: 'Keep dragging toward the basket until he goes up. Try again.' },
-  { title: 'PASS', how: ['TAP a teammate to pass to him. A green label means he is open.', 'In real games a defender standing in the passing lane can pick it off.', 'Pass, then shoot or drive with the new player.'],
-    done: r => r.passes > 0 && !!shot(r), retry: 'Tap a teammate first, then take a shot. Try again.' },
-  { title: 'CROSSOVER', how: ['Next to your defender, FLICK quickly in any direction: a short, fast swipe.', 'A good ball-handler freezes his man and gets a free lane. A poor one can lose the ball.', 'Flick past your defender, then score.'],
-    done: r => r.moves > 0 && !!shot(r), retry: 'Make a short, quick swipe near the defender, then go score. Try again.' },
+  { title: 'MOVE', brief: 'Put a finger anywhere on the court and drag. Your player with the yellow ring follows.',
+    say: { live: 'DRAG your finger toward the yellow spot' }, guide: { target: { x: 62, y: 150 }, demo: 'drag' },
+    done: r => r.reached, retry: 'Drag and keep your finger down until he reaches the yellow spot.' },
+  { title: 'SHOOT', brief: 'Press and hold your finger still. A meter fills beside your player. Let go when the white marker is in the green.',
+    say: { live: 'Press and HOLD STILL (do not drag)', charge: 'Now LET GO when the marker is in the GREEN', shot: 'Green = good timing = more makes' }, guide: { demo: 'hold' },
+    done: r => { const s = shot(r); return !!s && (s.type === 'three' || s.type === 'mid') && r.quality >= 2; }, retry: 'Let go while the white marker is inside the green band (or the gold band next to it).' },
+  { title: 'PASS', brief: 'Tap a teammate to pass him the ball. You then control him.',
+    say: { live: 'TAP the teammate with the yellow ring', pass: 'The ball is on its way' }, guide: { mate: 1, demo: 'tap', endOnCatch: true },
+    done: r => r.passes > 0, retry: 'Tap right on the teammate with the ring.' },
+  { title: 'PASS, THEN SHOOT', brief: 'Put the two together: pass to the open man, then hold and release to shoot.',
+    say: { live: 'TAP the ringed teammate, then HOLD to shoot', charge: 'LET GO in the green' }, guide: { mate: 2, demo: 'tap' },
+    done: r => r.passes > 0 && !!shot(r), retry: 'Pass first, then press and hold to shoot.' },
+  { title: 'DRIVE', brief: 'Dribble all the way to the basket. Close to the rim he lays it in or dunks by himself.',
+    say: { live: 'DRAG toward the basket and keep going', finish: 'He finishes at the rim by himself' }, guide: { demo: 'drag' },
+    done: r => { const s = shot(r); return !!s && (s.type === 'layup' || s.type === 'dunk'); }, retry: 'Keep dragging toward the rim until he jumps. Stay inside the lines.' },
+  { title: 'CROSSOVER', brief: 'A defender in your way? Flick your finger: a short, fast swipe. A good ball-handler leaves him standing.',
+    say: { live: 'Get near your defender, then FLICK sideways. Then score.' }, guide: { demo: 'flick' },
+    done: r => r.moves > 0 && !!shot(r), retry: 'A flick is a quick swipe and release, not a slow drag. Then go and score.' },
 ];
 
 export function PracticeScreen(_p: { params: Record<string, any> }) {
@@ -29,19 +50,21 @@ export function PracticeScreen(_p: { params: Record<string, any> }) {
   const arcade = useRef<Arcade | null>(null);
   const [step, setStep] = useState(0);
   const [state, setState] = useState<'brief' | 'play' | 'retry' | 'done'>('brief');
+  const [phase, setPhase] = useState<Phase>('live');
   const alive = useRef(true);
 
   useEffect(() => {
     const fit = () => {
       const w = wrap.current, c = canvas.current;
       if (!w || !c) return;
-      const k = Math.min(w.clientWidth / 240, w.clientHeight / 270);
-      c.style.width = `${Math.floor(240 * k)}px`; c.style.height = `${Math.floor(270 * k)}px`;
+      const k = Math.min(w.clientWidth / 240, w.clientHeight / VIEW_H);
+      c.style.width = `${Math.floor(240 * k)}px`; c.style.height = `${Math.floor(VIEW_H * k)}px`;
     };
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(wrap.current!);
     arcade.current = new Arcade(canvas.current!, { paint: me.colors.primary, accent: me.colors.secondary, banners: me.titles.length, crowdA: me.colors.primary, crowdB: me.colors.secondary, wood: courtStyle(save) });
+    arcade.current.onPhase = ph => { if (alive.current) setPhase(ph); };
     return () => { alive.current = false; ro.disconnect(); arcade.current?.destroy(); };
   }, []);
 
@@ -50,10 +73,10 @@ export function PracticeScreen(_p: { params: Record<string, any> }) {
     const r = await arcade.current!.play({
       poss: { quarter: 1, clock: 600, userScore: 0, oppScore: 0, offense: me.lineup, defense: opp.lineup, clutch: false, lastShot: false, crowd: 40 },
       offense: me.lineup.map(id => save.players[id]), defense: opp.lineup.map(id => save.players[id]),
-      offColors: me.colors, defColors: opp.colors, ocStars: 0, difficulty: 'easy', practice: true,
+      offColors: me.colors, defColors: opp.colors, ocStars: 0, difficulty: 'easy', practice: true, guide: DRILLS[step].guide,
     });
     if (!alive.current) return;
-    if (DRILLS[step].done(r)) { sfx.good(); if (step + 1 >= DRILLS.length) setState('done'); else { setStep(step + 1); setState('brief'); } }
+    if (DRILLS[step].done(r)) { sfx.good(); if (step + 1 >= DRILLS.length) { touch(sv => markTip(sv, 'practice_done')); setState('done'); } else { setStep(step + 1); setState('brief'); } }
     else { sfx.bad(); setState('retry'); }
   };
   const d = DRILLS[step];
@@ -66,6 +89,7 @@ export function PracticeScreen(_p: { params: Record<string, any> }) {
       </div>
       <div class="courtwrap" ref={wrap}>
         <canvas ref={canvas} />
+        {state === 'play' && <div class="coachline">{d.say[phase] ?? d.say.live}</div>}
         {state !== 'play' && (
           <div class="overlay dimmed">
             {state === 'done' ? (
@@ -80,17 +104,17 @@ export function PracticeScreen(_p: { params: Record<string, any> }) {
             ) : (
               <>
                 <div class="bigcall">{d.title}</div>
-                <div class="panel col" style={{ maxWidth: '330px', fontSize: '19px', textAlign: 'left', gap: '6px' }}>
-                  {state === 'retry' && <div class="bad">{d.retry}</div>}
-                  {d.how.map(h => <div>{h}</div>)}
+                <div class="panel col" style={{ maxWidth: '330px', fontSize: '21px', textAlign: 'left', gap: '6px' }}>
+                  {state === 'retry' ? <div class="gold">{d.retry}</div> : <div>{d.brief}</div>}
+                  <div class="dim" style={{ fontSize: '17px' }}>A hand on the court will show you the motion.</div>
                 </div>
-                <div class="row"><Btn kind="primary big" onClick={run}>{state === 'retry' ? 'Try again' : 'Go'}</Btn>{state === 'retry' && <Btn onClick={() => { if (step + 1 >= DRILLS.length) setState('done'); else { setStep(step + 1); setState('brief'); } }}>Skip</Btn>}</div>
+                <div class="row"><Btn kind="primary big" onClick={run}>{state === 'retry' ? 'Try again' : 'Try it'}</Btn>{state === 'retry' && <Btn onClick={() => { if (step + 1 >= DRILLS.length) setState('done'); else { setStep(step + 1); setState('brief'); } }}>Skip</Btn>}</div>
               </>
             )}
           </div>
         )}
       </div>
-      <div class="ticker"><div class="lines"><div style={{ whiteSpace: 'normal' }}>{state === 'play' ? d.how[0] : 'No shot clock and no steals in practice. Take your time.'}</div></div></div>
+      <div class="ticker"><div class="lines"><div style={{ whiteSpace: 'normal' }}>No shot clock and no steals in practice. Take your time.</div></div></div>
     </div>
   );
 }

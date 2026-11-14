@@ -8,7 +8,7 @@ export function runArcadeTest(root: HTMLElement): void {
   const q = new URLSearchParams(location.search);
   const save = newLeague({ seed: Number(q.get('seed') ?? 7), coachName: 'Test', coachLook: { skin: 1, hair: 1, hairColor: 0 }, settings: { sound: true, difficulty: 'normal', haptics: true } });
   const a = save.teams[0], b = save.teams[1];
-  root.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;height:100dvh"><div id="hud" style="font:14px monospace;padding:6px">tap to start</div><canvas id="c" style="width:min(100vw,calc((100dvh - 40px)*8/9));aspect-ratio:8/9;image-rendering:pixelated"></canvas></div>`;
+  root.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;height:100dvh"><div id="hud" style="font:14px monospace;padding:6px">tap to start</div><canvas id="c" style="width:min(100vw,calc((100dvh - 40px)*240/294));aspect-ratio:240/294;image-rendering:pixelated"></canvas></div>`;
   const canvas = root.querySelector('#c') as HTMLCanvasElement;
   const hud = root.querySelector('#hud') as HTMLElement;
   const arcade = new Arcade(canvas, { paint: a.colors.primary, accent: a.colors.secondary, banners: 3, crowdA: a.colors.primary, crowdB: a.colors.secondary });

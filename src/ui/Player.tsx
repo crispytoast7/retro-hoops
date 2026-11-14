@@ -60,7 +60,7 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
     <Screen title={p.name} team={team ?? undefined}>
       <Panel team>
         <div class="row" style={{ alignItems: 'flex-start', gap: '12px' }}>
-          <Sprite player={p} team={team} scale={4} />
+          <Sprite player={p} team={team} scale={3} />
           <div class="col grow" style={{ gap: '4px' }}>
             <div class="row wrap"><span class="tag pos">{p.pos}</span><span>#{p.num}</span><span class="dim">Age {p.age}</span></div>
             <div class="row">{prospect ? <span class="dim">Unscouted prospect</span> : <Stars v={ovr(p)} big />}</div>

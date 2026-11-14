@@ -4,7 +4,7 @@ import type { Rng } from '../rng';
 import type { Facility, FacilityKey, GameResult, Player, RatingKey, Save, StaffMember, Team } from '../types';
 import { FACILITY_KEYS } from '../types';
 import { NEWS } from '../../data/news';
-import { perk } from './progress';
+import { note, perk } from './progress';
 
 export function pushNews(save: Save, kind: Save['news'][number]['kind'], text: string, mine = false): void {
   save.news.unshift({ year: save.year, week: save.week, kind, text, mine });
@@ -38,6 +38,7 @@ export function upgradeFacility(save: Save, key: FacilityKey): string | null {
   if (save.credits < cost) return `Needs ${cost} credits.`;
   save.credits -= cost;
   f.pending = next;
+  note(save, 'facility');
   return null;
 }
 export function repairFacility(save: Save, key: FacilityKey): string | null {
@@ -47,6 +48,7 @@ export function repairFacility(save: Save, key: FacilityKey): string | null {
   if (save.credits < cost) return `Needs ${cost} credits.`;
   save.credits -= cost;
   f.condition = 100;
+  note(save, 'facility');
   return null;
 }
 /** Weekly: finish pending upgrades and wear the user's buildings down a little. */
@@ -85,6 +87,7 @@ export function hireStaff(save: Save, staffId: number): string | null {
   save.staffPool = save.staffPool.filter(x => x.id !== staffId);
   if (old) save.staffPool.push(old);
   team.staff[slot] = s;
+  note(save, 'hire');
   pushNews(save, 'staff', `${teamName(team)} hire ${s.name} as ${s.role === 'OC' ? 'offensive' : 'defensive'} coordinator.`, true);
   return null;
 }
@@ -128,6 +131,7 @@ export function upgradeRating(save: Save, playerId: number, key: RatingKey): str
   save.credits -= cost;
   p.ratings[key] = clamp(p.ratings[key] + UPGRADE_POINTS, 1, 99);
   if (save.offseason) save.offseason.campSpent += cost;
+  note(save, 'train');
   return null;
 }
 
@@ -140,6 +144,7 @@ export function scoutProspect(save: Save, playerId: number): string | null {
   else if (save.credits >= 1) save.credits--;
   else return 'No scouting reports or credits left.';
   p.scouted = true;
+  note(save, 'scout');
   return null;
 }
 /** What the user sees for an unscouted prospect: each rating blurred by a fixed, per-player error. */

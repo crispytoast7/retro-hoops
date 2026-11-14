@@ -1,5 +1,6 @@
 import { useRef } from 'preact/hooks';
 import type { Difficulty } from '../core/types';
+import { setMusic } from '../audio/music';
 import { setSound, sfx } from '../audio/sfx';
 import { exportSave, getSave, hasSave, importSave, resetSave, touch, useSave } from '../state/store';
 import { Btn, Panel, Screen, Tabs, confirmDialog, toast } from './kit';
@@ -10,7 +11,10 @@ function SaveSettings() {
   if (!save) return null;
   return (
     <>
-      <Panel title="SOUND">
+      <Panel title="MUSIC">
+        <Tabs tabs={['On', 'Off'] as const} value={save.settings.music !== false ? 'On' : 'Off'} onChange={v => { touch(s => { s.settings.music = v === 'On'; }); setMusic(v === 'On'); }} />
+      </Panel>
+      <Panel title="SOUND EFFECTS">
         <Tabs tabs={['On', 'Off'] as const} value={save.settings.sound ? 'On' : 'Off'} onChange={v => { touch(s => { s.settings.sound = v === 'On'; }); setSound(v === 'On'); if (v === 'On') sfx.select(); }} />
       </Panel>
       <Panel title="DIFFICULTY">

@@ -4,6 +4,7 @@ import { courtStyle, perk } from '../core/org/progress';
 import { Rng } from '../core/rng';
 import { finishUserGame, startLiveGame, PostGame } from '../core/season/flow';
 import type { PossessionResult } from '../core/sim/api';
+import { VIEW_H } from '../game/render';
 import { Arcade } from '../game/arcade';
 import { setCrowd, sfx, stopCrowd } from '../audio/sfx';
 import { act, getSave } from '../state/store';
@@ -40,8 +41,8 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
     const fit = () => {
       const w = wrap.current, c = canvas.current;
       if (!w || !c) return;
-      const k = Math.min(w.clientWidth / 240, w.clientHeight / 270);
-      c.style.width = `${Math.floor(240 * k)}px`; c.style.height = `${Math.floor(270 * k)}px`;
+      const k = Math.min(w.clientWidth / 240, w.clientHeight / VIEW_H);
+      c.style.width = `${Math.floor(240 * k)}px`; c.style.height = `${Math.floor(VIEW_H * k)}px`;
     };
     fit();
     const ro = new ResizeObserver(fit);

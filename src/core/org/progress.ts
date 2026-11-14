@@ -89,6 +89,33 @@ export function nextTip(save: Save): Tip | null {
 }
 export function markTip(save: Save, id: string): void { const s = prog(save).seen; if (!s.includes(id)) s.push(id); }
 
+// ---- first-season checklist --------------------------------------------------------------
+export interface Step { id: string; text: string; why: string; go: string; done: boolean }
+const bump = (save: Save, key: string): void => { const c = prog(save).counters; c[key] = (c[key] ?? 0) + 1; };
+/** Record that the player has done something the checklist cares about. */
+export const note = (save: Save, key: 'facility' | 'hire' | 'train' | 'scout' | 'sign'): void => bump(save, key);
+/** What a new coach should do next, in order. Empty once everything is done or after the first season. */
+export function checklist(save: Save): Step[] {
+  if (save.coach.seasons > 0) return [];
+  const p = prog(save), c = p.counters, seen = (id: string) => p.seen.includes(id);
+  const games = careerGames(save);
+  const all: (Step & { when: boolean })[] = [
+    { id: 'practice', text: 'Learn the controls in Practice', why: 'Six short drills: move, shoot, pass, drive, crossover.', go: 'practice', done: seen('practice_done'), when: true },
+    { id: 'roster', text: 'Meet your players', why: 'Tap anyone for his star ratings. Stars decide who should shoot, handle and finish.', go: 'roster', done: seen('v_roster'), when: true },
+    { id: 'lineup', text: 'Check your starting five', why: 'Your best five should start. Tap two players to swap them.', go: 'lineup', done: seen('v_lineup'), when: true },
+    { id: 'game1', text: 'Play your first game', why: 'Press PLAY above. You take the big possessions; the rest is simulated.', go: '', done: games >= 1, when: true },
+    { id: 'captain', text: 'Name a team captain', why: 'Open a player and tap Make Captain. A captain steadies morale after losses.', go: 'roster', done: save.captainId !== null, when: games >= 1 },
+    { id: 'facility', text: 'Upgrade or maintain a facility', why: 'Spend the credits you earn. Start with the Training Center or the Arena.', go: 'facilities', done: (c.facility ?? 0) > 0, when: isUnlocked(save, 'facilities') },
+    { id: 'coachperk', text: 'Spend a perk point', why: 'Each coach level gives one. Perks change how you play and run the club.', go: 'coach', done: perkPointsSpent(save) > 0, when: isUnlocked(save, 'coach') && coachLevel(save) >= 2 },
+    { id: 'hire', text: 'Hire a coordinator', why: 'An offensive coordinator makes your shot meter bigger; a defensive one helps the simulated defense.', go: 'staff', done: (c.hire ?? 0) > 0, when: isUnlocked(save, 'staff') },
+    { id: 'train', text: 'Train a player', why: 'Open a player and spend credits to raise one of his ratings.', go: 'roster', done: (c.train ?? 0) > 0, when: isUnlocked(save, 'facilities') },
+    { id: 'money', text: 'Look at your finances', why: 'Salaries, the cap, and whose contract is about to run out.', go: 'finances', done: seen('v_finances'), when: isUnlocked(save, 'finances') },
+    { id: 'trade', text: 'Browse trades and free agents', why: 'See what other teams would give you, or sign someone who is unattached.', go: 'trades', done: seen('v_trades'), when: isUnlocked(save, 'trades') },
+    { id: 'scout', text: 'Scout a draft prospect', why: 'A report shows his true ratings and how good he could become.', go: 'scouting', done: (c.scout ?? 0) > 0, when: isUnlocked(save, 'scouting') },
+  ];
+  return all.filter(s => s.when).map(({ when: _w, ...s }) => s);
+}
+
 // ---- levels --------------------------------------------------------------------------
 export const MAX_LEVEL = 20;
 /** Total XP needed to reach a level. */
