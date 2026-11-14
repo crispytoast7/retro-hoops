@@ -147,6 +147,9 @@ export class Arcade {
   private netKick = 0;
   private dropping = false;
   private rimShake = 0;
+  private rimGlow = 0;
+  private sparks: { x: number; y: number; vx: number; vy: number; t: number }[] = [];
+  private dropT = 0;
   private flash = 0;
   private resolve: ((r: ArcadeResult) => void) | null = null;
   private overT = 0;
@@ -554,8 +557,12 @@ export class Arcade {
       this.events.push({ t: 'shot', by: h.p.id, type: sh.type, made: true, ...(assist !== undefined ? { assist } : {}) });
       this.points += sh.pts;
       this.netKick = 1;
-      this.dropping = true;
+      this.dropping = true; this.dropT = 0;
       this.ball.x = HOOP.x; this.ball.y = HOOP.y; this.ball.z = RIM_Z + 1;
+      // make it unmistakable: rim flashes, sparks fly, and the points pop up at the basket
+      this.rimGlow = 0.5;
+      for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; this.sparks.push({ x: HOOP.x, y: HOOP.y - RIM_Z + 2, vx: Math.cos(a) * (18 + Math.random() * 14), vy: Math.sin(a) * 10 - 14, t: 0 }); }
+      this.popups.push({ text: `+${sh.pts}`, color: PAL.green, t: 0, scale: 2, y: HOOP.y - RIM_Z + 42 });
       if (sh.type === 'dunk') { this.rimShake = 1; this.hang = 0.45; }
       if (sh.type === 'dunk') {
         this.popup(pick(CALLS.dunk), PAL.yellow, 3); sfx.dunk(); sfx.cheer(true); this.shake = 0.5; this.flash = 0.25;
@@ -592,7 +599,7 @@ export class Arcade {
     this.events.push({ t: 'shot', by: h.p.id, type: sh.type, made: false, ...(sh.blockBy >= 0 ? { blockBy: sh.blockBy } : {}) });
     if (sh.blockBy >= 0) { this.popup(pick(CALLS.block), PAL.red, 2); sfx.block(); this.shake = 0.25; }
     else if (sh.text === 'air') { this.popup(pick(CALLS.air), PAL.red, 2); sfx.groan(); }
-    else { this.popup(pick(CALLS.miss), '#c8c8d8', 1, 120); sfx.rim(); }
+    else { this.popup(pick(CALLS.miss), '#c8c8d8', 2, 120); sfx.rim(); this.rimShake = 0.5; }
     if (this.periodEnds && this.clock <= 0) { sfx.buzzer(); this.end(1.3); return; }
     // rebound
     const a = Math.PI * (0.12 + Math.random() * 0.76);
@@ -626,14 +633,23 @@ export class Arcade {
     this.popups = this.popups.filter(p => p.t < 1.25);
     this.shake = Math.max(0, this.shake - dt);
     this.flash = Math.max(0, this.flash - dt);
-    this.netKick = Math.max(0, this.netKick - dt * 2.2);
+    this.netKick = Math.max(0, this.netKick - dt * 1.5);
     this.rimShake = Math.max(0, this.rimShake - dt * 2);
+    this.rimGlow = Math.max(0, this.rimGlow - dt);
+    for (const sp of this.sparks) { sp.t += dt; sp.x += sp.vx * dt; sp.y += sp.vy * dt; sp.vy += 60 * dt; }
+    this.sparks = this.sparks.filter(sp => sp.t < 0.45);
     this.hang = Math.max(0, this.hang - dt);
     if (this.phase !== this.lastPhase) { this.lastPhase = this.phase; this.onPhase?.(this.phase); }
     if (this.phase === 'idle') return;
     if (this.phase === 'over') {
       this.overT -= dt;
-      if (this.dropping && this.ball.z > 0) { this.ball.z = Math.max(0, this.ball.z - dt * 42); this.ball.x += (HOOP.x - this.ball.x) * 0.3; }
+      if (this.dropping) {
+        this.dropT += dt;
+        // slow through the net, then fall and take one small bounce on the floor
+        if (this.ball.z > 0.01 && this.dropT < 5) { const inNet = this.ball.z > RIM_Z - 12; this.ball.z = Math.max(0, this.ball.z - dt * (inNet ? 26 : 95)); if (this.ball.z <= 0) this.dropT = 10; }
+        else if (this.dropT >= 10) { const k = (this.dropT - 10) / 0.28; this.ball.z = k < 1 ? Math.sin(k * Math.PI) * 5 : 0; this.ball.y = HOOP.y + Math.min(1, k) * 4; }
+        this.ball.x += (HOOP.x - this.ball.x) * 0.3;
+      }
       this.moveAll(dt, true);
       if (this.overT <= 0) {
         this.phase = 'idle';
@@ -761,9 +777,9 @@ export class Arcade {
       h.x += (h.tx - h.x) * glide; h.y += (h.ty - h.y) * glide;
       const dunk = sh.type === 'dunk';
       const reach = spriteHeight(h.p) + 4; // hand height above his feet
-      const peak = dunk ? RIM_Z - reach + 5 : RIM_Z - reach - 2;
+      const peak = dunk ? Math.max(8, RIM_Z - reach + 6) : Math.max(5, RIM_Z - reach);
       const rise = dunk ? 0.8 : 0.6;
-      h.lift = Math.max(0, peak) * Math.sin(Math.min(1, k / rise) * Math.PI * 0.5);
+      h.lift = peak * Math.sin(Math.min(1, k / rise) * Math.PI * 0.5);
       h.armsUp = 0.2;
       const handZ = h.lift + reach;
       if (k < rise) { this.ball.x = h.x + 2; this.ball.y = h.y; this.ball.z = handZ; }
@@ -912,7 +928,7 @@ export class Arcade {
       this.drawGuideFloor();
       let hoopDrawn = false;
       for (const e of ents) {
-        if (!hoopDrawn && e.y >= HOOP.y - 3) { drawHoop(g, this.netKick, this.rimShake, this.time); hoopDrawn = true; }
+        if (!hoopDrawn && e.y >= HOOP.y - 3) { drawHoop(g, this.netKick, this.rimShake, this.time, this.rimGlow); hoopDrawn = true; }
         const isH = e.off && this.off[this.handler] === e;
         drawPlayer(g, {
           x: e.x, y: e.y, player: e.p, jersey: e.off ? s.offColors.primary : dj, trim: e.off ? s.offColors.secondary : dt,
@@ -921,7 +937,7 @@ export class Arcade {
           dizzy: e.stun > 0 ? this.time : 0,
         });
       }
-      if (!hoopDrawn) drawHoop(g, this.netKick, this.rimShake, this.time);
+      if (!hoopDrawn) drawHoop(g, this.netKick, this.rimShake, this.time, this.rimGlow);
       // labels
       if (live) {
         let n = 0;
@@ -934,6 +950,7 @@ export class Arcade {
         });
       }
       if (this.phase !== 'idle') drawBall(g, this.ball.x, this.ball.y, this.ball.z);
+      for (const sp of this.sparks) { g.fillStyle = sp.t < 0.2 ? PAL.white : PAL.yellow; g.fillRect(Math.round(sp.x), Math.round(sp.y), 2, 2); }
       if (this.phase === 'charge') this.drawMeter();
       this.drawGuideOver();
       // joystick

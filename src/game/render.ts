@@ -103,8 +103,9 @@ export function makeCourt(paint: string, accent: string, banners: number, wood?:
   pxArc(g, HOOP.x, HOOP.y, ARC_R, a0, Math.PI - a0);
   // lane blocks and hash marks
   for (const yy of [48, 62, 74, 86]) { g.fillRect(PAINT.x0 - 3, yy, 3, yy === 48 ? 4 : 1); g.fillRect(PAINT.x1 + 1, yy, 3, yy === 48 ? 4 : 1); }
-  // restricted arc
+  // restricted arc, closed up to the backboard line so it hugs the basket
   pxArc(g, HOOP.x, HOOP.y, 18, 0, Math.PI);
+  g.fillRect(HOOP.x - 18, HOOP.y - 8, 1, 9); g.fillRect(HOOP.x + 18, HOOP.y - 8, 1, 9);
   // centre circle: a team-colour disc with a ring
   for (let y = HALF_Y - 26; y < HALF_Y; y++) {
     const half = Math.floor(Math.sqrt(26 * 26 - (HALF_Y - y) * (HALF_Y - y)));
@@ -153,19 +154,23 @@ export function drawCrowd(ctx: CanvasRenderingContext2D, t: number, level: numbe
 }
 
 /** Screen height of the rim above its spot on the floor. */
-export const RIM_Z = 34;
+export const RIM_Z = 29;
 
 /**
  * The basket, drawn standing up like the players: stanchion, glass backboard with the
  * shooter's square, orange rim and a mesh net. `netKick` (0-1) stretches and sways the net
  * after a make; `shake` (0-1) rattles the whole thing on a dunk.
  */
-export function drawHoop(ctx: CanvasRenderingContext2D, netKick: number, shake = 0, t = 0): void {
+export function drawHoop(ctx: CanvasRenderingContext2D, netKick: number, shake = 0, t = 0, glow = 0): void {
   const cx = HOOP.x + (shake > 0 ? Math.round(Math.sin(t * 60) * shake * 1.5) : 0);
   const ry = HOOP.y - RIM_Z + (shake > 0 ? Math.round(Math.abs(Math.sin(t * 45)) * shake * 2) : 0); // rim line
   // shadow on the floor under the rim
-  ctx.fillStyle = PAL.shadow;
-  ctx.fillRect(HOOP.x - 4, HOOP.y - 1, 8, 3); ctx.fillRect(HOOP.x - 6, HOOP.y, 12, 1);
+  // the rim's shadow on the floor: an oval ring right where the basket hangs
+  ctx.fillStyle = 'rgba(20,18,31,0.28)';
+  ctx.fillRect(HOOP.x - 4, HOOP.y - 3, 9, 1); ctx.fillRect(HOOP.x - 6, HOOP.y - 2, 2, 1); ctx.fillRect(HOOP.x + 5, HOOP.y - 2, 2, 1);
+  ctx.fillRect(HOOP.x - 7, HOOP.y - 1, 1, 2); ctx.fillRect(HOOP.x + 7, HOOP.y - 1, 1, 2);
+  ctx.fillRect(HOOP.x - 6, HOOP.y + 1, 2, 1); ctx.fillRect(HOOP.x + 5, HOOP.y + 1, 2, 1); ctx.fillRect(HOOP.x - 4, HOOP.y + 2, 9, 1);
+  ctx.fillStyle = 'rgba(20,18,31,0.14)'; ctx.fillRect(HOOP.x - 13, HOOP.y - 8, 27, 2); // backboard shadow
   // stanchion: padded base behind the baseline and the arm up to the board
   ctx.fillStyle = '#2b2f4a'; ctx.fillRect(cx - 4, BASE_Y - 7, 8, 6);
   ctx.fillStyle = '#3d4266'; ctx.fillRect(cx - 4, BASE_Y - 7, 8, 1);
@@ -184,11 +189,13 @@ export function drawHoop(ctx: CanvasRenderingContext2D, netKick: number, shake =
   // bracket
   ctx.fillStyle = '#b4401c'; ctx.fillRect(cx - 1, ry - 1, 2, 2);
   // net: a tapering mesh hanging from the rim
-  const stretch = Math.round(netKick * 3);
-  const sway = netKick > 0 ? Math.round(Math.sin(t * 40) * netKick * 1.5) : 0;
+  // after a make the net is punched down, flares at the bottom and swings
+  const stretch = Math.round(netKick * 6);
+  const sway = netKick > 0 ? Math.round(Math.sin(t * 26) * netKick * 3) : 0;
   const rows = 8 + stretch;
   for (let r = 0; r < rows; r++) {
-    const half = Math.max(2, 5 - Math.floor((r * 3.2) / rows));
+    const flare = netKick > 0.25 && r > rows - 4 ? 1 : 0;
+    const half = Math.max(2, 5 - Math.floor((r * 3.2) / rows)) + flare;
     const ox = Math.round((sway * r) / rows);
     const y = ry + 3 + r;
     for (let x = -half; x <= half; x++) {
@@ -199,9 +206,10 @@ export function drawHoop(ctx: CanvasRenderingContext2D, netKick: number, shake =
     }
   }
   // rim: an ellipse, far edge dark, near edge bright
-  ctx.fillStyle = '#b4401c';
+  const lit = glow > 0 && Math.floor(t * 24) % 2 === 0;
+  ctx.fillStyle = lit ? '#fff2a8' : '#b4401c';
   ctx.fillRect(cx - 3, ry, 7, 1); ctx.fillRect(cx - 5, ry + 1, 2, 1); ctx.fillRect(cx + 4, ry + 1, 2, 1);
-  ctx.fillStyle = '#ff6a3c';
+  ctx.fillStyle = lit ? '#ffffff' : '#ff6a3c';
   ctx.fillRect(cx - 6, ry + 2, 1, 1); ctx.fillRect(cx + 6, ry + 2, 1, 1);
   ctx.fillRect(cx - 5, ry + 3, 2, 1); ctx.fillRect(cx + 4, ry + 3, 2, 1); ctx.fillRect(cx - 3, ry + 4, 7, 1);
   ctx.fillStyle = '#ffb08a'; ctx.fillRect(cx - 2, ry + 4, 3, 1);
@@ -230,7 +238,7 @@ export interface SpriteOpts {
 
 const OUTLINE = '#1b1726';
 /** Sprite height in px for a height class 0-2 (guards to centers). */
-export const spriteHeight = (p: Player): number => 23 + (p.look.height > 0 ? 1 : 0) + (p.look.height > 1 ? 1 : 0);
+export const spriteHeight = (p: Player): number => [22, 24, 27][Math.max(0, Math.min(2, p.look.height))];
 
 export function drawPlayer(ctx: CanvasRenderingContext2D, o: SpriteOpts): void {
   const x = Math.round(o.x), yb = Math.round(o.y);
@@ -259,8 +267,10 @@ export function drawPlayer(ctx: CanvasRenderingContext2D, o: SpriteOpts): void {
   const y = yb - lift;
   const crouch = pose === 'defend' ? 1 : 0;
   const tuck = pose === 'jump' ? 2 : 0;
-  const legH = 6 + (tall > 1 ? 1 : 0) - crouch - tuck;
-  const torsoH = 6 + (tall > 0 ? 1 : 0);
+  // guards are compact, centers are long: 22, 24 and 27 px tall
+  const legH = [5, 6, 8][tall] - crouch - tuck;
+  const torsoH = [5, 6, 7][tall];
+  const big = tall > 1 ? 1 : 0; // centers are broader too
   const wide = pose === 'defend' ? 1 : 0;
   // legs + shoes
   const lUp = frame === 0 ? 2 : 0, rUp = frame === 2 ? 2 : 0;
@@ -277,8 +287,8 @@ export function drawPlayer(ctx: CanvasRenderingContext2D, o: SpriteOpts): void {
   R(-1, shortsTop + 3, 2, 1, shade(o.trim, 0.6));
   // torso
   const torsoTop = shortsTop - torsoH;
-  R(-4, torsoTop, 8, torsoH, o.jersey);
-  R(-4, torsoTop + torsoH - 1, 8, 1, shade(o.jersey, 0.8));
+  R(-4 - big, torsoTop, 8 + big * 2, torsoH, o.jersey);
+  R(-4 - big, torsoTop + torsoH - 1, 8 + big * 2, 1, shade(o.jersey, 0.8));
   if (!up) R(-1, torsoTop, 2, 1, skin); // neckline
   // arms
   const armLen = 6;
@@ -330,7 +340,7 @@ export function drawPlayer(ctx: CanvasRenderingContext2D, o: SpriteOpts): void {
   } else {
     const num = String(pl.num);
     const tw = textWidth(num);
-    if (tw <= 7) drawText(ctx, num, x - Math.floor(tw / 2), torsoTop + 1, o.trim);
+    if (tw <= 7) drawText(ctx, num, x - Math.floor(tw / 2), torsoTop + (torsoH > 5 ? 1 : 0), o.trim);
     else { ctx.fillStyle = o.trim; ctx.fillRect(x - 2, torsoTop + 1, 4, 4); }
   }
   if (o.dizzy && o.dizzy > 0) {
@@ -346,15 +356,19 @@ export function drawPlayer(ctx: CanvasRenderingContext2D, o: SpriteOpts): void {
 
 export function drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, z: number): void {
   const bx = Math.round(x), by = Math.round(y);
-  // shadow gets smaller and fainter with height
-  ctx.fillStyle = z > 24 ? 'rgba(20,18,31,0.18)' : PAL.shadow;
+  // the shadow stays on the floor: smaller and fainter the higher the ball is
+  ctx.fillStyle = z > 24 ? 'rgba(20,18,31,0.22)' : PAL.shadow;
   if (z > 12) ctx.fillRect(bx - 1, by, 3, 1); else { ctx.fillRect(bx - 2, by, 5, 1); ctx.fillRect(bx - 1, by + 1, 3, 1); }
-  const yy = by - Math.round(z) - 5;
+  // and the ball itself is drawn a size up when it is high, as if nearer the camera
+  const high = z > 20;
+  const r = high ? 3 : 2;
+  const yy = by - Math.round(z) - r * 2 - 1;
   ctx.fillStyle = OUTLINE;
-  ctx.fillRect(bx - 2, yy - 1, 5, 7); ctx.fillRect(bx - 3, yy, 7, 5);
+  ctx.fillRect(bx - r, yy - 1, r * 2 + 1, r * 2 + 3); ctx.fillRect(bx - r - 1, yy, r * 2 + 3, r * 2 + 1);
   ctx.fillStyle = PAL.ball;
-  ctx.fillRect(bx - 1, yy, 3, 5); ctx.fillRect(bx - 2, yy + 1, 5, 3);
+  ctx.fillRect(bx - r + 1, yy, r * 2 - 1, r * 2 + 1); ctx.fillRect(bx - r, yy + 1, r * 2 + 1, r * 2 - 1);
   ctx.fillStyle = PAL.ballDark;
-  ctx.fillRect(bx, yy, 1, 5); ctx.fillRect(bx - 2, yy + 2, 5, 1); ctx.fillRect(bx + 1, yy + 4, 1, 1); ctx.fillRect(bx + 2, yy + 3, 1, 1);
-  ctx.fillStyle = '#ffc089'; ctx.fillRect(bx - 1, yy + 1, 1, 1);
+  ctx.fillRect(bx, yy, 1, r * 2 + 1); ctx.fillRect(bx - r, yy + r, r * 2 + 1, 1);
+  ctx.fillRect(bx + r - 1, yy + r * 2 - 1, 1, 1); ctx.fillRect(bx + r, yy + r + 1, 1, 1);
+  ctx.fillStyle = '#ffc089'; ctx.fillRect(bx - r + 1, yy + 1, 1, 1);
 }

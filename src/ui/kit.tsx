@@ -120,7 +120,7 @@ export function Sprite(p: { player: Player; team?: Team | null; scale?: number }
     const c = ref.current!;
     const g = c.getContext('2d')!;
     g.clearRect(0, 0, 20, 34);
-    drawPlayer(g, { x: 10, y: 31, player: p.player, jersey: p.team?.colors.primary ?? '#77738f', trim: p.team?.colors.secondary ?? '#d8d4ea', run: -1, face: 0, lift: 0 });
+    drawPlayer(g, { x: 10, y: 32, player: p.player, jersey: p.team?.colors.primary ?? '#77738f', trim: p.team?.colors.secondary ?? '#d8d4ea', run: -1, face: 0, lift: 0 });
   }, [p.player.id, p.team?.id]);
   return <canvas ref={ref} width={20} height={34} style={{ width: `${20 * scale}px`, height: `${34 * scale}px`, flex: 'none' }} />;
 }
