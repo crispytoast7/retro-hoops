@@ -24,7 +24,20 @@ export interface ArcadeSetup {
   practice?: boolean;
   /** Tutorial aids drawn on the court. */
   guide?: Guide;
+  scenario?: Scenario;
 }
+/** The situation a key moment starts from. */
+export type Scenario = 'halfcourt' | 'fastbreak' | 'pnr' | 'post' | 'iso' | 'open' | 'lateclock' | 'freethrows';
+export const SCENARIOS: Record<Scenario, { name: string; hint: string }> = {
+  halfcourt: { name: 'HALF COURT', hint: 'Run the offense. Find the open man.' },
+  fastbreak: { name: 'FAST BREAK', hint: 'Numbers! Push it before the defense gets back.' },
+  pnr: { name: 'PICK AND ROLL', hint: 'Use the screen, then hit the roller or pull up.' },
+  post: { name: 'POST UP', hint: 'Your big man has it on the block. Score or kick it out.' },
+  iso: { name: 'ISOLATION', hint: 'Clear out. Your star, one on one.' },
+  open: { name: 'OPEN LOOK', hint: 'He is open. Shoot it before the defender arrives.' },
+  lateclock: { name: 'SHOT CLOCK DOWN', hint: 'Seven seconds. Make something happen.' },
+  freethrows: { name: 'AT THE LINE', hint: 'Two shots. Hold, and release in the green.' },
+};
 export interface Guide {
   /** A spot to dribble to; the possession ends when the ball-handler gets there. */
   target?: { x: number; y: number };
@@ -75,6 +88,7 @@ const SLOT = {
 type SlotName = keyof typeof SLOT;
 const PERIMETER: SlotName[] = ['TOP', 'LS', 'RS', 'LW', 'RW', 'LC', 'RC'];
 const INSIDE: SlotName[] = ['LB', 'RB', 'LE', 'RE', 'HP'];
+const PAINT_L = 84, PAINT_R = 156;
 /** Starting alignments, by lineup slot PG, SG, SF, PF, C. One is picked each possession. */
 const SETS: SlotName[][] = [
   ['TOP', 'RW', 'LW', 'RC', 'LC'],   // five out
@@ -114,7 +128,7 @@ interface Ent {
   /** Off-ball: where he lives when idle, the route he is running, and timers. */
   home: SlotName; route: Leg[]; leg: number; holdT: number; screen: number; wait: number; jitter: number;
 }
-export type Phase = 'idle' | 'live' | 'pass' | 'charge' | 'shot' | 'finish' | 'rebound' | 'over';
+export type Phase = 'idle' | 'live' | 'pass' | 'charge' | 'shot' | 'finish' | 'rebound' | 'over' | 'ftwait';
 interface Popup { text: string; color: string; t: number; scale: number; y: number }
 
 export class Arcade {
@@ -163,6 +177,12 @@ export class Arcade {
   private dropping = false;
   private playT = 0;
   private driveReacted = false;
+  private scenario: Scenario = 'halfcourt';
+  /** Free throws: shots left and made. */
+  private ft = { left: 0, made: 0 };
+  /** The pass in the air is a lob for a finish at the rim. */
+  private lob = false;
+  private ftPause = 0;
   private rimShake = 0;
   private rimGlow = 0;
   private sparks: { x: number; y: number; vx: number; vy: number; t: number }[] = [];
@@ -263,6 +283,7 @@ export class Arcade {
     this.ptr.down = false; this.ptr.mode = 'none';
     this.mv = { x: 0, y: 0 };
     this.phase = 'live';
+    this.setupScenario(this.practice ? 'halfcourt' : setup.scenario ?? 'halfcourt');
     if (setup.poss.lastShot) this.popup('LAST SHOT!', PAL.yellow, 2);
     else if (setup.poss.clutch) this.popup('CLUTCH TIME', PAL.yellow, 2);
     return new Promise(res => { this.resolve = res; });
@@ -308,7 +329,8 @@ export class Arcade {
     const dx = pt.x - pt.x0, dy = pt.y - pt.y0, d = Math.hypot(dx, dy);
     if (this.phase === 'charge') this.release();
     else if (this.phase === 'live') {
-      if (pt.mode === 'mate' && pt.mate >= 0) this.startPass(pt.mate);
+      if (this.ftMode) { /* only the shot */ }
+      else if (pt.mode === 'mate' && pt.mate >= 0) this.startPass(pt.mate);
       else if (pt.mode === 'drag' && this.time - pt.t0 < SWIPE_TIME && d > SWIPE_DIST) this.startDash(dx / d, dy / d);
     }
     pt.mode = 'none';
@@ -321,6 +343,7 @@ export class Arcade {
     this.usedKeys = true;
     this.keys.add(k);
     if (this.phase !== 'live') return;
+    if (this.ftMode && k !== ' ') return;
     if (k === ' ') this.startCharge();
     else if (k === 'shift' || k === 'x') {
       const m = this.keyVec();
@@ -427,7 +450,8 @@ export class Arcade {
       const p = clamp(0.3 + 0.6 * hnd - 0.28 * (on.e.p.ratings.def / 100) + this.diff.move + 0.06 * this.pk.handles + (this.practice ? 0.5 : 0), 0.1, 0.95);
       if (Math.random() < p) {
         on.e.stun = 0.5 + 0.5 * hnd;
-        this.popup(pick(CALLS.move), PAL.yellow, 2);
+        const away = (dx * (HOOP.x - h.x) + dy * (HOOP.y - h.y)) / (Math.hypot(HOOP.x - h.x, HOOP.y - h.y) || 1) < -0.45;
+        this.popup(away ? 'STEP BACK!' : pick(CALLS.move), PAL.yellow, 2);
         this.highlights.push('ankles');
         this.crowd = Math.min(100, this.crowd + 4);
       } else {
@@ -445,6 +469,8 @@ export class Arcade {
     const spd = (105 + 115 * pas) * (1 + 0.03 * this.s.ocStars) * (1 + 0.08 * this.pk.passing);
     this.passes++;
     this.afterPass(from);
+    // a pass to a man cutting at the rim is a lob
+    this.lob = Math.hypot(tgt.x - HOOP.x, tgt.y - HOOP.y) < 46 && Math.hypot(from.x - HOOP.x, from.y - HOOP.y) > 58 && (tgt.route.length > 0 || Math.hypot(tgt.vx, tgt.vy) > 12);
     const dist = Math.hypot(tgt.x - from.x, tgt.y - from.y);
     const dur = Math.max(0.12, dist / spd);
     // lead the receiver, with a little error for poor passers
@@ -462,7 +488,7 @@ export class Arcade {
     const sht = h.p.ratings.sht / 100;
     const three = isThree(h.x, h.y);
     const dist = Math.hypot(h.x - HOOP.x, h.y - HOOP.y);
-    const distM = dist > 135 ? 0.55 : three ? 0.8 : 1;
+    const distM = this.ftMode ? 1.15 : dist > 135 ? 0.55 : three ? 0.8 : 1;
     this.meter = {
       v: 0, three, contest: 0,
       dur: (0.55 + 0.25 * sht) * (three ? 0.94 : 1),
@@ -476,6 +502,16 @@ export class Arcade {
     if (this.phase !== 'charge') return;
     const h = this.off[this.handler];
     const sht = h.p.ratings.sht / 100;
+    if (this.ftMode) {
+      // a free throw: nobody guarding, timing and touch only
+      const off = Math.abs(this.meter.v - METER_CENTER), hw = this.meter.hw;
+      const q = this.meter.v >= 1 ? 0 : off <= hw ? 3 : off <= hw * 2.2 ? 2 : off <= hw * 4 ? 1 : 0;
+      const p = [0.12, 0.42 + 0.3 * sht, 0.74 + 0.2 * sht, 0.98][q];
+      if (q === 3) { sfx.perfect(); this.highlights.push('perfect'); }
+      this.popup(['WAY OFF', this.meter.v < METER_CENTER ? 'EARLY' : 'LATE', 'GOOD', 'PERFECT!'][q], [PAL.red, '#ffa04d', PAL.white, PAL.green][q], 1, h.y - 46);
+      this.launch(h, Math.random() < p, 'mid', 1, q, -1, false);
+      return;
+    }
     const { c, by } = this.contestAt(h);
     const hw = this.meter.hw * (1 - 0.45 * c);
     const off = Math.abs(this.meter.v - METER_CENTER);
@@ -520,18 +556,18 @@ export class Arcade {
     this.phase = 'shot';
   }
 
-  private finishAtRim(): void {
+  private finishAtRim(oop = false): void {
     const h = this.off[this.handler];
     const fin = h.p.ratings.fin / 100;
     const near = this.def.filter(d => d.stun <= 0).map(d => ({ d, dist: Math.hypot(d.x - h.x, d.y - h.y) })).filter(o => o.dist < 17).sort((a, b) => a.dist - b.dist);
     const cv = (o?: { d: Ent; dist: number }) => (o ? (1 - o.dist / 17) * (0.4 + 0.6 * o.d.p.ratings.def / 100) + 0.15 : 0);
     const c1 = cv(near[0]), c2 = cv(near[1]);
     const open = near.length === 0 || near[0].dist > 13;
-    const dunk = h.p.ratings.fin >= 68 && (open || (h.p.ratings.fin >= 86 && c1 < 0.6));
+    const dunk = oop ? h.p.ratings.fin >= 55 : h.p.ratings.fin >= 68 && (open || (h.p.ratings.fin >= 86 && c1 < 0.6));
     let p = dunk
       ? (open ? 0.96 : 0.6 + 0.3 * fin - 0.3 * c1)
       : 0.6 + 0.38 * fin - 0.3 * c1 - 0.12 * c2;
-    p = clamp(p + this.diff.make + 0.04 * this.pk.rim, 0.08, 0.97);
+    p = clamp(p + this.diff.make + 0.04 * this.pk.rim + (oop ? 0.08 : 0), 0.08, 0.97);
     const made = Math.random() < p;
     const foul = !open && Math.random() < 0.09 + 0.1 * c1;
     let blockBy = -1;
@@ -573,6 +609,19 @@ export class Arcade {
   private resolveShot(): void {
     const sh = this.shot;
     const h = this.off[this.handler];
+    if (this.ftMode) {
+      this.ft.left--;
+      if (sh.made) {
+        this.ft.made++; this.points++;
+        this.netKick = 1; this.rimGlow = 0.4;
+        this.ball.x = HOOP.x; this.ball.y = HOOP.y; this.ball.z = RIM_Z + 1; this.dropping = true; this.dropT = 0;
+        this.popup('GOOD!', PAL.green, 2); sfx.swish();
+        this.crowd = Math.min(100, this.crowd + 3);
+      } else { this.popup('NO GOOD', '#c8c8d8', 2); sfx.rim(); this.rimShake = 0.5; this.dropping = false; }
+      if (this.ft.left > 0) { this.ftPause = 1.1; this.phase = 'ftwait'; }
+      else { this.ft.left = 0; this.events.push({ t: 'ft', by: h.p.id, made: this.ft.made, att: 2 }); this.end(1.2); }
+      return;
+    }
     const assist = this.assist && this.time - this.assist.t < 2.4 && this.assist.id !== h.p.id ? this.assist.id : undefined;
     const buzzer = sh.buzzer || (this.periodEnds && this.clock <= 0);
     if (sh.made) {
@@ -684,8 +733,8 @@ export class Arcade {
     }
     // clocks
     const live = this.phase === 'live' || this.phase === 'pass' || this.phase === 'charge';
-    if (!this.practice) this.clock = Math.max(0, this.clock - dt * TIME_SCALE);
-    if (live && !this.practice) this.shotClock = Math.max(0, this.shotClock - dt * TIME_SCALE);
+    if (!this.practice && !this.ftMode) this.clock = Math.max(0, this.clock - dt * TIME_SCALE);
+    if (live && !this.practice && !this.ftMode) this.shotClock = Math.max(0, this.shotClock - dt * TIME_SCALE);
     this.onClock?.(this.clock, this.periodEnds ? -1 : this.shotClock);
     this.grace = Math.max(0, this.grace - dt);
     this.dash.cd = Math.max(0, this.dash.cd - dt);
@@ -698,7 +747,7 @@ export class Arcade {
 
     if (this.phase === 'live') {
       // start the shot meter on a still hold
-      if (this.ptr.down && this.ptr.mode === 'press' && this.time - this.ptr.t0 > HOLD_TO_SHOOT) { this.startCharge(); }
+      if (this.ptr.down && (this.ptr.mode === 'press' || (this.ftMode && this.ptr.mode !== 'none')) && this.time - this.ptr.t0 > HOLD_TO_SHOOT) { this.startCharge(); }
     }
     if (this.phase === 'live') {
       // movement intent
@@ -707,6 +756,7 @@ export class Arcade {
         const dx = this.ptr.x - this.ptr.x0, dy = this.ptr.y - this.ptr.y0, d = Math.hypot(dx, dy);
         if (d > 2) { const m = Math.min(1, d / STICK_MAX); mx = (dx / d) * m; my = (dy / d) * m; }
       } else { const k = this.keyVec(); mx = k.x; my = k.y; }
+      if (this.ftMode) { mx = 0; my = 0; }
       this.mv = { x: mx, y: my };
       let sp = this.speed(h) * (0.8 + 0.2 * h.p.ratings.hnd / 100);
       if (h.slow > 0) sp *= 0.45;
@@ -734,7 +784,7 @@ export class Arcade {
           d.x -= (dx / dd) * push * 0.35; d.y -= (dy / dd) * push * 0.35;
         }
         // reach-in steals
-        if (dd < 9 && this.grace <= 0 && !this.practice) {
+        if (dd < 9 && this.grace <= 0 && !this.practice && !this.ftMode) {
           let rate = clamp(0.12 + 0.4 * (d.p.ratings.def / 100) - 0.42 * (h.p.ratings.hnd / 100), 0.03, 0.5) * this.diff.steal * (1 - 0.06 * this.pk.handles);
           if (this.dash.t > 0) rate *= 0.3;
           if (Math.random() < rate * dt) { this.turnover('steal', d); return; }
@@ -759,13 +809,14 @@ export class Arcade {
       const k = Math.min(1, ps.t / ps.dur);
       this.ball.x = ps.x0 + (ps.x1 - ps.x0) * k;
       this.ball.y = ps.y0 + (ps.y1 - ps.y0) * k;
-      this.ball.z = 13 + Math.sin(k * Math.PI) * 4;
+      this.ball.z = 13 + Math.sin(k * Math.PI) * (this.lob ? 22 : 4) + (this.lob ? k * 12 : 0);
       const from = this.off[ps.from];
       const travelled = Math.hypot(this.ball.x - ps.x0, this.ball.y - ps.y0);
       const left = Math.hypot(ps.x1 - this.ball.x, ps.y1 - this.ball.y);
       if (travelled > 12 && left > 9) {
         for (const d of this.def) {
           if (this.practice || d.stun > 0 || ps.checked.has(d.p.id)) continue;
+          if (this.lob && Math.hypot(d.x - ps.x1, d.y - ps.y1) > 16) continue; // a lob goes over everyone but the man at the rim
           if (Math.hypot(d.x - this.ball.x, d.y - 4 - this.ball.y) < 6.5) {
             ps.checked.add(d.p.id);
             const p = clamp(0.32 + 0.5 * (d.p.ratings.def / 100) - 0.5 * (from.p.ratings.pas / 100) + (this.diff.steal - 1) * 0.2 - 0.05 * this.pk.passing, 0.06, 0.8);
@@ -782,6 +833,15 @@ export class Arcade {
         this.assist = { id: from.p.id, t: this.time };
         this.handler = ps.to;
         this.off[ps.to].route = []; this.off[ps.to].screen = 0;
+        if (this.lob && Math.hypot(to.x - HOOP.x, to.y - HOOP.y) < 40) {
+          // caught at the rim: finish it in the air
+          this.lob = false;
+          this.popup('ALLEY-OOP!', PAL.yellow, 2); this.highlights.push('oop');
+          this.lag = { x: to.x, y: to.y }; this.phase = 'live';
+          this.finishAtRim(true);
+          return;
+        }
+        this.lob = false;
         if (this.guide?.endOnCatch) { this.popup('GOOD PASS!', PAL.green, 2); sfx.good(); this.phase = 'live'; this.end(0.9); return; }
         this.def[ps.to].slow = 0.45; // the closeout arrives a beat late: catch-and-shoot is worth it
         this.dribbleT = 0;
@@ -821,6 +881,11 @@ export class Arcade {
       this.ball.y = sh.y0 + (sh.y1 - sh.y0) * k;
       this.ball.z = sh.z0 + Math.sin(k * Math.PI) * sh.arc + k * (RIM_Z + 1 - sh.z0);
       if (k >= 1) { this.slowmo = 1; this.resolveShot(); }
+    } else if (this.phase === 'ftwait') {
+      // between free throws: the ball comes back to the shooter
+      this.ftPause -= dt;
+      if (this.dropping && this.ball.z > 0) this.ball.z = Math.max(0, this.ball.z - dt * 60);
+      if (this.ftPause <= 0) { this.dropping = false; this.ball.x = h.x; this.ball.y = h.y; this.ball.z = 8; this.ptr.mode = this.ptr.down ? 'press' : 'none'; this.ptr.t0 = this.time; this.phase = 'live'; }
     } else if (this.phase === 'rebound') {
       const rb = this.reb;
       rb.t += dt;
@@ -876,7 +941,7 @@ export class Arcade {
       if (!controlled) {
         if (rebounding && Math.hypot(e.x - this.reb.x1, e.y - this.reb.y1) < 60) { e.tx = this.reb.x1; e.ty = this.reb.y1 + 3; }
         else if (this.phase === 'pass' && i === this.pass.to) { e.tx = this.pass.x1; e.ty = this.pass.y1; }
-        else if (!over) this.followRoute(e, dt);
+        else if (!over && !this.ftMode) this.followRoute(e, dt);
         const leg = e.route[e.leg];
         this.steer(e, e.tx, e.ty, this.speed(e) * (leg && e.wait <= 0 ? leg.speed : 0.85), dt);
       }
@@ -889,7 +954,7 @@ export class Arcade {
       d.armsUp = Math.max(0, d.armsUp - dt);
       d.lift = Math.max(0, d.lift - dt * 22);
       if (d.stun > 0) { d.stun -= dt; d.vx = 0; d.vy = 0; d.run = -1; return; }
-      let t = this.defTarget(i);
+      let t = this.ftMode || this.phase === 'ftwait' ? { x: d.x, y: d.y } : this.defTarget(i);
       if (rebounding && Math.hypot(d.x - this.reb.x1, d.y - this.reb.y1) < 60) t = { x: this.reb.x1, y: this.reb.y1 - 3 };
       if (this.phase === 'pass' && i === this.pass.to) {
         // close out on the receiver
@@ -959,7 +1024,7 @@ export class Arcade {
   }
   /** Calls an action every couple of seconds, and reacts to drives. */
   private directOffense(dt: number): void {
-    if (this.practice) return;
+    if (this.practice || this.ftMode) return;
     const h = this.off[this.handler];
     const hd = Math.hypot(h.x - HOOP.x, h.y - HOOP.y);
     const mates = this.off.filter(e => e !== h);
@@ -985,14 +1050,7 @@ export class Arcade {
     const r = Math.random();
     const onD = this.def[this.handler];
     if (r < 0.26 && bigs.length && hd > 70) {
-      // ball screen, then roll to the rim (finishers) or pop to a three (shooters)
-      const big = pickOne(bigs);
-      const hx = HOOP.x - h.x, hy = HOOP.y - h.y, hl = Math.hypot(hx, hy) || 1;
-      const side = Math.random() < 0.5 ? 1 : -1;
-      const sx = clamp(onD.x + (-hy / hl) * 9 * side, SIDE_L + 8, SIDE_R - 8), sy = onD.y + (hx / hl) * 9 * side;
-      const roll = big.p.ratings.fin >= big.p.ratings.sht;
-      if (roll) this.send(big, [{ x: sx, y: sy, speed: 1.05, hold: 1.5, screen: true }, { x: HOOP.x + side * 10, y: HOOP.y + 18, speed: 1.05, hold: 0.8 }], side > 0 ? 'RB' : 'LB');
-      else this.send(big, [{ x: sx, y: sy, speed: 1.05, hold: 1.5, screen: true }], this.openSlot(['LW', 'RW', 'TOP', 'LS', 'RS'], big));
+      this.callBallScreen(pickOne(bigs));
     } else if (r < 0.44 && bigs.length && wings.length) {
       // pin-down: a big screens a wing's defender, the wing comes off it to the top or flares to the corner
       const wing = pickOne(wings), big = pickOne(bigs);
@@ -1022,6 +1080,111 @@ export class Arcade {
       this.send(e, [], this.openSlot(e.slot >= 3 && e.p.ratings.sht < 62 ? INSIDE : PERIMETER, e));
     }
   }
+  /** Ball screen, then roll to the rim (finishers) or pop to a three (shooters). */
+  private callBallScreen(big: Ent): void {
+    const h = this.off[this.handler], onD = this.def[this.handler];
+    const hx = HOOP.x - h.x, hy = HOOP.y - h.y, hl = Math.hypot(hx, hy) || 1;
+    const side = Math.random() < 0.5 ? 1 : -1;
+    const sx = clamp(onD.x + (-hy / hl) * 9 * side, SIDE_L + 8, SIDE_R - 8), sy = onD.y + (hx / hl) * 9 * side;
+    const roll = big.p.ratings.fin >= big.p.ratings.sht;
+    if (roll) this.send(big, [{ x: sx, y: sy, speed: 1.05, hold: 1.5, screen: true }, { x: HOOP.x + side * 10, y: HOOP.y + 18, speed: 1.05, hold: 0.8 }], side > 0 ? 'RB' : 'LB');
+    else this.send(big, [{ x: sx, y: sy, speed: 1.05, hold: 1.5, screen: true }], this.openSlot(['LW', 'RW', 'TOP', 'LS', 'RS'], big));
+  }
+
+  /** Arrange the floor for the situation this key moment starts from. */
+  private setupScenario(sc: Scenario): void {
+    this.scenario = sc;
+    this.ft = { left: 0, made: 0 };
+    this.lob = false;
+    const best = (f: (e: Ent) => number, pool = this.off): number => this.off.indexOf(pool.reduce((a, b) => (f(b) > f(a) ? b : a)));
+    const place = (e: Ent, x: number, y: number) => { e.x = x; e.y = y; e.tx = x; e.ty = y; e.vx = 0; e.vy = 0; };
+    const putHome = (e: Ent, n: SlotName) => { e.home = n; const q = SLOT[n]; place(e, q[0], q[1]); };
+    const setBall = (i: number) => { this.handler = i; const h = this.off[i]; this.lag = { x: h.x, y: h.y }; this.ball.x = h.x; this.ball.y = h.y; };
+    const resetDef = () => this.def.forEach((d, i) => { const t = this.defTarget(i); place(d, t.x, t.y); d.slow = 0; });
+    const clockTo = (sec: number) => { if (!this.periodEnds) this.shotClock = Math.min(sec, this.clock); };
+    if (sc === 'fastbreak') {
+      const hi = best(e => e.p.ratings.spd + e.p.ratings.hnd, this.off.slice(0, 3));
+      const rest = this.off.map((_, i) => i).filter(i => i !== hi).sort((a, b) => this.off[b].p.ratings.spd - this.off[a].p.ratings.spd);
+      const [w1, w2, t1, t2] = rest;
+      place(this.off[hi], 120, 214);
+      const side = Math.random() < 0.5 ? 1 : -1;
+      place(this.off[w1], 120 - side * 62, 196); place(this.off[w2], 120 + side * 62, 196);
+      place(this.off[t1], 96, 252); place(this.off[t2], 146, 254);
+      // one wing runs to the rim for the lob, the other spots up in the corner
+      this.send(this.off[w1], [{ x: HOOP.x - side * 13, y: HOOP.y + 18, speed: 1.1, hold: 1.4 }], side > 0 ? 'LC' : 'RC');
+      this.send(this.off[w2], [], side > 0 ? 'RC' : 'LC');
+      this.send(this.off[t1], [], 'LS', 1.0); this.send(this.off[t2], [], 'RS', 1.2);
+      setBall(hi);
+      // only two defenders are back; the rest trail the play
+      place(this.def[hi], 120, 132);
+      place(this.def[w1], HOOP.x, HOOP.y + 28);
+      place(this.def[w2], 120 + side * 52, 250); this.def[w2].slow = 1.8;
+      place(this.def[t1], 62, 264); this.def[t1].slow = 2.6;
+      place(this.def[t2], 178, 266); this.def[t2].slow = 2.8;
+      this.playT = 99; this.driveReacted = true;
+      clockTo(10);
+    } else if (sc === 'pnr') {
+      const al = SETS[6];
+      this.off.forEach((e, i) => putHome(e, al[i]));
+      place(this.off[0], 120, 196);
+      setBall(0); resetDef();
+      this.callBallScreen(this.off[4]);
+      this.playT = 3;
+    } else if (sc === 'post') {
+      const bi = best(e => e.p.ratings.fin + e.p.ratings.reb * 0.3, this.off.slice(3));
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const al: SlotName[] = side < 0 ? ['RS', 'RW', 'LW', 'RC', 'TOP'] : ['LS', 'LW', 'RW', 'LC', 'TOP'];
+      let k = 0;
+      this.off.forEach((e, i) => { if (i !== bi) putHome(e, al[k++]); });
+      this.off[bi].home = side < 0 ? 'LB' : 'RB';
+      place(this.off[bi], HOOP.x + side * 34, HOOP.y + 30);
+      setBall(bi); resetDef();
+      this.grace = 1.4; this.playT = 2.5;
+      clockTo(12);
+    } else if (sc === 'iso') {
+      const si = best(e => e.p.ratings.hnd + e.p.ratings.sht + e.p.ratings.fin);
+      const side = Math.random() < 0.5 ? -1 : 1;
+      // everyone else clears to the far side
+      const far: SlotName[] = side < 0 ? ['RC', 'RW', 'RS', 'RB'] : ['LC', 'LW', 'LS', 'LB'];
+      let k = 0;
+      this.off.forEach((e, i) => { if (i !== si) putHome(e, far[k++]); });
+      this.off[si].home = side < 0 ? 'LW' : 'RW';
+      place(this.off[si], HOOP.x + side * 66, 138);
+      setBall(si); resetDef();
+      this.playT = 99; this.driveReacted = true;
+      clockTo(12);
+    } else if (sc === 'open') {
+      const si = best(e => e.p.ratings.sht);
+      const spot = (['RW', 'LW', 'RC', 'LC', 'TOP'] as SlotName[])[Math.floor(Math.random() * 5)];
+      const others = PERIMETER.filter(n => n !== spot);
+      let k = 0;
+      this.off.forEach((e, i) => { if (i !== si) putHome(e, e.slot >= 3 ? (k++ % 2 ? 'LB' : 'RB') : others[(k++ * 2) % others.length]); });
+      putHome(this.off[si], spot);
+      setBall(si); resetDef();
+      // his man is late: he starts well off and closes out
+      const h = this.off[si], d = this.def[si];
+      const dx = HOOP.x - h.x, dy = HOOP.y - h.y, dl = Math.hypot(dx, dy) || 1;
+      place(d, h.x + (dx / dl) * 40, h.y + (dy / dl) * 40); d.slow = 0.5;
+      this.lag = { x: d.x, y: d.y };
+      clockTo(6);
+    } else if (sc === 'lateclock') {
+      clockTo(7);
+    } else if (sc === 'freethrows') {
+      const si = best(e => e.p.ratings.fin + e.p.ratings.hnd * 0.5);
+      const lane: [number, number][] = [[PAINT_L - 6, 62], [PAINT_R + 6, 62], [PAINT_L - 6, 84], [150, 150]];
+      let k = 0;
+      this.off.forEach((e, i) => { if (i !== si) { const q = lane[k++]; place(e, q[0], q[1]); e.home = 'TOP'; e.route = []; } });
+      place(this.off[si], HOOP.x, 106);
+      setBall(si);
+      const dl: [number, number][] = [[PAINT_L - 6, 50], [PAINT_R + 6, 50], [PAINT_R + 6, 74], [PAINT_L - 6, 96], [100, 150]];
+      this.def.forEach((d, i) => place(d, dl[i][0], dl[i][1]));
+      this.ft = { left: 2, made: 0 };
+      this.playT = 99; this.driveReacted = true;
+    }
+    this.ball.z = 8;
+  }
+  private get ftMode(): boolean { return this.ft.left > 0; }
+
   /** The passer does not stand and watch: give-and-go to the rim, or fill an open spot. */
   private afterPass(from: Ent): void {
     if (this.practice) return;

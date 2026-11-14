@@ -104,6 +104,19 @@ const CROWD_USER_SCORE = 6;
 const CROWD_USER_BIG = 10; // user dunk or three
 const CROWD_DRIFT = 0.06; // share of the gap to 50 closed each possession
 
+/**
+ * Momentum from the user's key moments, -100..100 in the user's favour. A made moment starts a
+ * run (his team shoots better, the opponent worse) that fades over the next few trips; a wasted
+ * one hands the run to the other side. This is what makes a dozen hand-played moments decide a
+ * game of two hundred possessions.
+ */
+const MOM_MAKE = 0.16; // make-chance swing at momentum 100, each way
+const MOM_SCORE2 = 34;
+const MOM_SCORE3 = 46; // threes and dunks
+const MOM_EMPTY = -32;
+const MOM_TURNOVER = -42;
+const MOM_DECAY = 0.87; // kept per possession
+
 /** Hand-played possessions. */
 const USER_CYCLE_SECONDS = 29; // one user trip plus one opponent trip
 const USER_MAX_EXTRA = 3;
@@ -180,6 +193,8 @@ class Game implements LiveGame {
   crowd = CROWD_START;
   done = false;
   userPossessions = 0;
+  /** -100..100 in the user's favour. */
+  momentum = 0;
 
   private rng: Rng;
   private home: Side;
@@ -253,7 +268,16 @@ class Game implements LiveGame {
     }
     const raw = Number.isFinite(outcome.seconds) ? Math.round(outcome.seconds) : SHOT_CLOCK;
     const seconds = clamp(raw, 0, this.clock);
-    return this.finish(p.off, p.def, p.offFloor, p.defFloor, events, seconds, true);
+    // the moment swings momentum
+    let pts = 0, big = false, tov = false;
+    for (const e of events) {
+      if (e.t === 'shot' && e.made) { pts += e.type === 'three' ? 3 : 2; if (e.type === 'three' || e.type === 'dunk') big = true; }
+      else if (e.t === 'ft') pts += e.made;
+      else if (e.t === 'tov') tov = true;
+    }
+    const swing = pts >= 2 ? (big ? MOM_SCORE3 : MOM_SCORE2) : pts === 1 ? 8 : tov ? MOM_TURNOVER : MOM_EMPTY;
+    this.momentum = clamp(this.momentum + swing, -100, 100);
+    return this.finish(p.off, p.def, p.offFloor, p.defFloor, events, seconds, true, true);
   }
 
   result(): GameResult {
@@ -378,6 +402,7 @@ class Game implements LiveGame {
       b += (CROWD_MAKE * Math.max(0, this.crowd - 50)) / 50;
     }
     b += (MORALE_MAKE * (clamp(mean(offFloor, p => p.morale, 50), 0, 100) - 50)) / 50;
+    if (this.setup.userTeamId != null && this.momentum !== 0) b += (MOM_MAKE * this.momentum * (off.id === this.setup.userTeamId ? 1 : -1)) / 100;
     if (off.input.captainId != null && offFloor.some(p => p.id === off.input.captainId)) b += CAPTAIN_MAKE;
     return b;
   }
@@ -512,8 +537,9 @@ class Game implements LiveGame {
   /** Book a finished possession: box score, score, clock, crowd, whose ball. */
   private finish(
     off: Side, def: Side, offFloor: Player[], defFloor: Player[],
-    events: PlayEvent[], seconds: number, user: boolean,
+    events: PlayEvent[], seconds: number, user: boolean, keepMomentum = false,
   ): PossessionResult {
+    if (!keepMomentum) this.momentum *= MOM_DECAY;
     let points = 0;
     let bigPlay = false;
     for (const e of events) {

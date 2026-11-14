@@ -127,6 +127,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 20px; }
 .ticker .lines div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ticker .lines div:not(:last-child) { color: var(--dim); }
 .ticker .lines .mine { color: var(--good); } .ticker .lines .theirs { color: var(--bad); }
+.mombar { position: relative; height: 12px; background: var(--edge); flex: 1; border: 2px solid var(--edge); }
+.mombar .mid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; background: var(--dim); }
+.mombar .fill { position: absolute; top: 0; bottom: 0; transition: width .25s steps(5); }
+.mombar .fill.up { background: var(--good); } .mombar .fill.down { background: var(--bad); }
 .crowdbar { height: 8px; background: var(--edge); flex: 1; }
 .crowdbar div { height: 100%; background: linear-gradient(90deg, var(--good), var(--gold), var(--bad)); background-size: 100vw 100%; transition: width .3s steps(5); }
 .floor { display: none; background: var(--panel); border-top: 3px solid var(--edge); padding: 2px 8px; }

@@ -100,6 +100,8 @@ export interface LiveGame {
   /** Crowd energy 0-100 for the home side; rises on home runs, falls on away runs. */
   crowd: number;
   done: boolean;
+  /** Momentum from the user's key moments, -100..100 in his favour: it tilts the simulated play that follows. */
+  momentum: number;
   /** Hand-played possessions so far. */
   userPossessions: number;
   /** Advance one step. After a 'user' step you must call resolveUser or simUser before next(). */

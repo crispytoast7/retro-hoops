@@ -1,6 +1,7 @@
 // Dev-only harness: open /?arcade to loop hand-played possessions with generated teams.
 import { newLeague } from '../core/gen/league';
-import { Arcade } from '../game/arcade';
+import { Arcade, Scenario } from '../game/arcade';
+const ALL: Scenario[] = ['fastbreak', 'pnr', 'post', 'iso', 'open', 'lateclock', 'freethrows', 'halfcourt'];
 import { unlockAudio } from '../audio/sfx';
 import type { Difficulty } from '../core/types';
 
@@ -17,9 +18,10 @@ export function runArcadeTest(root: HTMLElement): void {
   const loop = async () => {
     for (;;) {
       const r = await arcade.play({
-        poss: { quarter: 4, clock: n % 3 === 2 ? 9 : 200, userScore: us, oppScore: 0, offense: a.lineup, defense: b.lineup, clutch: false, lastShot: n % 3 === 2, crowd: 50 },
+        poss: { quarter: 4, clock: q.get('sc') ? 200 : n % 3 === 2 ? 9 : 200, userScore: us, oppScore: 0, offense: a.lineup, defense: b.lineup, clutch: false, lastShot: !q.get('sc') && n % 3 === 2, crowd: 50 },
         offense: a.lineup.map(id => save.players[id]), defense: b.lineup.map(id => save.players[id]),
         offColors: a.colors, defColors: b.colors, ocStars: 2, difficulty: (q.get('d') as Difficulty) ?? 'normal',
+        scenario: q.get('sc') === 'all' ? ALL[n % ALL.length] : (q.get('sc') as Scenario) ?? undefined,
       });
       us += r.points; n++;
       hud.textContent = `pts ${us} in ${n} | ${JSON.stringify(r.outcome.events)} ${r.highlights.join(',')}`;

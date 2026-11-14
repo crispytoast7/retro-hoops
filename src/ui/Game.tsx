@@ -5,7 +5,8 @@ import { Rng } from '../core/rng';
 import { finishUserGame, startLiveGame, PostGame } from '../core/season/flow';
 import type { PossessionResult } from '../core/sim/api';
 import { VIEW_H } from '../game/render';
-import { Arcade } from '../game/arcade';
+import { Arcade, SCENARIOS, Scenario } from '../game/arcade';
+import type { UserPossessionSetup } from '../core/sim/api';
 import { setCrowd, sfx, stopCrowd } from '../audio/sfx';
 import { act, getSave } from '../state/store';
 import { Btn, Stars, short } from './kit';
@@ -15,9 +16,24 @@ const fmtClock = (s: number): string => `${Math.floor(Math.max(0, s) / 60)}:${St
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const HINT_KEY = 'retro-hoops-hints-seen';
 
+/** Choose the situation for the next key moment: varied, never the same twice running. */
+function pickScenario(s: UserPossessionSetup, momentum: number, used: Scenario[]): Scenario {
+  if (s.lastShot) return Math.random() < 0.55 ? 'iso' : 'halfcourt';
+  const last = used[used.length - 1], prev = used[used.length - 2];
+  const w: [Scenario, number][] = [
+    ['halfcourt', 1.6], ['pnr', 2], ['post', 1.6], ['iso', 1.6], ['open', 1.6], ['lateclock', 1],
+    ['fastbreak', momentum > 15 ? 3.2 : 1.6],
+    ['freethrows', used.length >= 2 && used.filter(u => u === 'freethrows').length < 2 ? (s.clutch ? 1.6 : 0.9) : 0],
+  ];
+  const pool = w.filter(([k]) => k !== last && (k !== prev || Math.random() < 0.4));
+  let r = Math.random() * pool.reduce((a, [, v]) => a + v, 0);
+  for (const [k, v] of pool) { r -= v; if (r < 0) return k; }
+  return 'halfcourt';
+}
+
 interface Line { text: string; cls: string }
 type Overlay =
-  | { kind: 'intro' } | { kind: 'ball'; text: string; sub: string } | { kind: 'period'; text: string } | { kind: 'final'; post: PostGame } | null;
+  | { kind: 'intro' } | { kind: 'ball'; text: string; sub: string; hint: string; run: string } | { kind: 'period'; text: string } | { kind: 'final'; post: PostGame } | null;
 
 export function GameScreen({ params }: { params: Record<string, any> }) {
   const save = getSave();
@@ -33,7 +49,9 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
   const [overlay, setOverlay] = useState<Overlay>({ kind: 'intro' });
   const [playing, setPlaying] = useState(false);
   const [crowd, setCrowdLevel] = useState(50);
-  const ctl = useRef({ fast: false, skip: false, started: null as null | (() => void), cancel: false });
+  const [mom, setMom] = useState(0);
+  const [swing, setSwing] = useState<'up' | 'down' | null>(null);
+  const ctl = useRef({ fast: false, skip: false, started: null as null | (() => void), cancel: false, go: null as null | (() => void) });
   const [fast, setFast] = useState(false);
 
   // keep the 8:9 court as large as the space allows
@@ -68,7 +86,10 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
       setScore({ home: r.homeScore, away: r.awayScore, q: r.quarter });
       if (clockEl.current) clockEl.current.textContent = fmtClock(r.clockEnd);
       arcade.setCrowd(live.crowd); setCrowdLevel(userCrowd()); setCrowd(live.crowd);
+      setMom(live.momentum);
     };
+    const used: Scenario[] = [];
+    let myRun = 0, oppRun = 0, moments = 0;
     const run = async () => {
       await new Promise<void>(res => { c.started = res; });
       sfx.whistle();
@@ -76,16 +97,20 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
         const step = live.next();
         if (step.kind === 'possession') {
           push(step.result);
-          if (!c.skip) {
-            if (step.result.points > 0 && !c.fast) (step.result.offense === me.id ? sfx.swish : sfx.rim)();
-            await sleep(c.fast ? 25 : 170);
-          }
+          if (step.result.offense === me.id) myRun += step.result.points; else oppRun += step.result.points;
+          if (!c.skip) await sleep(c.fast ? 12 : 55);
         } else if (step.kind === 'user') {
           if (c.skip) { push(live.simUser()); continue; }
           const s = step.setup;
-          setOverlay({ kind: 'ball', text: s.lastShot ? 'LAST SHOT' : s.clutch ? 'CLUTCH TIME' : 'YOUR BALL', sub: `${s.userScore}-${s.oppScore} · Q${s.quarter > 4 ? 'OT' : s.quarter} ${fmtClock(s.clock)}` });
+          const sc = pickScenario(s, live.momentum, used);
+          used.push(sc); moments++;
+          const info = SCENARIOS[sc];
+          const run = moments === 1 ? '' : myRun === oppRun ? `Since your last play: ${myRun}-${oppRun}` : myRun > oppRun ? `Your team went on a ${myRun}-${oppRun} run` : `They went on a ${oppRun}-${myRun} run`;
+          setOverlay({ kind: 'ball', text: s.lastShot ? 'LAST SHOT' : s.clutch ? `CLUTCH: ${info.name}` : info.name, sub: `${s.userScore}-${s.oppScore} · ${s.quarter > 4 ? 'OT' : `Q${s.quarter}`} ${fmtClock(s.clock)}`, hint: info.hint, run });
           sfx.select();
-          await sleep(750);
+          // read the situation, then tap (or wait) to play it
+          await Promise.race([sleep(c.fast ? 1200 : 2600), new Promise<void>(res => { c.go = res; })]);
+          c.go = null;
           if (c.cancel) break;
           setOverlay(null); setPlaying(true);
           const res = await arcade.play({
@@ -93,12 +118,17 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
             offColors: me.colors, defColors: (iAmHome ? away : home).colors,
             ocStars: me.staff.oc?.stars ?? 0, difficulty: save.settings.difficulty,
             perks: { shooting: perk(save, 'shooting'), handles: perk(save, 'handles'), passing: perk(save, 'passing'), rim: perk(save, 'rim') },
+            scenario: sc,
           });
           if (c.cancel) break;
           setPlaying(false);
           highlights.push(...res.highlights);
+          const before = live.momentum;
           push(live.resolveUser(res.outcome));
-          await sleep(200);
+          myRun = 0; oppRun = 0;
+          setSwing(live.momentum > before ? 'up' : 'down');
+          await sleep(650);
+          setSwing(null);
         } else if (step.kind === 'period') {
           if (!c.skip) {
             sfx.buzzer();
@@ -139,21 +169,31 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
             <div class="head dim">{g.playoff ? ROUND_NAMES[g.week - cal(save).regWeeks].toUpperCase() : `WEEK ${g.week}`}</div>
             <div class="bigcall">{away.name.toUpperCase()}<br />AT<br />{home.name.toUpperCase()}</div>
             <div class="panel" style={{ maxWidth: '330px', fontSize: '19px', textAlign: 'left' }}>
-              {seen ? <div class="dim">You play about a dozen of your possessions. The rest is simulated.</div> : (
+              {seen ? <div class="dim">You play the key moments. Score, and your team goes on a run. Waste it, and the other side does.</div> : (
                 <div class="col" style={{ gap: '4px' }}>
                   <div><span class="gold">DRAG</span> to dribble and drive</div>
                   <div><span class="gold">FLICK</span> for a crossover</div>
                   <div><span class="gold">TAP A TEAMMATE</span> to pass</div>
                   <div><span class="gold">HOLD STILL, RELEASE IN THE GREEN</span> to shoot</div>
                   <div><span class="gold">DRIVE AT THE RIM</span> for a layup or dunk</div>
-                  <div class="dim">You play about a dozen possessions. The rest is simulated.</div>
+                  <div class="dim">You play about a dozen key moments. Score and your team goes on a run; waste one and the other side does.</div>
                 </div>
               )}
             </div>
             <div class="row"><Btn kind="primary big" onClick={start}>Tip Off</Btn>{!seen && <Btn onClick={() => replace('practice')}>Practice first</Btn>}</div>
           </div>
         )}
-        {overlay?.kind === 'ball' && <div class="overlay"><div class="bigcall">{overlay.text}</div><div class="head">{overlay.sub}</div></div>}
+        {overlay?.kind === 'ball' && (
+          <div class="overlay dimmed" onClick={() => ctl.current.go?.()}>
+            <div class="head dim">KEY MOMENT</div>
+            <div class="bigcall">{overlay.text}</div>
+            <div class="head">{overlay.sub}</div>
+            <div class="panel" style={{ maxWidth: '300px', fontSize: '20px' }}>{overlay.hint}</div>
+            {overlay.run && <div class={overlay.run.startsWith('They') ? 'bad' : overlay.run.startsWith('Your') ? 'good' : 'dim'}>{overlay.run}</div>}
+            <div class="head dim">TAP TO PLAY</div>
+          </div>
+        )}
+        {swing && <div class="overlay"><div class="bigcall" style={{ color: swing === 'up' ? 'var(--good)' : 'var(--bad)' }}>{swing === 'up' ? 'MOMENTUM!' : 'MOMENTUM LOST'}</div></div>}
         {overlay?.kind === 'period' && <div class="overlay dimmed"><div class="bigcall">{overlay.text}</div><div class="head">{away.abbr} {score.away} · {home.abbr} {score.home}</div></div>}
         {overlay?.kind === 'final' && (
           <div class="overlay dimmed">
@@ -175,8 +215,11 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
       </div>
       <div class="ticker">
         <div class="row">
-          <span class="head dim">CROWD</span>
-          <div class="crowdbar"><div style={{ width: `${crowd}%` }} /></div>
+          <span class="head dim">MOMENTUM</span>
+          <div class="mombar" title={`Crowd ${Math.round(crowd)}`}>
+            <div class="mid" />
+            <div class={mom >= 0 ? 'fill up' : 'fill down'} style={mom >= 0 ? { left: '50%', width: `${Math.min(50, mom / 2)}%` } : { right: '50%', width: `${Math.min(50, -mom / 2)}%` }} />
+          </div>
           {!playing && overlay?.kind !== 'final' && overlay?.kind !== 'intro' && (
             <>
               <Btn kind="small" class={fast ? 'on' : ''} onClick={() => { ctl.current.fast = !fast; setFast(!fast); }}>{fast ? 'Fast ✓' : 'Fast'}</Btn>

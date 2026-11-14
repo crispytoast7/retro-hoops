@@ -15,7 +15,8 @@ import type { GameResult, PlayoffSeries, Save, ScheduledGame, Team } from '../ty
 import { cal, perGame, playoffRound } from './calendar';
 import { gamesInWeek, standings, userGame } from './schedule';
 
-export const CONTROLLED_POSSESSIONS = 16;
+/** Key moments the user plays per game (a few more come late in close games). */
+export const CONTROLLED_POSSESSIONS = 11;
 
 export function sideInput(save: Save, teamId: number): SideInput {
   const team = save.teams[teamId];
