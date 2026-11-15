@@ -42,7 +42,7 @@ export const SCENARIOS: Record<Scenario, { name: string; hint: string }> = {
   iso: { name: 'ISOLATION', hint: 'Clear out. Your star, one on one.' },
   open: { name: 'OPEN LOOK', hint: 'He is open. Shoot it before the defender arrives.' },
   lateclock: { name: 'SHOT CLOCK DOWN', hint: 'Seven seconds. Make something happen.' },
-  freethrows: { name: 'AT THE LINE', hint: 'Two shots. Hold, and release in the green.' },
+  freethrows: { name: 'AT THE LINE', hint: 'Two shots. Tap when the crosshair is on the rim.' },
 };
 export interface Guide {
   /** A spot to dribble to; the possession ends when the ball-handler gets there. */
@@ -88,6 +88,7 @@ const SHOT_CONE = 0.82;   // cos 35deg: a pull this well lined up with the hoop 
 const MATE_CONE = 0.92;   // cos 23deg: a pull lined up with a teammate is the start of a pass
 const LEAD_REACH = 26;    // a pass to a spot needs a teammate who will be this close to it
 const AIM_QUICK = 0.18;   // a flick off your player this fast is a move, not a shot
+const FT_READY = 0.3;     // a free throw's crosshair must be showing this long before a tap counts
 const R_SWISH = 3.0;      // reticle this close to the rim's centre: nothing but net
 const R_RIM = 7.2;        // inside this it may roll in
 const R_IRON = 11.5;      // inside this it hits iron; beyond is an airball
@@ -333,10 +334,11 @@ export class Arcade {
     try { this.canvas.setPointerCapture(e.pointerId); } catch { /* not supported */ }
     const p = this.toLogical(e);
     Object.assign(this.ptr, { down: true, id: e.pointerId, x0: p.x, y0: p.y, x: p.x, y: p.y, t0: this.time, mode: 'press', mate: -1 });
+    if (this.ftMode) { this.tapFreeThrow(); return; }
     if (this.phase === 'live') {
       const hh = this.off[this.handler];
       // a touch that starts on your player is an aim: pull back to throw or shoot
-      if (this.ftMode || Math.hypot(p.x - hh.x, p.y - (hh.y - 12)) < AIM_TOUCH) { this.ptr.mode = 'aim'; this.startAim(false); return; }
+      if (Math.hypot(p.x - hh.x, p.y - (hh.y - 12)) < AIM_TOUCH) { this.ptr.mode = 'aim'; this.startAim(false); return; }
       let best = -1, bd = MATE_PICK_R;
       this.off.forEach((m, i) => {
         if (i === this.handler) return;
@@ -358,7 +360,8 @@ export class Arcade {
     const pt = this.ptr;
     pt.down = false;
     const dx = pt.x - pt.x0, dy = pt.y - pt.y0, d = Math.hypot(dx, dy);
-    if (this.phase === 'charge') this.releaseAim();
+    if (this.ftMode) { /* free throws go on the tap, not the release */ }
+    else if (this.phase === 'charge') this.releaseAim();
     else if (this.phase === 'live') {
       if (this.ftMode) { /* only the shot */ }
       else if (pt.mode === 'mate' && pt.mate >= 0) this.startPass(pt.mate);
@@ -373,8 +376,8 @@ export class Arcade {
     if (e.repeat) return;
     this.usedKeys = true;
     this.keys.add(k);
+    if (this.ftMode) { if (k === ' ') this.tapFreeThrow(); return; }
     if (this.phase !== 'live') return;
-    if (this.ftMode && k !== ' ') return;
     if (k === ' ') this.startAim(true);
     else if (k === 'shift' || k === 'x') {
       const m = this.keyVec();
@@ -387,8 +390,12 @@ export class Arcade {
   private onKeyUp = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase();
     this.keys.delete(k);
-    if (k === ' ' && this.phase === 'charge') this.releaseAim();
+    if (k === ' ' && this.phase === 'charge' && !this.ftMode) this.releaseAim();
   };
+  /** At the line the crosshair drifts on its own: one tap shoots where it is. */
+  private tapFreeThrow(): void {
+    if (this.phase === 'charge' && this.aim.t >= FT_READY) this.releaseAim();
+  }
   private keyVec(): { x: number; y: number } {
     const K = this.keys;
     let x = 0, y = 0;
@@ -896,9 +903,7 @@ export class Arcade {
     }
     const h = this.off[this.handler];
 
-    if (this.phase === 'live') {
-      // (shots and passes start from an aim: see startAim)
-    }
+    if (this.phase === 'live' && this.ftMode) this.startAim(true); // the crosshair is always moving at the line
     if (this.phase === 'live') {
       // movement intent
       let mx = 0, my = 0;
@@ -1034,7 +1039,7 @@ export class Arcade {
       // between free throws: the ball comes back to the shooter
       this.ftPause -= dt;
       if (this.dropping && this.ball.z > 0) this.ball.z = Math.max(0, this.ball.z - dt * 60);
-      if (this.ftPause <= 0) { this.dropping = false; this.ball.x = h.x; this.ball.y = h.y; this.ball.z = 8; this.phase = 'live'; if (this.ptr.down) { this.ptr.mode = 'aim'; this.ptr.x0 = this.ptr.x; this.ptr.y0 = this.ptr.y; this.startAim(false); } else this.ptr.mode = 'none'; }
+      if (this.ftPause <= 0) { this.dropping = false; this.ball.x = h.x; this.ball.y = h.y; this.ball.z = 8; this.phase = 'live'; this.ptr.mode = 'none'; }
     } else if (this.phase === 'rebound') {
       const rb = this.reb;
       rb.t += dt;
@@ -1540,7 +1545,7 @@ export class Arcade {
     if (!this.ftMode) {
       if (c > 0.3) drawText(g, 'CONTESTED', h.x, h.y + 6, PAL.red, { align: 'center', outline: PAL.ink });
       else if (c < 0.08) drawText(g, 'OPEN', h.x, h.y + 6, PAL.green, { align: 'center', outline: PAL.ink });
-    }
+    } else if (a.t >= FT_READY) drawText(g, 'TAP TO SHOOT', h.x, h.y + 6, PAL.white, { align: 'center', outline: PAL.ink });
     if (a.kind === 'none') {
       // touching him but not pulled yet: show which way to drag
       g.fillStyle = 'rgba(255,255,255,0.7)';
