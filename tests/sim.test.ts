@@ -182,7 +182,7 @@ describe('simulateGame', () => {
     expect(m.three).toBeGreaterThan(0.335); expect(m.three).toBeLessThan(0.365);
     expect(m.two).toBeGreaterThan(0.50); expect(m.two).toBeLessThan(0.54);
     expect(m.ft).toBeGreaterThan(0.73); expect(m.ft).toBeLessThan(0.79);
-    expect(m.oreb).toBeGreaterThan(0.24); expect(m.oreb).toBeLessThan(0.28);
+    expect(m.oreb).toBeGreaterThan(0.24); expect(m.oreb).toBeLessThan(0.30); // a few defensive boards are team rebounds, credited to nobody
     expect(m.assisted).toBeGreaterThan(0.54); expect(m.assisted).toBeLessThan(0.61);
     expect(m.starterShare).toBeGreaterThan(0.69); expect(m.starterShare).toBeLessThan(0.76);
   });

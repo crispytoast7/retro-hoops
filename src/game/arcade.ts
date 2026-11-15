@@ -79,11 +79,15 @@ const DIFF: Record<Difficulty, { aim: number; lag: number; steal: number; dspd: 
   hard:   { aim: 1.25, lag: 0.13, steal: 1.3, dspd: 1.05, make: -0.03, move: -0.08 },
 };
 // Pull-back aiming: touch your player, drag away from the target, release.
-const AIM_TOUCH = 24;     // how near the ball-handler a touch must start
+const AIM_TOUCH = 15;     // how near the ball-handler a touch must start (a touch anywhere else moves him)
 const AIM_MIN = 8;        // px of pull before an aim counts
 const AIM_GAIN = 3.3;     // court px thrown per px pulled
 const SNAP_HOOP = 24;     // an aim this close to the rim is a shot
 const SNAP_MATE = 18;     // an aim this close to a teammate is a pass to him
+const SHOT_CONE = 0.82;   // cos 35deg: a pull this well lined up with the hoop is a shot, however long it is
+const MATE_CONE = 0.92;   // cos 23deg: a pull lined up with a teammate is the start of a pass
+const LEAD_REACH = 26;    // a pass to a spot needs a teammate who will be this close to it
+const AIM_QUICK = 0.18;   // a flick off your player this fast is a move, not a shot
 const R_SWISH = 3.0;      // reticle this close to the rim's centre: nothing but net
 const R_RIM = 7.2;        // inside this it may roll in
 const R_IRON = 11.5;      // inside this it hits iron; beyond is an airball
@@ -127,7 +131,8 @@ const CALLS = {
   dunk: ['SLAM!', 'THROWDOWN!', 'BOOM!', 'POSTER!'],
   layup: ['LAYUP!', 'TWO!', 'EASY!', 'FINGER ROLL!'],
   miss: ['CLANK!', 'NO GOOD', 'RIMMED OUT', 'OFF THE IRON'],
-  air: ['AIRBALL!', 'BRICK!'],
+  air: ['AIRBALL!', 'WAY OFF!', 'NOTHING BUT AIR'],
+  glass: ['OFF THE BACKBOARD', 'TOO STRONG!', 'BRICK!'],
   block: ['BLOCKED!', 'REJECTED!', 'SWATTED!'],
   steal: ['STOLEN!', 'PICKED!', 'STRIPPED!'],
   pick: ['INTERCEPTED!', 'PICKED OFF!'],
@@ -214,7 +219,7 @@ export class Arcade {
   // pass
   private pass = { from: 0, to: 0, x0: 0, y0: 0, x1: 0, y1: 0, t: 0, dur: 0, checked: new Set<number>(), stolenBy: -1 };
   // shot
-  private aim = { on: false, t: 0, kb: false, ph: 0, kind: 'none' as 'none' | 'shot' | 'pass' | 'lead', mate: -1, tx: 0, ty: 0, wx: 0, wy: 0, amp: 0 };
+  private aim = { on: false, t: 0, kb: false, ph: 0, kind: 'none' as 'none' | 'shot' | 'pass' | 'lead', mate: -1, tx: 0, ty: 0, wx: 0, wy: 0, amp: 0, armed: false };
   private realDt = 0;
   /** Consecutive makes by each player this game (from earlier key moments). */
   private hot: Record<number, number> = {};
@@ -530,7 +535,7 @@ export class Arcade {
     if (this.phase !== 'live') return;
     const h = this.off[this.handler];
     h.vx = 0; h.vy = 0;
-    this.aim = { on: true, t: 0, kb, ph: Math.random() * 6.28, kind: 'none', mate: -1, tx: h.x, ty: h.y, wx: 0, wy: 0, amp: 0 };
+    this.aim = { on: true, t: 0, kb, ph: Math.random() * 6.28, kind: 'none', mate: -1, tx: h.x, ty: h.y, wx: 0, wy: 0, amp: 0, armed: false };
     this.phase = 'charge';
   }
   /** How far the reticle wanders: steadier for good shooters, wilder from deep or under pressure. */
@@ -554,20 +559,40 @@ export class Arcade {
     let kind: typeof a.kind = 'none', tx = h.x, ty = h.y, mate = -1;
     if (a.kb || this.ftMode) { kind = 'shot'; tx = HOOP.x; ty = HOOP.y; }
     else {
-      const px = this.ptr.x0 - this.ptr.x, py = this.ptr.y0 - this.ptr.y;
-      if (Math.hypot(px, py) >= AIM_MIN) {
+      const px = this.ptr.x0 - this.ptr.x, py = this.ptr.y0 - this.ptr.y, pull = Math.hypot(px, py);
+      if (pull >= AIM_MIN) {
         tx = h.x + px * AIM_GAIN; ty = h.y + py * AIM_GAIN;
+        // how well the pull lines up with the hoop, and with the best-placed teammate
+        const lined = (x: number, y: number) => { const d = Math.hypot(x - h.x, y - h.y) || 1; return (px * (x - h.x) + py * (y - h.y)) / (pull * d); };
+        const atHoop = lined(HOOP.x, HOOP.y);
+        if (!a.armed) {
+          // first read of the gesture: a drag that points at nothing was meant as a dribble
+          const atMate = this.off.reduce((best, m, i) => (i === this.handler ? best : Math.max(best, lined(m.x, m.y))), -1);
+          if (atHoop < SHOT_CONE && atMate < MATE_CONE) {
+            a.on = false; this.slowmo = 1; this.phase = 'live'; this.ptr.mode = 'drag';
+            return;
+          }
+          a.armed = true;
+        }
         if (Math.hypot(tx - HOOP.x, ty - HOOP.y) < SNAP_HOOP) { kind = 'shot'; tx = HOOP.x; ty = HOOP.y; }
         else {
           const pas = h.p.ratings.pas / 100, spd = 105 + 115 * pas;
-          let bd = SNAP_MATE;
+          let bd = SNAP_MATE, reach = 1e9;
           this.off.forEach((m, i) => {
             if (i === this.handler) return;
             const tf = Math.hypot(m.x - h.x, m.y - h.y) / spd;
             const d = Math.hypot(tx - (m.x + m.vx * tf * 0.8), ty - (m.y + m.vy * tf * 0.8));
             if (d < bd) { bd = d; mate = i; }
+            reach = Math.min(reach, d);
           });
-          kind = mate >= 0 ? 'pass' : 'lead';
+          const inBounds = tx > SIDE_L + 4 && tx < SIDE_R - 4 && ty > BASE_Y + 4;
+          if (mate >= 0) kind = 'pass';
+          // a spot someone can run onto is a lead pass; anything else lined up with the hoop is a shot,
+          // whether the pull was short or long; and a pull at nothing throws nothing
+          // (straight at the hoop it stays a shot, unless the spot is at the rim: that is a lob)
+          else if (reach < LEAD_REACH && inBounds && (atHoop < 0.94 || Math.hypot(tx - HOOP.x, ty - HOOP.y) < 40)) kind = 'lead';
+          else if (atHoop >= SHOT_CONE) { kind = 'shot'; tx = HOOP.x; ty = HOOP.y; }
+          else { kind = 'none'; tx = h.x; ty = h.y; }
         }
       }
     }
@@ -588,6 +613,13 @@ export class Arcade {
     a.on = false;
     this.slowmo = 1;
     if (a.kind === 'none') { this.phase = 'live'; return; }
+    if (!a.kb && !this.ftMode && a.t < AIM_QUICK) {
+      // too fast to have been aimed: it was a flick, so make the move in the direction he flicked
+      this.phase = 'live';
+      const dx = this.ptr.x - this.ptr.x0, dy = this.ptr.y - this.ptr.y0, d = Math.hypot(dx, dy);
+      if (d > SWIPE_DIST) this.startDash(dx / d, dy / d);
+      return;
+    }
     if (a.kind === 'shot') { this.shootAimed(); return; }
     this.phase = 'live';
     if (a.kind === 'pass') this.startPass(a.mate);
@@ -642,16 +674,29 @@ export class Arcade {
     this.shot.text = '';
     if (!made && offX !== undefined && offY !== undefined) {
       // the ball goes where it was aimed: just off the rim, or nowhere near it
-      const d = Math.hypot(offX, offY) || 1, r = Math.max(5, Math.min(14, d));
-      x1 += (offX / d) * r; y1 += (offY / d) * r * 0.6;
-      if (quality === 0) this.shot.text = 'air';
+      const d = Math.hypot(offX, offY) || 1;
+      if (quality > 0) {
+        // on the iron: it comes down on the rim itself
+        const r = Math.max(5, Math.min(8, d));
+        x1 += (offX / d) * r; y1 += (offY / d) * r * 0.6;
+      } else if (offY < -0.35 * d && Math.abs((offX / d) * Math.min(16, d)) <= 13) {
+        // long and on line: it bangs off the glass
+        x1 += (offX / d) * Math.min(16, d); y1 -= 5;
+        this.shot.text = 'glass';
+      } else {
+        // short or wide: it touches nothing, and lands clear of the rim and the board
+        const r = Math.max(13, Math.min(20, d));
+        x1 += (offX / d) * r; y1 += Math.abs(offY / d) * r * 0.9 + 4;
+        if (offY < 0) x1 = HOOP.x + Math.sign(offX || 1) * Math.max(18, Math.abs(x1 - HOOP.x));
+        this.shot.text = 'air';
+      }
     } else if (!made) {
       const a = Math.random() * Math.PI * 2;
       x1 += Math.cos(a) * 5; y1 += Math.sin(a) * 3;
     }
     this.shot = {
       t: 0, dur: type === 'three' || type === 'mid' ? 0.55 + dist / 240 : type === 'dunk' ? 0.62 : 0.52, x0: h.x, y0: h.y, z0: spriteHeight(h.p) + 6, made, type, quality, blockBy, foul, pts,
-      text: !made && this.shot.text === 'air' ? 'air' : '', buzzer: false, x1, y1, arc: 20 + dist * 0.14,
+      text: !made ? this.shot.text : '', buzzer: false, x1, y1, arc: 20 + dist * 0.14,
     };
     if (blockBy >= 0) { this.shot.dur = type === 'three' || type === 'mid' ? 0.16 : 0.34; this.shot.x1 = h.x + (HOOP.x - h.x) * 0.15; this.shot.y1 = h.y + (HOOP.y - h.y) * 0.15; }
     if (this.periodEnds && this.clock <= 2.5) { this.shot.buzzer = true; this.slowmo = 0.45; }
@@ -683,12 +728,12 @@ export class Arcade {
     this.phase = 'finish';
   }
 
-  private turnover(kind: 'steal' | 'oob' | 'shotclock' | 'intercept', by: Ent | null): void {
+  private turnover(kind: 'steal' | 'oob' | 'shotclock' | 'intercept', by: Ent | null, label?: string): void {
     const h = this.off[this.phase === 'pass' ? this.pass.from : this.handler];
     this.events.push({ t: 'tov', by: h.p.id, kind, ...(by ? { stealBy: by.p.id } : {}) });
     if (kind === 'steal') { this.popup(pick(CALLS.steal), PAL.red, 2); sfx.steal(); if (by) { this.ball.x = by.x; this.ball.y = by.y; } }
     else if (kind === 'intercept') { this.popup(pick(CALLS.pick), PAL.red, 2); sfx.steal(); }
-    else if (kind === 'oob') { this.popup('OUT OF BOUNDS', PAL.red, 2); sfx.whistle(); }
+    else if (kind === 'oob') { this.popup(label ?? 'OUT OF BOUNDS', PAL.red, 2); sfx.whistle(); }
     else { this.popup('SHOT CLOCK!', PAL.red, 2); sfx.buzzer(); }
     this.crowd = Math.max(0, this.crowd - 6);
     this.highlights.push('tov');
@@ -773,6 +818,7 @@ export class Arcade {
     this.events.push({ t: 'shot', by: h.p.id, type: sh.type, made: false, ...(sh.blockBy >= 0 ? { blockBy: sh.blockBy } : {}) });
     if (sh.blockBy >= 0) { this.popup(pick(CALLS.block), PAL.red, 2); sfx.block(); this.shake = 0.25; }
     else if (sh.text === 'air') { this.popup(pick(CALLS.air), PAL.red, 2); sfx.groan(); }
+    else if (sh.text === 'glass') { this.popup(pick(CALLS.glass), PAL.red, 2, 120); sfx.rim(); this.rimShake = 0.7; }
     else { this.popup(pick(CALLS.miss), '#c8c8d8', 2, 120); sfx.rim(); this.rimShake = 0.5; }
     if (this.periodEnds && this.clock <= 0) { sfx.buzzer(); this.end(1.3); return; }
     // rebound
@@ -930,8 +976,8 @@ export class Arcade {
       if (this.ball.x < SIDE_L - 2 || this.ball.x > SIDE_R + 2 || this.ball.y < BASE_Y - 2) { this.turnover('oob', null); return; }
       if (k >= 1) {
         const to = this.off[ps.to];
-        if (Math.hypot(to.x - ps.x1, to.y - ps.y1) > 14) { // bad pass sails away
-          this.turnover('oob', null); return;
+        if (Math.hypot(to.x - ps.x1, to.y - ps.y1) > 14) { // nobody got to it
+          this.turnover('oob', null, 'BAD PASS'); return;
         }
         this.assist = { id: from.p.id, t: this.time };
         this.handler = ps.to;

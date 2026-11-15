@@ -73,7 +73,9 @@ const PASSER_POWER = 3;
 /** Rebounds. */
 const BASE_OREB = 0.26;
 const K_OREB = 0.0032; // per point of rebounding edge
-const REBOUNDER_POWER = 2.2;
+const REBOUNDER_POWER = 1.5;
+/** Share of defensive rebounds nobody is credited with (the miss goes out of bounds off the offense). */
+const TEAM_REBOUND = 0.12;
 
 /** Coaching (at five stars, scaled linearly). */
 const DC_MAKE = 0.04;
@@ -501,7 +503,7 @@ class Game implements LiveGame {
         events.push({ t: 'oreb', by: this.pickBy(offFloor, p => p.ratings.reb, REBOUNDER_POWER).id });
         continue;
       }
-      if (defFloor.length) events.push({ t: 'dreb', by: this.pickBy(defFloor, p => p.ratings.reb, REBOUNDER_POWER).id });
+      if (defFloor.length && !rng.chance(TEAM_REBOUND)) events.push({ t: 'dreb', by: this.pickBy(defFloor, p => p.ratings.reb, REBOUNDER_POWER).id });
       return events;
     }
     return events;
