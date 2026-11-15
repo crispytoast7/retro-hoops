@@ -99,6 +99,8 @@ const SWIPE_TIME = 0.24;      // a drag shorter than this, released, is a handle
 const SWIPE_DIST = 16;
 const STICK_MAX = 22;         // px of drag for full speed
 const MATE_PICK_R = 18;
+/** The on-screen shoot button: hold it to aim, let go to shoot. It works from anywhere, corners included. */
+const BTN = { x: W - 27, y: H - 27, r: 21 };
 const RIM_ZONE = 25;          // auto layup/dunk distance
 const BODY = 7;               // handler/defender collision distance
 
@@ -230,6 +232,8 @@ export class Arcade {
   private reb = { t: 0, dur: 0.6, x0: 0, y0: 0, x1: 0, y1: 0, winner: null as Ent | null };
   private slowmo = 1;
   // input
+  /** The finger on the shoot button, tracked apart from the one that moves the player. */
+  private btn = { down: false, id: -1 };
   private ptr = { down: false, id: -1, x0: 0, y0: 0, x: 0, y: 0, t0: 0, mode: 'none' as 'none' | 'press' | 'drag' | 'mate' | 'aim', mate: -1 };
   private keys = new Set<string>();
   private usedKeys = false;
@@ -329,10 +333,17 @@ export class Arcade {
   }
   private noMenu = (e: Event) => e.preventDefault();
   private onDown = (e: PointerEvent) => {
+    const p = this.toLogical(e);
+    if (!this.btn.down && (this.phase === 'live' || this.phase === 'charge') && Math.hypot(p.x - BTN.x, p.y - BTN.y) <= BTN.r + 3) {
+      e.preventDefault();
+      try { this.canvas.setPointerCapture(e.pointerId); } catch { /* not supported */ }
+      this.btn = { down: true, id: e.pointerId };
+      if (this.phase === 'live') this.startAim(true);
+      return;
+    }
     if (this.ptr.down) return;
     e.preventDefault();
     try { this.canvas.setPointerCapture(e.pointerId); } catch { /* not supported */ }
-    const p = this.toLogical(e);
     Object.assign(this.ptr, { down: true, id: e.pointerId, x0: p.x, y0: p.y, x: p.x, y: p.y, t0: this.time, mode: 'press', mate: -1 });
     if (this.phase === 'live') {
       const hh = this.off[this.handler];
@@ -355,11 +366,16 @@ export class Arcade {
     if (this.ptr.mode === 'press' && this.phase === 'live' && moved > DRAG_START) this.ptr.mode = 'drag';
   };
   private onUp = (e: PointerEvent) => {
+    if (this.btn.down && e.pointerId === this.btn.id) {
+      this.btn.down = false;
+      if (this.phase === 'charge' && this.aim.kb) this.releaseAim();
+      return;
+    }
     if (!this.ptr.down || e.pointerId !== this.ptr.id) return;
     const pt = this.ptr;
     pt.down = false;
     const dx = pt.x - pt.x0, dy = pt.y - pt.y0, d = Math.hypot(dx, dy);
-    if (this.phase === 'charge') this.releaseAim();
+    if (this.phase === 'charge') { if (!this.aim.kb) this.releaseAim(); } // a button or key aim ends with its own release
     else if (this.phase === 'live') {
       if (this.ftMode) { /* only the shot */ }
       else if (pt.mode === 'mate' && pt.mate >= 0) this.startPass(pt.mate);
@@ -1434,8 +1450,9 @@ export class Arcade {
       // shot clock
       if (this.phase !== 'over' && this.phase !== 'idle' && !this.periodEnds && !this.practice) {
         const sc = Math.ceil(this.shotClock);
-        g.fillStyle = PAL.ink; g.fillRect(W - 23, BASE_Y + 3, 19, 14);
-        drawText(g, String(sc).padStart(2, '0'), W - 21, BASE_Y + 5, sc <= 5 ? PAL.red : PAL.yellow, { scale: 2 });
+        // above the baseline, clear of anyone standing in the corner
+        g.fillStyle = PAL.ink; g.fillRect(W - 23, BASE_Y - 21, 19, 14);
+        drawText(g, String(sc).padStart(2, '0'), W - 21, BASE_Y - 19, sc <= 5 ? PAL.red : PAL.yellow, { scale: 2 });
       }
     }
     if (!this.off.length) drawHoop(g, this.netKick, 0, this.time);
@@ -1446,6 +1463,7 @@ export class Arcade {
       if (p.t > 1.05 && Math.floor(p.t * 30) % 2) continue;
       drawText(g, p.text, W / 2, y, p.color, { scale: p.scale, align: 'center', outline: PAL.ink });
     }
+    if (this.phase === 'live' || this.phase === 'charge') this.drawShootButton();
     if (this.flash > 0) { g.fillStyle = `rgba(255,255,255,${Math.min(0.6, this.flash * 2)})`; g.fillRect(0, -TOP, W, VIEW_H); }
     // blit, crisp
     const c = this.canvas;
@@ -1454,6 +1472,17 @@ export class Arcade {
     if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
     this.out.imageSmoothingEnabled = false;
     this.out.drawImage(this.buf, 0, 0, cw, ch);
+  }
+
+  private drawShootButton(): void {
+    const g = this.g, held = this.btn.down && this.phase === 'charge';
+    const disc = (r: number, col: string) => {
+      g.fillStyle = col;
+      for (let y = -r; y <= r; y++) { const half = Math.floor(Math.sqrt(r * r - y * y)); g.fillRect(BTN.x - half, BTN.y + y, half * 2 + 1, 1); }
+    };
+    disc(BTN.r, held ? 'rgba(255,138,60,0.95)' : 'rgba(20,18,31,0.55)');
+    disc(BTN.r - 2, held ? 'rgba(255,170,90,0.95)' : 'rgba(255,138,60,0.72)');
+    drawText(g, held ? 'LET GO' : 'SHOOT', BTN.x + 1, BTN.y - 2, held ? PAL.ink : PAL.white, { align: 'center', outline: held ? undefined : PAL.ink });
   }
 
   private poseOf(e: Ent, isHandler: boolean): Pose {
@@ -1503,13 +1532,10 @@ export class Arcade {
     const t = this.time % 1.6;
     let fx = 0, fy = 0, pressed = true, label = '';
     if (gd.demo === 'hold') {
-      // touch the player, pull straight back from the basket, release
-      const k = Math.min(1, t / 1.0);
-      const dx = h.x - HOOP.x, dy = h.y - HOOP.y, d = Math.hypot(dx, dy) || 1;
-      fx = h.x + (dx / d) * 26 * k; fy = h.y - 10 + (dy / d) * 26 * k; label = k < 1 ? 'PULL BACK' : 'LET GO';
+      // press the shoot button, hold it, lift off
       pressed = t < 1.25;
-      g.fillStyle = 'rgba(255,255,255,0.7)';
-      for (let i = 0; i < 6; i++) g.fillRect(Math.round(h.x + (dx / d) * 26 * k * (i / 6)), Math.round(h.y - 10 + (dy / d) * 26 * k * (i / 6)), 1, 1);
+      fx = BTN.x + 4; fy = BTN.y - 6 - (pressed ? 0 : 6);
+      drawText(g, pressed ? 'HOLD THIS' : 'LET GO', BTN.x, BTN.y - BTN.r - 10, PAL.yellow, { align: 'center', outline: PAL.ink });
     } else if (gd.demo === 'drag') {
       const tx = gd.target?.x ?? HOOP.x, ty = gd.target?.y ?? HOOP.y;
       const dx = tx - h.x, dy = ty - h.y, d = Math.hypot(dx, dy) || 1;

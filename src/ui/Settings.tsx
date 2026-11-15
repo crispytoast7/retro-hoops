@@ -86,7 +86,8 @@ export function SettingsScreen(_p: { params: Record<string, any> }) {
         {has && getSave().schedule.length > 0 && <><Btn class="block" kind="primary" onClick={() => nav('practice')}>Practice the controls</Btn><div style={{ height: '8px' }} /></>}
         <div class="list" style={{ fontSize: '19px' }}>
           <div class="item">Drag on the court: dribble and drive</div>
-          <div class="item">Touch your player, pull back, let go: shoot at the rim, or throw a pass where you aim</div>
+          <div class="item">Hold the SHOOT button, let go when the crosshair is on the rim</div>
+          <div class="item">Touch your player, pull back, let go: throw a pass where you aim (or shoot, pulling back from the rim)</div>
           <div class="item">Let go when the crosshair is over the rim. Green is a swish.</div>
           <div class="item">Tap a teammate: quick pass</div>
           <div class="item">Quick flick: crossover, or a step-back away from the basket</div>

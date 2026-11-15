@@ -205,7 +205,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
             {edge && <div class="good" style={{ maxWidth: '330px' }}>EDGE · {edge.label}</div>}
             <div class="panel" style={{ maxWidth: '330px', fontSize: '19px', textAlign: 'left' }}>
               <div class="dim">You play the key moments. Score, and your team goes on a run. Waste one, and the other side does.</div>
-              {!seen && <div style={{ marginTop: '6px' }}><span class="gold">Drag</span> the court to move. <span class="gold">Touch your player and pull back</span> to shoot or pass. <span class="gold">Flick</span> for a move.</div>}
+              {!seen && <div style={{ marginTop: '6px' }}><span class="gold">Drag</span> the court to move. <span class="gold">Hold SHOOT</span> and let go when the crosshair is on the rim. <span class="gold">Tap a teammate</span> to pass. <span class="gold">Flick</span> for a move.</div>}
             </div>
             <div class="panel col" style={{ maxWidth: '330px', gap: '6px', textAlign: 'left' }}>
               <div class="head gold">PICK A CHALLENGE</div>
@@ -278,7 +278,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
           )}
         </div>
         <div class="lines">
-          {playing ? <div class="dim">Drag: move · Pull back from your player: shoot or pass · Tap a teammate: pass</div> : lines.slice(-3).map(l => <div class={l.cls}>{l.text}</div>)}
+          {playing ? <div class="dim">Drag: move · Hold SHOOT, let go on the rim · Tap a teammate: pass</div> : lines.slice(-3).map(l => <div class={l.cls}>{l.text}</div>)}
         </div>
       </div>
     </div>

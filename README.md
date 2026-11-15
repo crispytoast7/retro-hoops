@@ -13,7 +13,7 @@ iPhone) to play offline.
 | Action | Touch / mouse | Keyboard |
 |---|---|---|
 | Dribble, drive | Drag on the court | Arrows / WASD |
-| Shoot | Touch your player, pull back from the basket, release when the crosshair is over the rim | Hold Space, release |
+| Shoot | Hold the SHOOT button and release when the crosshair is over the rim (or touch your player and pull back from the basket) | Hold Space, release |
 | Aimed pass, lead pass, lob | Touch your player, pull back away from the target, release | |
 | Quick pass | Tap a teammate | 1-4 |
 | Crossover, step-back | Quick flick | Shift (while moving) |
