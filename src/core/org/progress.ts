@@ -258,7 +258,7 @@ export function gameProgress(save: Save, result: GameResult, highlights: string[
   const before = levelOf(p.xp);
   let xp = (won ? (playoff ? 45 : 28) : 10) * scale;
   // plays you made yourself are always worth full XP
-  const worth: Record<string, number> = { dunk: 3, three: 2, perfect: 2, ankles: 2, andone: 3, buzzer: 15, oreb: 1 };
+  const worth: Record<string, number> = { dunk: 3, three: 2, perfect: 2, ankles: 2, andone: 3, buzzer: 15, oreb: 1, putback: 3 };
   for (const h of highlights) { xp += worth[h] ?? 0; p.counters[h] = (p.counters[h] ?? 0) + 1; }
   if (won && mine - theirs >= 30) p.counters.blowout = (p.counters.blowout ?? 0) + 1;
   const lines = home ? result.box.home : result.box.away;

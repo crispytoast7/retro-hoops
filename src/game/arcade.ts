@@ -88,6 +88,8 @@ const SHOT_CONE = 0.82;   // cos 35deg: a pull this well lined up with the hoop 
 const MATE_CONE = 0.92;   // cos 23deg: a pull lined up with a teammate is the start of a pass
 const LEAD_REACH = 26;    // a pass to a spot needs a teammate who will be this close to it
 const AIM_QUICK = 0.18;   // a flick off your player this fast is a move, not a shot
+const PUTBACK_RANGE = 42;  // an offensive board this close to the rim can go straight back up
+const PUTBACK_TIME = 0.9;   // seconds (real time) the chance stays open
 const FT_HOLD = 0.3;      // a free throw has to be held this long: a tap does not shoot
 const R_SWISH = 3.0;      // reticle this close to the rim's centre: nothing but net
 const R_RIM = 7.2;        // inside this it may roll in
@@ -207,6 +209,8 @@ export class Arcade {
   private ft = { left: 0, made: 0 };
   /** The pass in the air is a lob for a finish at the rim. */
   private lob = false;
+  /** Seconds left to put an offensive rebound straight back up; 0 when there is no chance on. */
+  private putback = 0;
   private ftPause = 0;
   private rimShake = 0;
   private rimGlow = 0;
@@ -338,7 +342,8 @@ export class Arcade {
       e.preventDefault();
       try { this.canvas.setPointerCapture(e.pointerId); } catch { /* not supported */ }
       this.btn = { down: true, id: e.pointerId };
-      if (this.phase === 'live') this.startAim(true);
+      if (this.phase === 'live' && this.putback > 0) this.doPutback();
+      else if (this.phase === 'live') this.startAim(true);
       return;
     }
     if (this.ptr.down) return;
@@ -392,7 +397,8 @@ export class Arcade {
     this.keys.add(k);
     if (this.phase !== 'live') return;
     if (this.ftMode && k !== ' ') return;
-    if (k === ' ') this.startAim(true);
+    if (k === ' ' && this.putback > 0) this.doPutback();
+    else if (k === ' ') this.startAim(true);
     else if (k === 'shift' || k === 'x') {
       const m = this.keyVec();
       if (m.x || m.y) this.startDash(m.x, m.y);
@@ -548,8 +554,16 @@ export class Arcade {
   }
 
   // ---- pull-back aiming --------------------------------------------------------------
+  /** Straight back up off an offensive rebound: a dunk for a finisher, a tip-in for anyone else. */
+  private doPutback(): void {
+    if (this.phase !== 'live' || this.putback <= 0) return;
+    this.putback = 0; this.slowmo = 1;
+    this.popup('PUTBACK!', PAL.yellow, 2); this.highlights.push('putback');
+    this.finishAtRim(true);
+  }
   private startAim(kb: boolean): void {
     if (this.phase !== 'live') return;
+    this.putback = 0;
     const h = this.off[this.handler];
     h.vx = 0; h.vy = 0;
     this.aim = { on: true, t: 0, kb, ph: Math.random() * 6.28, kind: 'none', mate: -1, tx: h.x, ty: h.y, wx: 0, wy: 0, amp: 0, armed: false };
@@ -863,6 +877,11 @@ export class Arcade {
     this.last = now;
     this.time += dt;
     this.realDt = dt;
+    if (this.putback > 0) {
+      this.putback = this.phase === 'live' ? this.putback - dt : 0;
+      if (this.putback <= 0) { this.putback = 0; if (this.phase === 'live') this.slowmo = 1; }
+      else this.slowmo = 0.3;
+    }
     this.update(dt * this.slowmo);
     this.render();
     this.raf = requestAnimationFrame(this.frame);
@@ -1066,7 +1085,10 @@ export class Arcade {
         this.ball.x = w.x; this.ball.y = w.y;
         if (w.off && this.clock > 0.5) {
           this.events.push({ t: 'oreb', by: w.p.id });
-          this.popup(pick(CALLS.board), PAL.green, 2); sfx.good();
+          // close to the rim, the board can go straight back up: a short window, in slow motion
+          const close = !this.practice && Math.hypot(w.x - HOOP.x, w.y - HOOP.y) < PUTBACK_RANGE;
+          this.putback = close ? PUTBACK_TIME : 0;
+          this.popup(close ? 'PUT IT BACK!' : pick(CALLS.board), close ? PAL.yellow : PAL.green, 2); sfx.good();
           this.highlights.push('oreb');
           this.handler = this.off.indexOf(w);
           w.route = []; w.screen = 0;
@@ -1482,7 +1504,9 @@ export class Arcade {
     };
     disc(BTN.r, held ? 'rgba(255,138,60,0.95)' : 'rgba(20,18,31,0.55)');
     disc(BTN.r - 2, held ? 'rgba(255,170,90,0.95)' : 'rgba(255,138,60,0.72)');
-    drawText(g, held ? 'LET GO' : 'SHOOT', BTN.x + 1, BTN.y - 2, held ? PAL.ink : PAL.white, { align: 'center', outline: held ? undefined : PAL.ink });
+    const put = this.putback > 0 && !held;
+    if (put && Math.floor(this.time * 10) % 2) disc(BTN.r - 2, 'rgba(255,210,60,0.95)');
+    drawText(g, held ? 'LET GO' : put ? 'PUT BACK' : 'SHOOT', BTN.x + 1, BTN.y - 2, held || put ? PAL.ink : PAL.white, { align: 'center', outline: held || put ? undefined : PAL.ink });
   }
 
   private poseOf(e: Ent, isHandler: boolean): Pose {
