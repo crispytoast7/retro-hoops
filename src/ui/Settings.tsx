@@ -87,6 +87,7 @@ export function SettingsScreen(_p: { params: Record<string, any> }) {
         <div class="list" style={{ fontSize: '19px' }}>
           <div class="item">Drag on the court: dribble and drive</div>
           <div class="item">Hold the SHOOT button, let go when the crosshair is on the rim</div>
+          <div class="item">Tap SHOOT for a pump fake: a defender who bites is out of the play for a moment</div>
           <div class="item">Offensive rebound near the rim: press PUT BACK while it flashes to go straight back up</div>
           <div class="item">Touch your player, pull back, let go: throw a pass where you aim (or shoot, pulling back from the rim)</div>
           <div class="item">Let go when the crosshair is over the rim. Green is a swish.</div>

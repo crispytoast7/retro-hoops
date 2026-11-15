@@ -14,6 +14,8 @@ iPhone) to play offline.
 |---|---|---|
 | Dribble, drive | Drag on the court | Arrows / WASD |
 | Shoot | Hold the SHOOT button and release when the crosshair is over the rim (or touch your player and pull back from the basket) | Hold Space, release |
+| Pump fake | Tap the SHOOT button | Tap Space |
+| Putback | Press PUT BACK when it flashes after an offensive rebound near the rim | Space |
 | Aimed pass, lead pass, lob | Touch your player, pull back away from the target, release | |
 | Quick pass | Tap a teammate | 1-4 |
 | Crossover, step-back | Quick flick | Shift (while moving) |

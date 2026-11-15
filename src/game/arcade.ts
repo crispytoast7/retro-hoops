@@ -211,6 +211,9 @@ export class Arcade {
   private ft = { left: 0, made: 0 };
   /** The pass in the air is a lob for a finish at the rim. */
   private lob = false;
+  /** Pump fakes thrown this possession (each one fools them less) and the wait before the next. */
+  private fakes = 0;
+  private fakeCd = 0;
   /** Seconds left to put an offensive rebound straight back up; 0 when there is no chance on. */
   private putback = 0;
   private ftPause = 0;
@@ -295,7 +298,7 @@ export class Arcade {
     this.doubled = false;
     this.aim.on = false;
     this.reached = false; this.lastQuality = -1; this.hang = 0;
-    this.passes = 0; this.moves = 0;
+    this.passes = 0; this.moves = 0; this.fakes = 0; this.fakeCd = 0;
     const mk = (p: Player, slot: number, off: boolean): Ent => ({
       p, slot, off, x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, stun: 0, slow: 0, run: -1, face: 0,
       armsUp: 0, lift: 0, home: 'TOP', route: [], leg: 0, holdT: 0, screen: 0, wait: 0, jitter: Math.random() * 6,
@@ -556,6 +559,23 @@ export class Arcade {
   }
 
   // ---- pull-back aiming --------------------------------------------------------------
+  /** A tap on SHOOT: he shows the ball. A defender close enough to care may leave his feet. */
+  private pumpFake(): void {
+    if (this.phase !== 'live' || this.fakeCd > 0) return;
+    const h = this.off[this.handler];
+    this.fakeCd = 0.8; this.fakes++; this.moves++;
+    h.armsUp = 0.32; h.lift = 2; h.vx = 0; h.vy = 0; h.slow = Math.max(h.slow, 0.2);
+    sfx.move();
+    const on = this.nearestDef(h.x, h.y);
+    if (!on.e || on.d > 26) return; // nobody near enough to fool
+    // shooters sell it, good defenders stay down, and the same trick works less each time
+    const p = clamp(0.58 + 0.4 * (h.p.ratings.sht / 100) - 0.4 * (on.e.p.ratings.def / 100) - 0.22 * (this.fakes - 1) + this.diff.move + (this.practice ? 0.4 : 0), 0.06, 0.85) / Math.sqrt(this.chal);
+    if (Math.random() < p) {
+      on.e.stun = 0.75; on.e.lift = 9; on.e.armsUp = 0.5;
+      this.popup('HE BIT!', PAL.green, 2); sfx.good();
+      this.highlights.push('fake'); this.crowd = Math.min(100, this.crowd + 3);
+    } else this.popup('NO BITE', '#c8c8d8', 1, 150);
+  }
   /** Straight back up off an offensive rebound: a dunk for a finisher, a tip-in for anyone else. */
   private doPutback(): void {
     if (this.phase !== 'live' || this.putback <= 0) return;
@@ -651,7 +671,7 @@ export class Arcade {
     a.on = false;
     this.slowmo = 1;
     if (a.kind === 'none') { this.phase = 'live'; return; }
-    if (a.kb && !this.ftMode && a.t < AIM_HOLD) { this.phase = 'live'; this.popup('HOLD TO AIM', PAL.white, 1, 150); return; }
+    if (a.kb && !this.ftMode && a.t < AIM_HOLD) { this.phase = 'live'; this.pumpFake(); return; } // a tap is a shot fake
     if (this.ftMode && a.t < FT_HOLD) { this.phase = 'live'; this.popup('HOLD, THEN LET GO', PAL.white, 1, 150); return; }
     if (!a.kb && !this.ftMode && a.t < AIM_QUICK) {
       // too fast to have been aimed: it was a flick, so make the move in the direction he flicked
@@ -934,6 +954,7 @@ export class Arcade {
     this.onClock?.(this.clock, this.periodEnds ? -1 : this.shotClock);
     this.grace = Math.max(0, this.grace - dt);
     this.dash.cd = Math.max(0, this.dash.cd - dt);
+    this.fakeCd = Math.max(0, this.fakeCd - dt);
     if (live && this.shotClock <= 0) {
       if (this.periodEnds) { this.popup('TIME!', PAL.white, 2); sfx.buzzer(); this.end(1.2); }
       else this.turnover('shotclock', null);
