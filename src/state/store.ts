@@ -89,3 +89,6 @@ if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') void flush(); });
   window.addEventListener('pagehide', () => { void flush(); });
 }
+
+// dev only: lets test scripts reach the live save
+if (import.meta.env.DEV) (window as any).__store = { touch, getSave, act };

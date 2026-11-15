@@ -6,8 +6,9 @@ import { Feature, checklist, gamesToUnlock, isUnlocked, perkPoints, rankName, xp
 import { cal, ROUND_NAMES } from '../core/season/calendar';
 import { advance } from '../core/season/flow';
 import { gamesInWeek, userGame, userGamesInWeek } from '../core/season/schedule';
+import { playoffMoment } from '../core/season/bracket';
 import { readyToLevel } from '../core/org/xp';
-import { doPlan, edgeFor, ensureWeek, intel, needsWeek, plansOpen, signSponsor, sponsorOf, sponsorOffers, sponsorOpen, sponsorProgress, weekState } from '../core/org/week';
+import { doPlan, edgeFor, ensureWeek, honorNow, intel, needsWeek, plansOpen, signSponsor, sponsorOf, sponsorOffers, sponsorOpen, sponsorProgress, weekState } from '../core/org/week';
 import { ovr } from '../core/ratings';
 import { teamRatings } from '../core/sim/engine';
 import type { Effect, Save } from '../core/types';
@@ -65,6 +66,8 @@ function EventModal({ save }: { save: Save }) {
   );
 }
 
+/** The playoff moment already on its way to the screen, so a re-render does not open it twice. */
+let shownMoment = '';
 const PLAN_GROUP = { train: 'TRAIN', prep: 'PREPARE', club: 'CLUB' } as const;
 /** One move a week: three to choose from, and what you pass on is gone. */
 function WeekPlan({ save }: { save: Save }) {
@@ -119,6 +122,13 @@ export function HubScreen(_p: { params: Record<string, any> }) {
   useEffect(() => {
     if (save.fired) replace('fired');
   }, [save.fired]);
+  // stop for playoff news: it begins, you advance, you are out, you are champions
+  useEffect(() => {
+    const m = playoffMoment(save);
+    if (!m || save.fired || m.id === shownMoment) return;
+    shownMoment = m.id;
+    nav(m.kind === 'champion' ? 'champion' : 'bracket', { moment: m });
+  });
   // deal this week's plans the first time the hub shows a new week
   useEffect(() => { if (needsWeek(save)) touch(s => { ensureWeek(s); }); });
   const g = save.phase !== 'offseason' ? userGame(save) : undefined;
@@ -203,6 +213,7 @@ export function HubScreen(_p: { params: Record<string, any> }) {
             </div>
             {planWaiting && <div class="gold center" style={{ marginTop: '6px', fontSize: '18px' }}>Make your move for the week first ▼</div>}
             {seriesText && <div class="gold center" style={{ marginTop: '8px' }}>{seriesText} · best of {c.seriesWins * 2 - 1}</div>}
+            {save.phase === 'playoffs' && <><div style={{ height: '8px' }} /><Btn kind="small block" onClick={() => nav('bracket')}>View the bracket</Btn></>}
             {(weekGames.length > 1 || c.seriesWins > 1) && <><div style={{ height: '8px' }} /><Btn kind="small block" onClick={simWeek}>{save.phase === 'playoffs' ? 'Sim the rest of the round' : 'Sim the rest of the week'}</Btn></>}
           </Panel>
         ) : (
@@ -210,9 +221,17 @@ export function HubScreen(_p: { params: Record<string, any> }) {
             <div>{save.phase === 'playoffs' ? (save.playoffs?.series.some(x => x.round === save.week - REG_WEEKS && (x.highId === me.id || x.lowId === me.id)) ? 'Your series is decided. The rest of the round plays out.' : 'Your season is over. The playoffs go on without you.') : openGames ? 'Your games this week are done.' : 'No game this week.'}</div>
             <div style={{ height: '8px' }} />
             <Btn kind="primary block" onClick={simWeek}>{save.phase === 'playoffs' ? `Sim ${round}` : 'Finish Week'}</Btn>
+            {save.phase === 'playoffs' && <><div style={{ height: '8px' }} /><Btn kind="small block" onClick={() => nav('bracket')}>View the bracket</Btn></>}
           </Panel>
         )}
 
+        {honorNow(save) && (
+          <div class="panel honor">
+            <div class="head gold">★ PLAYER OF THE WEEK</div>
+            <div>{honorNow(save)}</div>
+            <div class="dim" style={{ fontSize: '17px' }}>+1 credit, fans +1, and he is delighted.</div>
+          </div>
+        )}
         <WeekPlan save={save} />
         <SponsorOffer save={save} />
 

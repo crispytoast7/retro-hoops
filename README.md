@@ -56,6 +56,10 @@ one hands the run to the opponent. Games are full length (12-minute quarters, sc
   mid-season deadline.
 - Offseason: awards, Hall of Fame, retirements, re-signing, two-round draft with scouting,
   free-agency bidding, training camp.
+- Playoffs you can follow: a real bracket (projected from the standings all season), a stop
+  when the playoffs begin and after every round, a championship celebration, a Player of
+  the Week, an awards night, a draft-lottery reveal, a summer progress report and a playable
+  training-camp shootaround.
 - Saves automatically on the device; export/import a save file in Settings.
 
 ## Run locally

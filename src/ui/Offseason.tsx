@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { FA_DAYS, HARD_LIMIT, MAX_CONTRACT_YEARS, MIN_SALARY, ROSTER_MAX, ROSTER_MIN, SALARY_CAP } from '../core/constants';
 import { askingContract } from '../core/gm/value';
 import { advanceOffseason, draftDone, expiringPlayers, faNextDay, faOver, resignPlayer } from '../core/offseason/offseason';
@@ -6,8 +6,9 @@ import { payroll, signingPath, statusOf } from '../core/org/finance';
 import { takeJob } from '../core/org/people';
 import { ovr } from '../core/ratings';
 import type { OffseasonStep, Player, Save, SeasonHistory } from '../core/types';
-import { act, useSave } from '../state/store';
-import { Btn, Meter, Panel, PlayerRow, Screen, Stars, confirmDialog, fullName, money, moraleTag, toast } from './kit';
+import { sfx } from '../audio/sfx';
+import { act, touch, useSave } from '../state/store';
+import { Btn, Meter, Panel, PlayerRow, Screen, Sprite, Stars, confirmDialog, fullName, money, moraleTag, toast } from './kit';
 import { CampStep } from './OffseasonCamp';
 import { DraftStep } from './OffseasonDraft';
 import { FreeAgencyStep } from './OffseasonFA';
@@ -134,15 +135,140 @@ function TeamBanner({ save, teamId, label, big }: { save: Save; teamId: number; 
 }
 
 function AwardRow({ save, a, big }: { save: Save; a: SeasonHistory['awards'][number]; big?: boolean }) {
+  const mine = a.teamId === save.userTeamId;
   return (
-    <div class="item">
+    <div class={`item ${mine ? 'ox-mine' : ''}`}>
       <div class="grow">
-        <div class={big ? 'head gold' : 'head dim'} style={{ fontSize: big ? '10px' : '7px' }}>{a.award.toUpperCase()}</div>
+        <div class={big || mine ? 'head gold' : 'head dim'} style={{ fontSize: big ? '10px' : '7px' }}>{(AWARD_TITLE[a.award] ?? a.award).toUpperCase()}</div>
         <div class="nowrap"><NameLink id={a.playerId} name={a.name} /> <span class="dim">{save.teams[a.teamId]?.abbr ?? ''}</span></div>
         {a.line && <div class="dim ox-sub">{a.line}</div>}
       </div>
-      {a.teamId === save.userTeamId && <span class="tag gold">YOURS</span>}
+      {mine && <span class="tag gold">YOUR PLAYER</span>}
     </div>
+  );
+}
+
+/** Handed out in this order: the big one comes last. */
+const CEREMONY = ['Sixth Man', 'Most Improved', 'Rookie of the Year', 'Scoring Champ', 'Defensive Player', 'Finals MVP', 'MVP'];
+const AWARD_TITLE: Record<string, string> = {
+  'Sixth Man': 'Sixth Man of the Year', 'Most Improved': 'Most Improved Player', 'Scoring Champ': 'Scoring Champion',
+  'Defensive Player': 'Defensive Player of the Year', 'Finals MVP': 'Finals MVP', MVP: 'Most Valuable Player',
+};
+type Award = SeasonHistory['awards'][number];
+
+/** The awards night: one envelope at a time, your own winners in gold. */
+function Ceremony({ save, h }: { save: Save; h: SeasonHistory }) {
+  const off = save.offseason!;
+  const singles = CEREMONY.map(n => h.awards.find(a => a.award === n)).filter((a): a is Award => !!a);
+  const allLeague = h.awards.filter(a => a.award.startsWith('All-League'));
+  const total = singles.length + (allLeague.length ? 1 : 0);
+  const [n, setN] = useState(off.awardsSeen ? total : 0);
+  const [drum, setDrum] = useState(false);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+  const rewards = off.awardRewards ?? [];
+  const rewardOf = (a: Award) => rewards.find(r => r.award === a.award && r.playerId === a.playerId);
+  const isMine = (a: Award) => a.teamId === save.userTeamId;
+  const finish = () => touch(sv => { if (sv.offseason) sv.offseason.awardsSeen = true; });
+  const titleOf = (i: number) => (i < singles.length ? AWARD_TITLE[singles[i].award] ?? singles[i].award : 'All-League Team');
+
+  const reveal = () => {
+    if (drum || n >= total) return;
+    const next = singles[n];
+    const big = !!next && (next.award === 'MVP' || next.award === 'Finals MVP');
+    const mine = next ? isMine(next) : allLeague.some(isMine);
+    setDrum(true); sfx.select();
+    setTimeout(() => {
+      if (!alive.current) return;
+      setDrum(false); setN(n + 1);
+      if (mine) { sfx.fanfare(); setTimeout(() => sfx.coin(), 500); } else if (big) sfx.cheer(true); else sfx.good();
+      if (n + 1 >= total) finish();
+    }, big ? 1100 : 450);
+  };
+  const showAll = () => { setN(total); finish(); };
+
+  const done = n >= total;
+  const staged = n > 0 && !done ? n - 1 : -1; // the envelope just opened
+  const stage = (i: number) => {
+    if (i >= singles.length) {
+      return (
+        <div class={`ox-stage ${allLeague.some(isMine) ? 'mine' : ''}`}>
+          <div class="head gold">ALL-LEAGUE TEAM</div>
+          <div class="list" style={{ width: '100%' }}>
+            {allLeague.map(a => (
+              <div class={`item ${isMine(a) ? 'ox-mine' : ''}`} style={{ minHeight: '34px' }}>
+                <span class="tag pos">{a.award.replace('All-League ', '')}</span>
+                <div class="grow nowrap"><NameLink id={a.playerId} name={a.name} /> <span class="dim">{save.teams[a.teamId]?.abbr ?? ''}</span></div>
+                {isMine(a) && <span class="tag gold">YOUR PLAYER</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    const a = singles[i], p = save.players[a.playerId], t = save.teams[a.teamId], r = rewardOf(a);
+    return (
+      <div class={`ox-stage ${isMine(a) ? 'mine' : ''}`}>
+        <div class="head gold">{(AWARD_TITLE[a.award] ?? a.award).toUpperCase()}</div>
+        <div class="row" style={{ gap: '12px', alignItems: 'center' }}>
+          {p && <Sprite player={p} team={t} scale={3} />}
+          <div class="col" style={{ gap: '3px', alignItems: 'flex-start', textAlign: 'left' }}>
+            <div class="ox-winner"><NameLink id={a.playerId} name={a.name} /></div>
+            <div class="dim">{p ? `${p.pos} · ` : ''}{t ? fullName(t) : ''}</div>
+            {a.line && <div>{a.line}</div>}
+          </div>
+        </div>
+        {isMine(a) && <div class="row" style={{ gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}><span class="tag gold">YOUR PLAYER</span>{r && <span class="gold">◉ +{r.credits} credits · fans +{r.fans}</span>}</div>}
+      </div>
+    );
+  };
+
+  if (done) {
+    const order = [...singles].reverse();
+    const credits = rewards.reduce((x, r) => x + r.credits, 0), fans = rewards.reduce((x, r) => x + r.fans, 0);
+    return (
+      <>
+        {rewards.length > 0 && (
+          <div class="panel ox-haul">
+            <div class="head gold">YOUR PLAYERS TOOK HOME {rewards.length} AWARD{rewards.length === 1 ? '' : 'S'}</div>
+            <div>The club earns <span class="gold">◉ +{credits} credits</span>, fan support +{fans}, and {rewards.length === 1 ? 'a very happy player' : 'some very happy players'}.</div>
+          </div>
+        )}
+        <Panel title="AWARDS">
+          <div class="list">{order.map(a => <AwardRow save={save} a={a} big={a.award === 'MVP'} />)}</div>
+        </Panel>
+        {allLeague.length > 0 && (
+          <Panel title="ALL-LEAGUE TEAM">
+            <div class="list">
+              {allLeague.map(a => (
+                <div class={`item ${isMine(a) ? 'ox-mine' : ''}`}>
+                  <span class="tag pos">{a.award.replace('All-League ', '')}</span>
+                  <div class="grow nowrap"><NameLink id={a.playerId} name={a.name} /> <span class="dim">{save.teams[a.teamId]?.abbr ?? ''}</span></div>
+                  {isMine(a) && <span class="tag gold">YOUR PLAYER</span>}
+                </div>
+              ))}
+            </div>
+          </Panel>
+        )}
+      </>
+    );
+  }
+  return (
+    <Panel team title={`AWARDS NIGHT · ${n}/${total}`}>
+      {staged >= 0 && !drum && stage(staged)}
+      {drum && <div class="ox-stage drum"><div class="head dim">AND THE</div><div class="head gold">{titleOf(n).toUpperCase()}</div><div class="head dim">{n < singles.length ? 'GOES TO' : 'IS'} . . .</div></div>}
+      {staged < 0 && !drum && <div class="ox-stage"><div class="ox-cup">♛</div><div>{total} envelopes. The big one comes last.</div></div>}
+      <div style={{ height: '8px' }} />
+      <div class="row">
+        <Btn kind="primary big" class="grow" disabled={drum} onClick={reveal}>{drum ? '. . .' : `Open: ${titleOf(n)}`}</Btn>
+        <Btn onClick={showAll}>Show all</Btn>
+      </div>
+      {n > 1 && (
+        <div class="list" style={{ marginTop: '8px' }}>
+          {singles.slice(0, staged >= 0 ? staged : n).reverse().map(a => <AwardRow save={save} a={a} />)}
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -152,9 +278,6 @@ function AwardsStep({ save }: { save: Save }) {
   if (!h) return <Panel><div class="dim">No season to review.</div></Panel>;
   const mine = save.teams[h.userTeamId];
   const goals = off.log.filter(l => l.startsWith('MET:') || l.startsWith('MISSED:'));
-  const mvp = h.awards.find(a => a.award === 'MVP');
-  const others = h.awards.filter(a => a.award !== 'MVP' && !a.award.startsWith('All-League'));
-  const allLeague = h.awards.filter(a => a.award.startsWith('All-League'));
   const offers = (off.jobOffers ?? []).filter(id => id !== save.userTeamId && save.teams[id]);
 
   const take = async (teamId: number) => {
@@ -177,25 +300,7 @@ function AwardsStep({ save }: { save: Save }) {
         </div>
       </Panel>
 
-      <Panel title="AWARDS">
-        <div class="list">
-          {mvp && <AwardRow save={save} a={mvp} big />}
-          {others.map(a => <AwardRow save={save} a={a} />)}
-        </div>
-      </Panel>
-      {allLeague.length > 0 && (
-        <Panel title="ALL-LEAGUE TEAM">
-          <div class="list">
-            {allLeague.map(a => (
-              <div class="item">
-                <span class="tag pos">{a.award.replace('All-League ', '')}</span>
-                <div class="grow nowrap"><NameLink id={a.playerId} name={a.name} /> <span class="dim">{save.teams[a.teamId]?.abbr ?? ''}</span></div>
-                {a.teamId === save.userTeamId && <span class="tag gold">YOURS</span>}
-              </div>
-            ))}
-          </div>
-        </Panel>
-      )}
+      <Ceremony save={save} h={h} />
 
       <Panel title="THE OWNER'S VERDICT">
         <div class="list">
@@ -240,9 +345,44 @@ function RetirementsStep({ save }: { save: Save }) {
   const unknown = off.retired.length - retired.length;
   const hof = save.hallOfFame.filter(h => h.yearRetired === save.year);
   const roster = me.roster.map(id => save.players[id]).filter((p): p is Player => !!p).sort((a, b) => ovr(b) - ovr(a));
+  // how the summer changed each of your players (older saves fall back to last season's overall)
+  const changes = roster.map(p => {
+    const rec = off.progress?.find(x => x.playerId === p.id);
+    const last = p.seasons[p.seasons.length - 1];
+    const d = rec ? rec.after - rec.before : last && last.year === save.year ? ovr(p) - last.ovr : null;
+    return { p, d };
+  }).sort((a, b) => (b.d ?? 0) - (a.d ?? 0));
+  const top = changes[0], bottom = changes[changes.length - 1];
+  const riser = top && (top.d ?? 0) >= 2 ? { p: top.p, d: top.d! } : null;
+  const faller = bottom && (bottom.d ?? 0) <= -2 ? { p: bottom.p, d: bottom.d! } : null;
 
   return (
     <>
+      <Panel team title="SUMMER PROGRESS">
+        <div class="dim" style={{ fontSize: '18px', marginBottom: '6px' }}>Everyone is a year older. Young players with room to grow got better; veterans past 30 start to slip.</div>
+        {(riser || faller) && (
+          <div class="ox-callouts">
+            {riser && (
+              <div class="ox-callout up tap" onClick={() => nav('player', { id: riser.p.id })}>
+                <div class="head good">BIGGEST LEAP</div>
+                <div class="row" style={{ gap: '8px' }}><Sprite player={riser.p} team={me} scale={2} /><div><div>{riser.p.name}</div><div class="good">▲ +{riser.d} overall</div></div></div>
+              </div>
+            )}
+            {faller && (
+              <div class="ox-callout down tap" onClick={() => nav('player', { id: faller.p.id })}>
+                <div class="head bad">BIGGEST DROP</div>
+                <div class="row" style={{ gap: '8px' }}><Sprite player={faller.p} team={me} scale={2} /><div><div>{faller.p.name}</div><div class="bad">▼ {faller.d} overall</div></div></div>
+              </div>
+            )}
+          </div>
+        )}
+        <div class="list">
+          {changes.map(({ p, d }) => {
+            const tag = d === null ? null : d > 0 ? <span class="tag good">▲ +{d}</span> : d < 0 ? <span class="tag bad">▼ {d}</span> : <span class="tag">=</span>;
+            return <PlayerRow save={save} player={p} onClick={() => nav('player', { id: p.id })} right={tag} />;
+          })}
+        </div>
+      </Panel>
       {off.log.length > 0 && (
         <Panel title="HEADLINES">
           <div class="list ox-log">{off.log.map(l => <div class="item">{l}</div>)}</div>
@@ -284,17 +424,6 @@ function RetirementsStep({ save }: { save: Save }) {
             {unknown > 0 && <div class="item dim">and {unknown} more</div>}
           </div>
         )}
-      </Panel>
-      <Panel title="YOUR ROSTER, ONE YEAR ON">
-        <div class="dim" style={{ fontSize: '18px', marginBottom: '4px' }}>Everyone has aged a year. Young players grew over the summer; veterans may have slipped.</div>
-        <div class="list">
-          {roster.map(p => {
-            const last = p.seasons[p.seasons.length - 1];
-            const d = last && last.year === save.year ? ovr(p) - last.ovr : null;
-            const tag = d === null ? null : d >= 2 ? <span class="tag good">▲ BETTER</span> : d <= -2 ? <span class="tag bad">▼ SLIPPED</span> : <span class="tag">STEADY</span>;
-            return <PlayerRow save={save} player={p} onClick={() => nav('player', { id: p.id })} right={tag} />;
-          })}
-        </div>
       </Panel>
     </>
   );

@@ -8,7 +8,7 @@ import { clamp, gameScore, ovr } from '../ratings';
 import { Rng } from '../rng';
 import { cal } from '../season/calendar';
 import { standings, userGame } from '../season/schedule';
-import type { BoxLine, Player, RatingKey, Save, ScheduledGame, Team } from '../types';
+import type { BoxLine, GameResult, Player, RatingKey, Save, ScheduledGame, Team } from '../types';
 import { POSITIONS, RATING_KEYS } from '../types';
 import { careerGames, isUnlocked, prog } from './progress';
 import { atCeiling, grantXp } from './xp';
@@ -50,6 +50,10 @@ export interface WeekState {
   last: string[];
   sponsor: Sponsor | null;
   sponsorYear: number;
+  /** Best single game of the week so far, league-wide (winning teams only). */
+  potw?: { playerId: number; score: number; text: string } | null;
+  /** One of the user's players was Player of the Week: shown on the hub for the week named by `key`. */
+  honor?: { key: string; text: string } | null;
 }
 export function weekState(save: Save): WeekState {
   const s = save as Save & { weekly?: WeekState };
@@ -413,3 +417,35 @@ export function settleSponsor(save: Save, game?: { won: boolean; rival: boolean 
   save.credits += s.credits;
   return s.credits;
 }
+
+// ---- player of the week ----------------------------------------------------------------
+/** Every regular-season game: remember the best night by a player on the winning side. */
+export function notePerformance(save: Save, result: GameResult): void {
+  const w = weekState(save);
+  const lines = result.homeScore > result.awayScore ? result.box.home : result.box.away;
+  for (const l of lines) {
+    const score = gameScore(l);
+    if (w.potw && score <= w.potw.score) continue;
+    const reb = l.orb + l.drb;
+    const text = `${l.pts} pts` + (reb >= 8 ? `, ${reb} reb` : '') + (l.ast >= 7 ? `, ${l.ast} ast` : '') + (l.stl + l.blk >= 5 ? `, ${l.stl + l.blk} stocks` : '');
+    w.potw = { playerId: l.playerId, score, text };
+  }
+}
+/** Week over: name the Player of the Week. If he is yours, the club is paid and he is delighted. */
+export function awardPlayerOfWeek(save: Save): { player: Player; text: string; mine: boolean } | null {
+  const w = weekState(save);
+  const best = w.potw;
+  w.potw = null;
+  const p = best ? save.players[best.playerId] : null;
+  if (!best || !p || p.teamId === null) return null;
+  const mine = p.teamId === save.userTeamId;
+  if (mine) {
+    save.credits += 1;
+    p.morale = clamp(p.morale + 6, 0, 100);
+    save.fans = clamp(save.fans + 1, 0, 100);
+    w.honor = { key: keyOf(save), text: `${p.name}: ${best.text}` };
+  }
+  return { player: p, text: best.text, mine };
+}
+/** The honour to show on the hub this week, if one of the user's players earned it last week. */
+export const honorNow = (save: Save): string | null => { const h = weekState(save).honor; return h && h.key === keyOf(save) ? h.text : null; };

@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { ROSTER_MAX, ROSTER_MIN } from '../core/constants';
+import { CAMP_DRILLS, CAMP_SHOTS, campDrillsLeft, startCampDrill } from '../core/offseason/offseason';
 import { upgradeCost, upgradeRating } from '../core/org/economy';
 import { capStatus, payroll } from '../core/org/finance';
 import { ovr } from '../core/ratings';
@@ -9,6 +10,7 @@ import { sfx } from '../audio/sfx';
 import { act } from '../state/store';
 import { Btn, Modal, Panel, Sprite, Stars, money, toast } from './kit';
 import { NameLink, PlayerLine, STATUS_CLASS, contractText, releaseWithConfirm } from './OffseasonParts';
+import { CampDrill } from './CampDrill';
 import { nav } from './router';
 
 /** How far a rating is through its current half star (0-1), so an upgrade that does not yet add half a star still shows. */
@@ -26,6 +28,15 @@ export function CampStep({ save }: { save: Save }) {
   const roster = me.roster.map(id => save.players[id]).filter((p): p is Player => !!p).sort((a, b) => ovr(b) - ovr(a));
   const n = me.roster.length;
   const player = sel !== null && me.roster.includes(sel) ? save.players[sel] : null;
+  const [picking, setPicking] = useState(false);
+  const [drill, setDrill] = useState<number | null>(null);
+  const left = campDrillsLeft(save);
+  const startDrill = (id: number) => {
+    const err = act(s => startCampDrill(s, id));
+    setPicking(false);
+    if (err) { toast(err); return; }
+    setDrill(id);
+  };
 
   return (
     <>
@@ -37,6 +48,12 @@ export function CampStep({ save }: { save: Save }) {
         </div>
         <div style={{ marginTop: '6px' }}>Rating upgrades cost <b class="good">25% less</b> during camp. Tap a player to train him.</div>
         {off.campSpent > 0 && <div class="dim" style={{ fontSize: '18px' }}>Spent at camp so far: ◉ {off.campSpent}</div>}
+      </Panel>
+
+      <Panel title={`CAMP SHOOTAROUND · ${left} OF ${CAMP_DRILLS} LEFT`}>
+        <div>Take one of your players onto the court for {CAMP_SHOTS} open looks. Every shot he makes is XP toward his next level.</div>
+        <div style={{ height: '8px' }} />
+        <Btn kind="primary" class="block" disabled={left <= 0} onClick={() => setPicking(true)}>{left > 0 ? 'Run a session' : 'No sessions left'}</Btn>
       </Panel>
 
       {n > ROSTER_MAX && (
@@ -59,6 +76,17 @@ export function CampStep({ save }: { save: Save }) {
       </div>
 
       {player && <TrainModal save={save} player={player} onClose={() => setSel(null)} />}
+      {picking && (
+        <Modal onClose={() => setPicking(false)}>
+          <h3>WHO SHOOTS?</h3>
+          <div class="dim" style={{ fontSize: '18px' }}>Good shooters make more, but anyone can use the work.</div>
+          <div class="list">
+            {roster.filter(p => !p.injury).map(p => <PlayerLine save={save} player={p} onClick={() => startDrill(p.id)} sub={<span class="row" style={{ gap: '4px' }}>Shooting <Stars v={p.ratings.sht} /></span>} />)}
+          </div>
+          <Btn onClick={() => setPicking(false)}>Cancel</Btn>
+        </Modal>
+      )}
+      {drill !== null && save.players[drill] && <CampDrill save={save} playerId={drill} onClose={() => setDrill(null)} />}
     </>
   );
 }

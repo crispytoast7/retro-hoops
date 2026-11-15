@@ -1,32 +1,13 @@
 import { useState } from 'preact/hooks';
 import { standings } from '../core/season/schedule';
-import type { PlayoffSeries, Save, Team } from '../core/types';
+import type { Team } from '../core/types';
 import { useSave } from '../state/store';
 import { Modal, Panel, PlayerRow, Screen, confName, fullName } from './kit';
 import { nav } from './router';
 import { Btn } from './kit';
+import { Bracket } from './Bracket';
 
-const ROUNDS = ['', 'CONFERENCE SEMIFINALS', 'CONFERENCE FINALS', 'CHAMPIONSHIP'];
 const streakStr = (n: number) => (n === 0 ? '-' : n > 0 ? `W${n}` : `L${-n}`);
-
-function Series({ save, s }: { save: Save; s: PlayoffSeries }) {
-  const g = s.gameId != null ? save.schedule.find(x => x.id === s.gameId) : undefined;
-  const single = (save.calendar?.seriesWins ?? 1) === 1;
-  // one-off games show the score; series show games won
-  const score = (id: number) => (single ? (g?.played ? (g.homeId === id ? g.homeScore : g.awayScore) : undefined) : id === s.highId ? s.highW : s.lowW);
-  const row = (id: number) => {
-    const t = save.teams[id];
-    const win = s.winnerId === id;
-    return (
-      <div class="row" style={{ minHeight: '30px', color: win ? 'var(--gold)' : id === save.userTeamId ? 'var(--accent)' : undefined }}>
-        <span class="swatch" style={{ background: t.colors.primary }} />
-        <span class="grow nowrap">{win ? '> ' : ''}{t.abbr} {t.name}</span>
-        <span class="head">{score(id) ?? ''}</span>
-      </div>
-    );
-  };
-  return <div class="item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0 }}>{row(s.highId)}{row(s.lowId)}</div>;
-}
 
 export function StandingsScreen(_p: { params: Record<string, any> }) {
   const save = useSave();
@@ -59,32 +40,9 @@ export function StandingsScreen(_p: { params: Record<string, any> }) {
 
   return (
     <Screen title="Standings">
-      {po && (
-        <Panel title="PLAYOFF BRACKET">
-          {po.championId != null && (
-            <div class="item" style={{ justifyContent: 'center', background: 'var(--panel2)' }}>
-              <span class="head gold">CHAMPIONS: {fullName(save.teams[po.championId])}</span>
-            </div>
-          )}
-          {[1, 2, 3].map(r => {
-            const ss = po.series.filter(s => s.round === r);
-            if (!ss.length) return null;
-            return (
-              <div>
-                <h3 style={{ margin: '8px 0 4px' }}>{ROUNDS[r]}</h3>
-                <div class="list">
-                  {ss.map(s => (
-                    <div>
-                      {r < 3 && <div class="dim" style={{ fontSize: '16px' }}>{confName(s.conf)}</div>}
-                      <Series save={save} s={s} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </Panel>
-      )}
+      <Panel title={po ? 'PLAYOFF BRACKET' : 'PLAYOFF PICTURE · IF THE SEASON ENDED TODAY'}>
+        <Bracket save={save} />
+      </Panel>
       {table(0)}
       {table(1)}
       <div class="dim">Top 4 in each conference make the playoffs. Tap a team to see its roster.</div>

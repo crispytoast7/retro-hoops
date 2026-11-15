@@ -5,6 +5,8 @@ import { markTip, prog } from '../core/org/progress';
 import { hasSave, touch, useSave } from '../state/store';
 import { ConfirmHost, ToastHost } from './kit';
 import { useRoute } from './router';
+import { BracketScreen } from './Bracket';
+import { ChampionScreen } from './Champion';
 import { CoachScreen } from './Coach';
 import { FacilitiesScreen } from './Facilities';
 import { FinancesScreen } from './Finances';
@@ -37,6 +39,7 @@ const SCREENS: Record<string, ScreenFn> = {
   trades: TradesScreen, standings: StandingsScreen, schedule: ScheduleScreen, stats: StatsScreen,
   history: HistoryScreen, news: NewsScreen, game: GameScreen, postgame: PostGameScreen,
   offseason: OffseasonScreen, scouting: ScoutingScreen, settings: SettingsScreen, fired: FiredScreen, coach: CoachScreen, practice: PracticeScreen,
+  bracket: BracketScreen, champion: ChampionScreen,
 };
 
 function WithSave(p: { C: ScreenFn; params: Record<string, any>; route: string }) {

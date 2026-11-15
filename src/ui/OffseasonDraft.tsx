@@ -1,12 +1,73 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { NUM_TEAMS, ROSTER_MAX } from '../core/constants';
 import { rookieContract } from '../core/gm/draft';
 import { draftDone, runDraftUntilUser, userDraftPick, userOnClock } from '../core/offseason/offseason';
 import { capStatus, payroll } from '../core/org/finance';
 import type { Player, Save } from '../core/types';
-import { act } from '../state/store';
-import { Btn, Modal, Panel, confirmDialog, money, toast } from './kit';
+import { sfx } from '../audio/sfx';
+import { act, touch } from '../state/store';
+import { Btn, Modal, Panel, confirmDialog, fullName, money, toast } from './kit';
 import { CapTag, PlayerLine, ProspectBoard, ProspectRow, ReleaseModal, dealText } from './OffseasonParts';
+
+const LOTTERY_TEAMS = 8;
+/** The lottery, one ball at a time: the eight picks counted down from the last to the first. */
+function LotteryReveal({ save }: { save: Save }) {
+  const off = save.offseason!;
+  const me = save.teams[save.userTeamId];
+  const slots = off.draftOrder.filter(s => s.round === 1 && s.pick <= LOTTERY_TEAMS).sort((a, b) => a.pick - b.pick);
+  const [shown, setShown] = useState(0); // how many have been revealed, from the bottom up
+  const [drum, setDrum] = useState(false);
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+  const next = slots.length - shown; // the pick number about to be revealed
+  const finish = () => touch(sv => { if (sv.offseason) sv.offseason.lotterySeen = true; });
+  const mine = slots.filter(s => s.teamId === me.id).map(s => s.pick);
+  const reveal = () => {
+    if (drum || shown >= slots.length) return;
+    const top = next <= 3;
+    setDrum(true); sfx.select();
+    setTimeout(() => {
+      if (!alive.current) return;
+      setDrum(false); setShown(shown + 1);
+      const s = slots[next - 1];
+      if (s.teamId === me.id) { if (top) sfx.fanfare(); else sfx.good(); } else if (top) sfx.click();
+    }, top ? 1200 : 300);
+  };
+  const done = shown >= slots.length;
+  const best = mine.length ? Math.min(...mine) : 0;
+  return (
+    <Panel team title="THE DRAFT LOTTERY">
+      <div class="dim" style={{ fontSize: '18px', marginBottom: '6px' }}>The eight teams that missed the playoffs drew for the top three picks. The worse the record, the better the odds: 25% at #1 for the worst.</div>
+      <div class="ox-lotto">
+        {slots.map(s => {
+          const open = s.pick > slots.length - shown;
+          const t = save.teams[s.teamId];
+          const you = open && s.teamId === me.id;
+          const now = !open && s.pick === next;
+          return (
+            <div class={`ox-slot ${s.pick <= 3 ? 'top' : ''} ${open ? '' : 'hidden'} ${you ? 'you' : ''} ${now && drum ? 'drum' : ''}`}>
+              <span class="n">#{s.pick}</span>
+              {open ? <><span class="swatch" style={{ background: t.colors.primary, boxShadow: `4px 0 0 ${t.colors.secondary}`, marginRight: '4px' }} /><span class="grow nowrap">{fullName(t)}</span>{you && <span class="tag gold">YOU</span>}</>
+                : <span class="grow dim">{now && drum ? '. . .' : '?'}</span>}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ height: '8px' }} />
+      {done ? (
+        <>
+          <div class={best && best <= 3 ? 'gold' : ''} style={{ marginBottom: '6px' }}>{best ? (best <= 3 ? `You pick #${best}. The ball bounced your way.` : `You pick #${best}.`) : 'Your pick is in.'}</div>
+          <Btn kind="primary big" class="block" onClick={finish}>To the draft board</Btn>
+        </>
+      ) : (
+        <div class="row">
+          <Btn kind="primary big" class="grow" disabled={drum} onClick={reveal}>{drum ? '. . .' : `Reveal pick #${next}`}</Btn>
+          <Btn onClick={finish}>Skip</Btn>
+        </div>
+      )}
+    </Panel>
+  );
+}
 
 export function DraftStep({ save }: { save: Save }) {
   const off = save.offseason!;
@@ -40,6 +101,10 @@ export function DraftStep({ save }: { save: Save }) {
     .filter(p => p.draft && p.draft.year === save.year && p.draft.teamId === me.id && p.teamId === me.id)
     .sort((a, b) => (a.draft!.round - b.draft!.round) || (a.draft!.pick - b.draft!.pick));
   const pickPlayer: Player | null = sel !== null ? save.players[sel] ?? null : null;
+
+  // a team in the lottery watches the balls drop before it sees the board
+  const inLottery = off.draftOrder.some(s => s.round === 1 && s.pick <= LOTTERY_TEAMS && s.teamId === me.id);
+  if (inLottery && !off.lotterySeen && lottery.length > 0) return <LotteryReveal save={save} />;
 
   return (
     <>

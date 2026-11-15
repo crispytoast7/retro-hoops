@@ -9,7 +9,7 @@ import { afterUserGame, bumpFans, bumpOwner, checkFired, healWeek, rollEvent, ro
 import { checkTrophies, gameProgress, isUnlocked, perk, seasonProgress } from '../org/progress';
 import { Objective, ObjectiveResult, settleObjective } from '../org/objectives';
 import { gameXp } from '../org/xp';
-import { FormChange, edgeFor, hasEdge, isRivalGame, settleSponsor, sponsorOf, updateForm, weekState, withForm } from '../org/week';
+import { FormChange, awardPlayerOfWeek, edgeFor, hasEdge, isRivalGame, notePerformance, settleSponsor, sponsorOf, updateForm, weekState, withForm } from '../org/week';
 import { addStats } from '../ratings';
 import type { Rng } from '../rng';
 import { createLiveGame, simulateGame } from '../sim/engine';
@@ -68,6 +68,7 @@ export function applyGame(save: Save, g: ScheduledGame, result: GameResult, rng:
     for (const side of [result.box.home, result.box.away]) {
       for (const l of side) { const p = save.players[l.playerId]; if (p) addStats(p.season, l); }
     }
+    notePerformance(save, result);
   }
   rollInjuries(save, home, result.box.home, rng);
   rollInjuries(save, away, result.box.away, rng);
@@ -247,6 +248,7 @@ const cmpRecord = (a: Team, b: Team): number => b.record.w - a.record.w || (b.re
 /** Week-end housekeeping, then move the calendar on. */
 function closeWeek(save: Save, rng: Rng): void {
   const c = cal(save);
+  const wasRegular = save.phase === 'regular';
   healWeek(save, rng);
   weeklyFacilities(save, rng);
   if (save.phase === 'regular') {
@@ -270,6 +272,11 @@ function closeWeek(save: Save, rng: Rng): void {
     advancePlayoffs(save, rng);
     if (save.playoffs!.championId !== undefined) { beginOffseason(save, rng); seasonProgress(save); }
     else save.week++;
+  }
+  if (wasRegular) {
+    // named once the calendar has moved on, so the hub shows it in the week that follows
+    const potw = awardPlayerOfWeek(save);
+    if (potw) pushNews(save, 'award', `Player of the Week: ${potw.player.name} (${save.teams[potw.player.teamId!].name}), ${potw.text}.${potw.mine ? ' The club gets 1 credit.' : ''}`, potw.mine);
   }
   for (const t of save.teams) fixLineup(save, t);
   checkTrophies(save);

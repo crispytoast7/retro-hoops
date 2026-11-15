@@ -291,6 +291,16 @@ export interface OffseasonState {
   /** Log lines shown on the step screens. */
   log: string[];
   jobOffers?: number[];
+  /** What the club was paid for awards won by the user's players this season. */
+  awardRewards?: { award: string; playerId: number; credits: number; fans: number }[];
+  /** The awards ceremony has been watched (or skipped). */
+  awardsSeen?: boolean;
+  /** Overall of each of the user's players before and after the summer. */
+  progress?: { playerId: number; before: number; after: number }[];
+  /** The draft-lottery reveal has been watched (or skipped). */
+  lotterySeen?: boolean;
+  /** Camp shootaround sessions used this offseason. */
+  campDrills?: number;
 }
 
 export interface Save {

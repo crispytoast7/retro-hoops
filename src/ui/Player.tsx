@@ -1,6 +1,6 @@
 import { ROSTER_MIN } from '../core/constants';
 import { marketSalary } from '../core/gm/value';
-import { POINT_GAIN, atCeiling, isStar, levelOfPlayer, pointsOf, spendPoint, xpNeed, xpOfPlayer } from '../core/org/xp';
+import { POINT_GAIN, atCeiling, isStar, levelOfPlayer, pointsOf, readyToLevel, spendPoint, xpNeed, xpOfPlayer } from '../core/org/xp';
 import { releaseDeadCap, releasePlayer } from '../core/org/roster';
 import { FORM_NAME, FORM_RATING, formOf } from '../core/org/week';
 import { careerStats, emptyStats, ovr } from '../core/ratings';
@@ -8,8 +8,8 @@ import { RATING_KEYS, RATING_NAMES } from '../core/types';
 import type { StatLine, Trait } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { act, touch, useSave } from '../state/store';
-import { Btn, Meter, Panel, Screen, Sprite, Stars, avg, confirmDialog, fullName, money, pct, toast } from './kit';
-import { back } from './router';
+import { Btn, Meter, Panel, Screen, Sprite, Stars, avg, confirmDialog, fullName, money, pct, short, toast } from './kit';
+import { back, replace } from './router';
 
 const TRAIT_DESC: Record<Trait, string> = {
   Leader: 'Steadies the room. A great captain.',
@@ -47,6 +47,9 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
   const dead = releaseDeadCap(p);
   const career = careerStats(p);
   const pts = pointsOf(p), capped = atCeiling(p);
+  // other players of yours with level-up points waiting: one tap takes you to the next
+  const waiting = mine ? readyToLevel(save).filter(x => x.id !== p.id) : [];
+  const spending = mine && pts > 0 && !capped;
   const upgrade = (k: (typeof RATING_KEYS)[number]) => {
     const err = act(s => spendPoint(s, p.id, k));
     if (err) toast(err); else sfx.coin();
@@ -74,6 +77,17 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
         </div>
       </Panel>
 
+      {(spending || waiting.length > 0) && (
+        <div class="panel levelbar">
+          <div class="grow">
+            <div class="head gold">LEVEL UP</div>
+            <div>{spending ? `${pts} point${pts === 1 ? '' : 's'} to spend: tap + on a rating below.` : 'Nothing to spend on him.'}{waiting.length > 0 ? ` ${waiting.length} more player${waiting.length === 1 ? '' : 's'} waiting.` : ''}</div>
+          </div>
+          {waiting.length > 0
+            ? <Btn kind={spending ? 'small' : 'primary'} onClick={() => replace('player', { id: waiting[0].id })}>Next: {short(waiting[0].name)} ›</Btn>
+            : null}
+        </div>
+      )}
       {!prospect && (
         <Panel title="RATINGS">
           <div class="list">

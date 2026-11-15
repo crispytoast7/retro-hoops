@@ -14,7 +14,8 @@ import { careerStats, clamp, emptyStats, gameScore, ovr, round1 } from '../ratin
 import type { Rng } from '../rng';
 import { cal } from '../season/calendar';
 import { cmpTeams, genSchedule } from '../season/schedule';
-import type { OffseasonStep, Player, Save, SeasonHistory, StatLine, Team, TeamSeason } from '../types';
+import type { OffseasonStep, Player, PlayoffSeries, Save, SeasonHistory, StatLine, Team, TeamSeason } from '../types';
+import { grantXp } from '../org/xp';
 
 const STEPS: OffseasonStep[] = ['awards', 'retirements', 'contracts', 'draft', 'freeAgency', 'camp', 'done'];
 const per = (s: StatLine, k: keyof StatLine): number => (s.gp ? s[k] / s.gp : 0);
@@ -48,6 +49,10 @@ function computeAwards(save: Save): SeasonHistory['awards'] {
     undefined);
   add('Rookie of the Year', best(active.filter(p => p.seasons.length === 0 && p.age <= 22), gs));
   add('Sixth Man', best(active.filter(p => p.season.gs < p.season.gp / 2), gs));
+  // biggest jump on last season's production (nobody has a last season in year one)
+  const prev = (p: Player) => { const l = p.seasons[p.seasons.length - 1]; return l && l.stats.gp >= 6 ? gameScore(l.stats) / l.stats.gp : null; };
+  const risers = active.filter(p => { const b = prev(p); return b !== null && gs(p) - b >= 2; });
+  add('Most Improved', best(risers, p => gs(p) - (prev(p) ?? 0)));
   add('Scoring Champ', best(active, p => per(p.season, 'pts')));
   // All-League five: best at each position
   for (const pos of ['PG', 'SG', 'SF', 'PF', 'C'] as const) {
@@ -55,6 +60,72 @@ function computeAwards(save: Save): SeasonHistory['awards'] {
     if (p) { out.push({ award: `All-League ${pos}`, playerId: p.id, name: p.name, teamId: p.teamId!, line: line(p.season) }); p.awards.push(`All-League (Y${save.year})`); }
   }
   return out;
+}
+
+/** The champion's best player in the final (from its box score when we have one, else his season). */
+function finalsMvp(save: Save, champId: number, final: PlayoffSeries): SeasonHistory['awards'][number] | null {
+  const g = save.schedule.find(x => x.id === final.gameId);
+  let p: Player | null = null, text = '';
+  if (g?.result) {
+    const lines = (g.result.homeId === champId ? g.result.box.home : g.result.box.away).filter(l => l.min > 0 && save.players[l.playerId]);
+    if (lines.length) {
+      const top = lines.reduce((a, b) => (gameScore(b) > gameScore(a) ? b : a));
+      p = save.players[top.playerId];
+      text = `${top.pts} pts, ${top.orb + top.drb} reb, ${top.ast} ast in the final`;
+    }
+  }
+  if (!p) {
+    const ps = save.teams[champId].roster.map(id => save.players[id]).filter(x => x && x.season.gp > 0);
+    if (!ps.length) return null;
+    p = ps.reduce((a, b) => (gameScore(b.season) / b.season.gp > gameScore(a.season) / a.season.gp ? b : a));
+    text = line(p.season);
+  }
+  p.awards.push(`Finals MVP (Y${save.year})`);
+  return { award: 'Finals MVP', playerId: p.id, name: p.name, teamId: champId, line: text };
+}
+
+/** Credits the club earns when one of its own players takes an award. */
+export const awardCredits = (award: string): number =>
+  award === 'MVP' ? 4 : award === 'Finals MVP' ? 3 : award.startsWith('All-League') ? 1 : 2;
+/** Pay the user for awards his players won: credits, a lift with the fans, and a happy player. */
+function payAwardRewards(save: Save, awards: SeasonHistory['awards']): NonNullable<Save['offseason']>['awardRewards'] {
+  const out: NonNullable<NonNullable<Save['offseason']>['awardRewards']> = [];
+  for (const a of awards) {
+    if (a.teamId !== save.userTeamId) continue;
+    const credits = awardCredits(a.award), fans = a.award === 'MVP' ? 4 : a.award.startsWith('All-League') ? 1 : 2;
+    save.credits += credits;
+    bumpFans(save, fans);
+    const p = save.players[a.playerId];
+    if (p) p.morale = clamp(p.morale + 8, 0, 100);
+    out.push({ award: a.award, playerId: a.playerId, credits, fans });
+  }
+  return out;
+}
+
+// ---- camp shootaround ------------------------------------------------------------------
+/** Shootaround sessions allowed in one training camp. */
+export const CAMP_DRILLS = 3;
+/** Looks the player gets in one session. */
+export const CAMP_SHOTS = 5;
+export const campDrillsLeft = (save: Save): number =>
+  save.offseason?.step === 'camp' ? Math.max(0, CAMP_DRILLS - (save.offseason.campDrills ?? 0)) : 0;
+/** Use up one session. Returns an error text if there is none left. */
+export function startCampDrill(save: Save, playerId: number): string | null {
+  const off = save.offseason;
+  if (!off || off.step !== 'camp') return 'Shootarounds are held at training camp.';
+  if (!save.teams[save.userTeamId].roster.includes(playerId)) return 'He is not on your roster.';
+  if (campDrillsLeft(save) <= 0) return 'No sessions left this camp.';
+  off.campDrills = (off.campDrills ?? 0) + 1;
+  return null;
+}
+/** XP for a session: every make counts, and a hot hand earns a bonus. */
+export const campDrillXp = (makes: number): number => makes * 12 + (makes >= CAMP_SHOTS ? 30 : makes >= CAMP_SHOTS - 1 ? 15 : 0);
+/** Pay out a finished session. Returns the XP given and the levels he gained. */
+export function finishCampDrill(save: Save, playerId: number, makes: number): { xp: number; levels: number } {
+  const p = save.players[playerId];
+  const xp = campDrillXp(clamp(Math.round(makes), 0, CAMP_SHOTS));
+  if (!p || xp <= 0) return { xp: 0, levels: 0 };
+  return { xp, levels: grantXp(save, p, xp) };
 }
 
 function updateSeasonRecords(save: Save): void {
@@ -90,7 +161,10 @@ export function beginOffseason(save: Save, rng: Rng): void {
   }
   const awards = computeAwards(save);
   const mvp = awards.find(a => a.award === 'MVP') ?? null;
-  for (const a of awards.slice(0, 5)) pushNews(save, 'award', headline(rng, 'award', { player: a.name, team: save.teams[a.teamId].name, award: a.award }), a.teamId === me.id);
+  const fmvp = finalsMvp(save, champId, final);
+  if (fmvp) awards.splice(mvp ? awards.indexOf(mvp) + 1 : 0, 0, fmvp);
+  const awardRewards = payAwardRewards(save, awards);
+  for (const a of awards.filter(x => !x.award.startsWith('All-League')).slice(0, 7)) pushNews(save, 'award', headline(rng, 'award', { player: a.name, team: save.teams[a.teamId].name, award: a.award }), a.teamId === me.id);
   const myFinish = playoffFinish(save, me.id);
   save.history.push({
     year: save.year, championId: champId, runnerUpId: runnerUp,
@@ -109,7 +183,7 @@ export function beginOffseason(save: Save, rng: Rng): void {
   updateSeasonRecords(save);
   save.phase = 'offseason';
   save.pendingEvent = null; save.tradeOffer = null;
-  save.offseason = { step: 'awards', draftOrder: [], draftIdx: 0, prospects: [], faDay: 1, userOffers: {}, retired: [], campSpent: 0, log, jobOffers: [] };
+  save.offseason = { step: 'awards', draftOrder: [], draftIdx: 0, prospects: [], faDay: 1, userOffers: {}, retired: [], campSpent: 0, log, jobOffers: [], awardRewards };
   if (!checkFired(save) && c.rep >= 40 && rng.chance(0.5)) {
     // a bigger club comes calling
     const better = save.teams.filter(t => t.id !== me.id && t.prestige > me.prestige + 8).sort((a, b) => b.prestige - a.prestige);
@@ -131,7 +205,11 @@ function ageAndRetire(save: Save, rng: Rng): void {
   const minutesOf = (p: Player): number => { const last = p.seasons[p.seasons.length - 1]; return last && last.year === save.year ? last.stats.min / Math.max(1, last.stats.gp) / 48 : 0; };
   for (const team of save.teams) {
     const training = effLevel(team.facilities.training);
-    for (const id of team.roster) progressPlayer(save.players[id], rng, training, clamp(minutesOf(save.players[id]), 0, 1));
+    for (const id of team.roster) {
+      const p = save.players[id], before = ovr(p);
+      progressPlayer(p, rng, training, clamp(minutesOf(p), 0, 1));
+      if (team.id === save.userTeamId) (off.progress ??= []).push({ playerId: id, before, after: ovr(p) });
+    }
   }
   for (const id of [...save.freeAgents, ...save.draftClass]) {
     const p = save.players[id];
