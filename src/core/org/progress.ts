@@ -68,6 +68,12 @@ const WELCOME: Tip = {
     'Start with Roster and Lineup, try Practice to learn the controls, then play your first game.'],
   go: 'practice', goLabel: 'Go to Practice',
 };
+const WEEK_TIP: Tip = {
+  id: 'week', title: 'Your week',
+  text: ['Before every game you get one move, and three to pick from: make a player better for good, buy an edge for this game, or look after the club.',
+    'The three change every week. What you pass on is gone.',
+    'Your players also run hot and cold. A big night heats a player up and he plays above his ratings; a bad one cools him off. Check the lineup before you tip off.'],
+};
 /** The next explainer the player should see, or null. Purely derived from the save. */
 export function nextTip(save: Save): Tip | null {
   const seen = prog(save).seen;
@@ -77,6 +83,7 @@ export function nextTip(save: Save): Tip | null {
     if (t && !seen.includes(t.id)) return t;
     return null;
   }
+  if (careerGames(save) >= 1 && !seen.includes(WEEK_TIP.id)) return WEEK_TIP;
   for (const f of Object.keys(FEATURE_TIPS) as Feature[]) {
     const t = FEATURE_TIPS[f];
     if (t && !seen.includes(t.id) && isUnlocked(save, f)) {

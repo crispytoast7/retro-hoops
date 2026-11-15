@@ -3,6 +3,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { sfx } from '../audio/sfx';
 import { isStar, pointsOf, atCeiling } from '../core/org/xp';
+import { FORM_NAME, formOf } from '../core/org/week';
 import { ovr, stars } from '../core/ratings';
 import type { Player, Save, Team } from '../core/types';
 import { drawPlayer } from '../game/render';
@@ -130,6 +131,13 @@ export function moraleTag(m: number) {
   return m >= 70 ? <span class="tag good">HAPPY</span> : m >= 45 ? <span class="tag">OK</span> : m >= 25 ? <span class="tag gold">UNHAPPY</span> : <span class="tag bad">ANGRY</span>;
 }
 
+/** Hot or cold marker for one of the user's players. */
+export function FormTag({ player }: { player: Player }) {
+  const f = formOf(player);
+  if (!f) return null;
+  return <span class={`tag form ${f > 0 ? 'hot' : 'cold'}`}>{f > 0 ? '▲'.repeat(f) : '▼'.repeat(-f)} {FORM_NAME[f]}</span>;
+}
+
 /** Standard one-line player row used in lists. */
 export function PlayerRow(p: { save: Save; player: Player; onClick?: () => void; right?: ComponentChildren; sel?: boolean; note?: ComponentChildren }) {
   const pl = p.player;
@@ -138,7 +146,7 @@ export function PlayerRow(p: { save: Save; player: Player; onClick?: () => void;
       <span class="tag pos">{pl.pos}</span>
       <div class="grow">
         <div class="nowrap">{pl.scouted !== false && isStar(pl) && <span class="gold" title="Star player">★ </span>}{pl.name}{pl.teamId === p.save.userTeamId && pointsOf(pl) > 0 && !atCeiling(pl) && <span class="badge" style={{ background: 'var(--gold)', color: '#1a0d04' }}>LEVEL UP</span>}{pl.injury && <span class="badge">{pl.injury.desc === 'suspended' ? 'SUS' : 'INJ'} {pl.injury.weeks}W</span>}{p.save.captainId === pl.id && <span class="tag gold" style={{ marginLeft: '4px' }}>C</span>}</div>
-        <div class="row dim" style={{ gap: '6px', fontSize: '17px' }}><Stars v={ovr(pl)} /><span>Age {pl.age}</span>{p.note}</div>
+        <div class="row dim" style={{ gap: '6px', fontSize: '17px' }}><Stars v={ovr(pl)} /><span>Age {pl.age}</span>{pl.teamId === p.save.userTeamId && <FormTag player={pl} />}{p.note}</div>
       </div>
       {p.right}
     </div>

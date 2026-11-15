@@ -7,11 +7,13 @@ import { cal, ROUND_NAMES } from '../core/season/calendar';
 import { advance } from '../core/season/flow';
 import { gamesInWeek, userGame, userGamesInWeek } from '../core/season/schedule';
 import { readyToLevel } from '../core/org/xp';
+import { doPlan, edgeFor, ensureWeek, intel, needsWeek, plansOpen, signSponsor, sponsorOf, sponsorOffers, sponsorOpen, sponsorProgress, weekState } from '../core/org/week';
+import { ovr } from '../core/ratings';
 import { teamRatings } from '../core/sim/engine';
 import type { Effect, Save } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { act, touch, useSave } from '../state/store';
-import { Btn, Meter, Modal, Panel, Stars, fullName, money, recordStr, teamStarCount, toast } from './kit';
+import { Btn, Meter, Modal, Panel, Stars, fullName, money, recordStr, short, teamStarCount, toast } from './kit';
 import { nav, replace, reset } from './router';
 import { holdTips } from './Tips';
 
@@ -63,12 +65,62 @@ function EventModal({ save }: { save: Save }) {
   );
 }
 
+const PLAN_GROUP = { train: 'TRAIN', prep: 'PREPARE', club: 'CLUB' } as const;
+/** One move a week: three to choose from, and what you pass on is gone. */
+function WeekPlan({ save }: { save: Save }) {
+  const w = weekState(save);
+  if (!plansOpen(save) || needsWeek(save) || !w.hand.length) return null;
+  if (w.picked) {
+    const plan = w.hand.find(p => p.id === w.picked);
+    return (
+      <Panel title="YOUR MOVE THIS WEEK">
+        <div class="gold">{plan?.title}</div>
+        <div>{w.result}</div>
+        <div class="dim" style={{ fontSize: '17px' }}>{plan?.effect}</div>
+      </Panel>
+    );
+  }
+  return (
+    <Panel title="YOUR MOVE THIS WEEK · PICK ONE">
+      <div class="col" style={{ gap: '6px' }}>
+        {w.hand.map(p => (
+          <Btn class="opt plan" silent onClick={() => { const r = act((s, rng) => doPlan(s, p.id, rng)); if (r) { if (p.id === 'sponsorday') sfx.coin(); else sfx.select(); } else toast('That is not possible right now.'); }}>
+            <span class={`tag ${p.group === 'train' ? 'good' : p.group === 'prep' ? 'gold' : ''}`}>{PLAN_GROUP[p.group]}</span>
+            <span>{p.title}</span>
+            <span class="fx">{p.effect}</span>
+          </Btn>
+        ))}
+      </div>
+      <div class="dim" style={{ fontSize: '17px', marginTop: '6px' }}>The other two are gone once you choose. New options next week.</div>
+    </Panel>
+  );
+}
+function SponsorOffer({ save }: { save: Save }) {
+  if (!sponsorOpen(save)) return null;
+  return (
+    <Panel title="SPONSOR DEAL · PICK ONE FOR THE SEASON">
+      <div class="col" style={{ gap: '6px' }}>
+        {sponsorOffers(save).map((o, i) => (
+          <Btn class="opt plan" silent onClick={() => { touch(s => signSponsor(s, i)); sfx.coin(); toast(`Signed with ${o.name}.`, true); }}>
+            <span class={`tag ${o.tier === 'Bold' ? 'bad' : o.tier === 'Solid' ? 'gold' : 'good'}`}>{o.tier.toUpperCase()}</span>
+            <span>{o.name}</span>
+            <span class="fx">{o.text}: <span class="gold">+{o.credits} credits</span></span>
+          </Btn>
+        ))}
+      </div>
+      <div class="dim" style={{ fontSize: '17px', marginTop: '6px' }}>Hit the target before the season ends and they pay. Miss it and you get nothing.</div>
+    </Panel>
+  );
+}
+
 export function HubScreen(_p: { params: Record<string, any> }) {
   const save = useSave();
   const me = save.teams[save.userTeamId];
   useEffect(() => {
     if (save.fired) replace('fired');
   }, [save.fired]);
+  // deal this week's plans the first time the hub shows a new week
+  useEffect(() => { if (needsWeek(save)) touch(s => { ensureWeek(s); }); });
   const g = save.phase !== 'offseason' ? userGame(save) : undefined;
   const opp = g ? save.teams[g.homeId === me.id ? g.awayId : g.homeId] : null;
   const rate = (id: number) => { const t = save.teams[id]; return teamRatings(t.roster.map(p => save.players[p]), t.lineup).ovr; };
@@ -94,6 +146,10 @@ export function HubScreen(_p: { params: Record<string, any> }) {
   const series = save.phase === 'playoffs' && g ? save.playoffs?.series.find(s => s.winnerId === undefined && (s.highId === me.id || s.lowId === me.id)) : undefined;
   const myW = series ? (series.highId === me.id ? series.highW : series.lowW) : 0, oppW = series ? (series.highId === me.id ? series.lowW : series.highW) : 0;
   const seriesText = !series || c.seriesWins === 1 ? '' : myW === oppW ? `Series tied ${myW}-${oppW}` : myW > oppW ? `You lead ${myW}-${oppW}` : `You trail ${myW}-${oppW}`;
+  const info = g ? intel(save, g) : null;
+  const edge = edgeFor(save);
+  const planWaiting = plansOpen(save) && !needsWeek(save) && weekState(save).hand.length > 0 && !weekState(save).picked;
+  const sponsor = sponsorOf(save);
   const openGames = save.phase !== 'offseason' && gamesInWeek(save, save.week).some(x => !x.played);
 
   return (
@@ -131,11 +187,21 @@ export function HubScreen(_p: { params: Record<string, any> }) {
               <div class="head dim">{g.homeId === me.id ? 'VS' : 'AT'}</div>
               <div class="col right" style={{ gap: '2px', alignItems: 'flex-end' }}><div class="head">{opp.abbr}</div><Stars n={teamStarCount(rate(opp.id))} /><div class="dim">{opp.name} {recordStr(opp)}</div></div>
             </div>
+            {info && (
+              <div class="intel">
+                {info.rival && <div><span class="tag gold">RIVALRY GAME</span> <span class="gold">Win: +2 credits, fans +3</span></div>}
+                {info.star && <div class="tap" onClick={() => nav('player', { id: info.star!.id })}><span class="dim">Their star:</span> {info.star.pos} {short(info.star.name)} <Stars v={ovr(info.star)} />{info.starPpg > 0 ? <span class="dim"> {info.starPpg.toFixed(1)} ppg</span> : null}</div>}
+                {info.run && <div class={info.run.startsWith('Won') ? 'bad' : 'good'}>{opp.name}: {info.run.toLowerCase()}</div>}
+                {info.race && <div class="dim">{info.race}</div>}
+                {edge && <div class="good">EDGE · {edge.label}</div>}
+              </div>
+            )}
             <div style={{ height: '10px' }} />
             <div class="row">
               <Btn kind="primary big" class="grow" disabled={me.lineup.length < 5} onClick={() => nav('game', { gameId: g.id })}>Play</Btn>
               <Btn onClick={() => sim('simGame')}>Sim</Btn>
             </div>
+            {planWaiting && <div class="gold center" style={{ marginTop: '6px', fontSize: '18px' }}>Make your move for the week first ▼</div>}
             {seriesText && <div class="gold center" style={{ marginTop: '8px' }}>{seriesText} · best of {c.seriesWins * 2 - 1}</div>}
             {(weekGames.length > 1 || c.seriesWins > 1) && <><div style={{ height: '8px' }} /><Btn kind="small block" onClick={simWeek}>{save.phase === 'playoffs' ? 'Sim the rest of the round' : 'Sim the rest of the week'}</Btn></>}
           </Panel>
@@ -146,6 +212,9 @@ export function HubScreen(_p: { params: Record<string, any> }) {
             <Btn kind="primary block" onClick={simWeek}>{save.phase === 'playoffs' ? `Sim ${round}` : 'Finish Week'}</Btn>
           </Panel>
         )}
+
+        <WeekPlan save={save} />
+        <SponsorOffer save={save} />
 
         {todo.length > 0 && save.phase !== 'offseason' && (
           <Panel title={`GETTING STARTED · ${steps.filter(x => x.done).length}/${steps.length}`}>
@@ -196,9 +265,12 @@ export function HubScreen(_p: { params: Record<string, any> }) {
           </div>
         ))}
 
-        <Panel title="OWNER'S GOALS">
+        <Panel title={sponsor ? 'SEASON GOALS' : "OWNER'S GOALS"}>
           <div class="list">
             {save.owner.goals.map(gl => <div class="item"><span class="grow">{gl.text}</span>{gl.done ? <span class="tag good">MET</span> : gl.failed ? <span class="tag bad">MISSED</span> : null}</div>)}
+            {sponsor && (() => { const [v, t] = sponsorProgress(save, sponsor); return (
+              <div class="item"><div class="grow"><div>{sponsor.name}: {sponsor.text.toLowerCase()}</div><div class="dim" style={{ fontSize: '17px' }}>Sponsor deal · {sponsor.paid ? 'paid' : `${v}/${t}`}</div></div><span class={`tag ${sponsor.paid ? 'good' : 'gold'}`}>{sponsor.paid ? 'PAID' : `◉ +${sponsor.credits}`}</span></div>
+            ); })()}
           </div>
           <div class="dim" style={{ fontSize: '17px', marginTop: '4px' }}>
             Payroll {money(payroll(save, me))} vs {money(SALARY_CAP)} cap ({capStatus(save, me)}) · {expiring} contract{expiring === 1 ? '' : 's'} in final year

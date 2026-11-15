@@ -57,7 +57,7 @@ describe('coach progression', () => {
       for (let t = nextTip(save); t; t = nextTip(save)) { seen.push(t.id); markTip(save, t.id); }
     }
     expect(isUnlocked(save, 'trades')).toBe(true);
-    expect(seen).toEqual(['u_stats', 'u_coach', 'u_facilities', 'u_staff', 'u_finances', 'u_trades', 'u_scouting', 'u_history']);
+    expect(seen).toEqual(['week', 'u_stats', 'u_coach', 'u_facilities', 'u_staff', 'u_finances', 'u_trades', 'u_scouting', 'u_history']);
     expect(save.tradeOffer === null || isUnlocked(save, 'trades')).toBe(true);
   });
 

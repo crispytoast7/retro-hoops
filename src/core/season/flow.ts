@@ -5,10 +5,11 @@ import { shortName } from '../gen/league';
 import { fixLineup } from '../lineup';
 import { beginOffseason } from '../offseason/offseason';
 import { CreditLine, checkMilestones, effLevel, gameCredits, headline, pushNews, weeklyFacilities } from '../org/economy';
-import { afterUserGame, checkFired, healWeek, rollEvent, rollInjuries } from '../org/people';
+import { afterUserGame, bumpFans, bumpOwner, checkFired, healWeek, rollEvent, rollInjuries } from '../org/people';
 import { checkTrophies, gameProgress, isUnlocked, perk, seasonProgress } from '../org/progress';
 import { Objective, ObjectiveResult, settleObjective } from '../org/objectives';
 import { gameXp } from '../org/xp';
+import { FormChange, edgeFor, hasEdge, isRivalGame, settleSponsor, sponsorOf, updateForm, weekState, withForm } from '../org/week';
 import { addStats } from '../ratings';
 import type { Rng } from '../rng';
 import { createLiveGame, simulateGame } from '../sim/engine';
@@ -22,10 +23,12 @@ export const CONTROLLED_POSSESSIONS = 11;
 
 export function sideInput(save: Save, teamId: number): SideInput {
   const team = save.teams[teamId];
+  const mine = teamId === save.userTeamId;
   return {
-    team, players: team.roster.map(id => save.players[id]),
-    ocStars: team.staff.oc?.stars ?? 0,
-    dcStars: (team.staff.dc?.stars ?? 0) + (teamId === save.userTeamId ? 0.5 * perk(save, 'film') : 0),
+    // the user's players run hot and cold, and this week's plan may have bought an edge
+    team, players: team.roster.map(id => (mine ? withForm(save.players[id]) : save.players[id])),
+    ocStars: (team.staff.oc?.stars ?? 0) + (mine && hasEdge(save, 'shoot') ? 1 : 0),
+    dcStars: (team.staff.dc?.stars ?? 0) + (mine ? 0.5 * perk(save, 'film') + (hasEdge(save, 'film') ? 1.5 : 0) : 0),
     arenaLevel: effLevel(team.facilities.arena),
     captainId: teamId === save.userTeamId ? save.captainId : null,
   };
@@ -42,7 +45,7 @@ export function buildSetup(save: Save, g: ScheduledGame, controlled: number): Ga
 }
 export function startLiveGame(save: Save, g: ScheduledGame, rng: Rng): LiveGame {
   fixLineup(save, save.teams[g.homeId]); fixLineup(save, save.teams[g.awayId]);
-  return createLiveGame(buildSetup(save, g, CONTROLLED_POSSESSIONS + 2 * perk(save, 'clutch')), rng);
+  return createLiveGame(buildSetup(save, g, CONTROLLED_POSSESSIONS + 2 * perk(save, 'clutch') + (hasEdge(save, 'walk') ? 2 : 0)), rng);
 }
 
 function bumpRecord(team: Team, pf: number, pa: number, conf: boolean): void {
@@ -95,6 +98,10 @@ export interface PostGame {
   playerLevelUps: number[];
   /** The challenge picked before the game, if any. */
   objective: ObjectiveResult | null;
+  /** Players of yours whose form changed. */
+  form: FormChange[];
+  /** What else the game meant: rivalry, a guarantee kept or broken, a sponsor paying out. */
+  notes: { text: string; good: boolean }[];
 }
 /** After the user's own game (played or simmed): credits, coach record, morale, owner, fans. */
 export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult, highlights: string[], rng: Rng, objective?: Objective | null): PostGame {
@@ -119,9 +126,27 @@ export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult,
     }
   }
   const credits = [...gameCredits(save, result, highlights, !!g.playoff, scale), ...checkMilestones(save)];
+  // what the week's plan and the rivalry add
+  const notes: PostGame['notes'] = [];
+  const edge = edgeFor(save);
+  const rival = isRivalGame(save, g);
+  if (rival) {
+    const opp = save.teams[home ? g.awayId : g.homeId];
+    if (won) { credits.push({ label: 'Rivalry win', amount: 2 }); bumpFans(save, 3); notes.push({ text: `You beat your rivals, the ${opp.name}. Fans +3.`, good: true }); }
+    else { bumpFans(save, -2); notes.push({ text: `You lost to your rivals, the ${opp.name}. Fans -2.`, good: false }); }
+  }
+  if (edge?.kind === 'promo') {
+    const gate = credits.find(x => x.label === 'Home gate');
+    if (gate) credits.push({ label: 'Ticket promotion', amount: gate.amount });
+  }
+  if (edge?.kind === 'guarantee') {
+    if (won) { credits.push({ label: 'Guarantee kept', amount: 4 }); bumpFans(save, 4); notes.push({ text: 'You guaranteed it and delivered. Fans +4.', good: true }); }
+    else { bumpOwner(save, -5); bumpFans(save, -3); notes.push({ text: 'You guaranteed a win and lost. Owner -5, fans -3.', good: false }); }
+  }
+  weekState(save).edge = null;
   // fractions of a credit carry over to the next game
   const exact = credits.reduce((s, x) => s + x.amount, 0) + (save.creditCarry ?? 0);
-  const total = Math.floor(exact + 1e-9);
+  let total = Math.floor(exact + 1e-9);
   save.creditCarry = exact - total;
   save.credits += total;
   const me = save.teams[save.userTeamId];
@@ -130,7 +155,15 @@ export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult,
   const gp = gameProgress(save, result, highlights, !!g.playoff, scale);
   const done = objective ? settleObjective(save, objective, result, highlights) : null;
   const playerLevelUps = gameXp(save, lines, g.playoff ? 1 : Math.max(scale, 0.35));
-  return { gameId: g.id, won, credits, total, topPerformer: result.topPerformer, playoff: !!g.playoff, ...gp, playerLevelUps, objective: done };
+  const form = updateForm(save, lines, rng);
+  const sponsor = sponsorOf(save);
+  const bonus = settleSponsor(save, { won, rival });
+  if (bonus > 0 && sponsor) {
+    credits.push({ label: `${sponsor.name} bonus`, amount: bonus }); total += bonus;
+    notes.push({ text: `Sponsor target met: ${sponsor.text}.`, good: true });
+    pushNews(save, 'team', `${sponsor.name} pay the ${me.name} a ${bonus}-credit bonus.`, true);
+  }
+  return { gameId: g.id, won, credits, total, topPerformer: result.topPerformer, playoff: !!g.playoff, ...gp, playerLevelUps, objective: done, form, notes };
 }
 
 function simGame(save: Save, g: ScheduledGame, rng: Rng): PostGame | null {
@@ -221,8 +254,11 @@ function closeWeek(save: Save, rng: Rng): void {
     aiMaintainRosters(save, rng);
     if (save.week === c.deadlineWeek) { pushNews(save, 'league', 'The trade deadline has passed. Rosters are locked until the offseason.'); save.tradeOffer = null; }
     save.week++;
-    if (save.week > c.regWeeks) startPlayoffs(save, rng);
-    else {
+    if (save.week > c.regWeeks) {
+      startPlayoffs(save, rng);
+      const sponsor = sponsorOf(save), bonus = settleSponsor(save);
+      if (bonus > 0 && sponsor) pushNews(save, 'team', `${sponsor.name} pay a ${bonus}-credit bonus: ${sponsor.text.toLowerCase()}.`, true);
+    } else {
       if (save.tradeOffer && validateTrade(save, save.tradeOffer)) save.tradeOffer = null;
       if (!save.tradeOffer && save.week <= c.deadlineWeek && isUnlocked(save, 'trades')) {
         const offer = aiOfferToUser(save, rng);

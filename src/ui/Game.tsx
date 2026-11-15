@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { cal, ROUND_NAMES } from '../core/season/calendar';
 import { Objective, offerObjectives } from '../core/org/objectives';
 import { adaptChallenge, challenge, courtStyle, perk } from '../core/org/progress';
+import { edgeFor, intel, withForm } from '../core/org/week';
 import { Rng } from '../core/rng';
 import { finishUserGame, startLiveGame, PostGame } from '../core/season/flow';
 import type { PossessionResult } from '../core/sim/api';
@@ -10,7 +11,7 @@ import { Arcade, SCENARIOS, Scenario } from '../game/arcade';
 import type { UserPossessionSetup } from '../core/sim/api';
 import { setCrowd, sfx, stopCrowd } from '../audio/sfx';
 import { act, getSave } from '../state/store';
-import { Btn, Stars, short } from './kit';
+import { Btn, FormTag, Stars, short } from './kit';
 import { replace } from './router';
 
 const fmtClock = (s: number): string => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`;
@@ -62,6 +63,9 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
   const ctl = useRef({ fast: false, skip: false, started: null as null | (() => void), cancel: false, go: null as null | (() => void), objective: null as Objective | null, timeouts: 2, callTimeout: null as null | (() => void), adjust: null as null | ((a: Adjust) => void) });
   const [timeouts, setTimeouts] = useState(2);
   const offers = useRef<Objective[]>(offerObjectives(save, g.id)).current;
+  // read once: the edge is spent when the game ends
+  const edge = useRef(edgeFor(save)).current;
+  const info = useRef(intel(save, g)).current;
   const [fast, setFast] = useState(false);
 
   // keep the 8:9 court as large as the space allows
@@ -129,10 +133,10 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
           if (c.cancel) break;
           setOverlay(null); setPlaying(true);
           const res = await arcade.play({
-            poss: s, offense: s.offense.map(id => save.players[id]), defense: s.defense.map(id => save.players[id]),
+            poss: s, offense: s.offense.map(id => withForm(save.players[id])), defense: s.defense.map(id => save.players[id]),
             offColors: me.colors, defColors: (iAmHome ? away : home).colors,
             ocStars: me.staff.oc?.stars ?? 0, difficulty: save.settings.difficulty,
-            perks: { shooting: perk(save, 'shooting') + (adjust === 'shoot' ? 2 : 0), handles: perk(save, 'handles'), passing: perk(save, 'passing'), rim: perk(save, 'rim') + (adjust === 'rim' ? 2 : 0) },
+            perks: { shooting: perk(save, 'shooting') + (adjust === 'shoot' ? 2 : 0) + (edge?.kind === 'shoot' ? 1 : 0), handles: perk(save, 'handles'), passing: perk(save, 'passing'), rim: perk(save, 'rim') + (adjust === 'rim' ? 2 : 0) },
             scenario: sc, hot: { ...hot }, challenge: challenge(save),
           });
           if (c.cancel) break;
@@ -197,6 +201,8 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
           <div class="overlay dimmed scroll">
             <div class="head dim">{g.playoff ? ROUND_NAMES[g.week - cal(save).regWeeks].toUpperCase() : `WEEK ${g.week}`}</div>
             <div class="bigcall">{away.name.toUpperCase()}<br />AT<br />{home.name.toUpperCase()}</div>
+            {info.rival && <div class="head gold">RIVALRY GAME</div>}
+            {edge && <div class="good" style={{ maxWidth: '330px' }}>EDGE · {edge.label}</div>}
             <div class="panel" style={{ maxWidth: '330px', fontSize: '19px', textAlign: 'left' }}>
               <div class="dim">You play the key moments. Score, and your team goes on a run. Waste one, and the other side does.</div>
               {!seen && <div style={{ marginTop: '6px' }}><span class="gold">Drag</span> the court to move. <span class="gold">Touch your player and pull back</span> to shoot or pass. <span class="gold">Flick</span> for a move.</div>}
@@ -252,7 +258,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
           <thead><tr><th>ON THE FLOOR</th><th>SHOOT</th><th>HANDLE</th><th>FINISH</th></tr></thead>
           <tbody>
             {me.lineup.map(id => save.players[id]).filter(Boolean).map(pl => (
-              <tr><td><span class="tag pos">{pl.pos}</span> {short(pl.name)}</td><td><Stars v={pl.ratings.sht} /></td><td><Stars v={pl.ratings.hnd} /></td><td><Stars v={pl.ratings.fin} /></td></tr>
+              <tr><td><span class="tag pos">{pl.pos}</span> {short(pl.name)} <FormTag player={pl} /></td><td><Stars v={pl.ratings.sht} /></td><td><Stars v={pl.ratings.hnd} /></td><td><Stars v={pl.ratings.fin} /></td></tr>
             ))}
           </tbody>
         </table>

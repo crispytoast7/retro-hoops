@@ -223,3 +223,12 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 20px; }
 .cap-note { font-size: 18px; }
 .cap-match { font-size: 17px; display: flex; gap: 6px; align-items: baseline; }
 .cap-match .tag { flex: none; }
+
+/* the week: plans, form, sponsor */
+.tag.form.hot { color: #1a0d04; background: var(--accent); }
+.tag.form.cold { color: #06121f; background: #7fc4ff; }
+.btn.opt.plan { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; row-gap: 3px; align-items: center; }
+.btn.opt.plan .tag { grid-row: span 2; align-self: center; min-width: 64px; text-align: center; }
+.btn.opt.plan .fx { grid-column: 2; }
+.intel { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; font-size: 18px; line-height: 1.1; }
+.intel .rival { align-self: flex-start; }

@@ -44,6 +44,10 @@ one hands the run to the opponent. Games are full length (12-minute quarters, sc
   a team captain. Your players earn XP in games and level up; you choose which rating
   improves. Star players are marked on the court and in every list.
 - Adaptive difficulty: the court gets tougher when you keep scoring in your key moments.
+- A different week every week: one move before each game from three options (train a player
+  for good, buy an edge for this game, or look after the club), opponent intel and the
+  playoff race on the hub, players who run hot and cold, a rival for every team, and a
+  season-long sponsor deal with a safe, a solid and a bold target.
 - Organization: a $150M salary cap (go over it only to re-sign your own players, for minimum
   deals and for draft picks) under a $190M hard limit, coordinators to hire (and lose), four upgradable
   facilities that wear down, credits economy, owner goals and approval, fan support,

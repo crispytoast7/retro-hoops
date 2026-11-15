@@ -2,6 +2,7 @@ import { ROSTER_MIN } from '../core/constants';
 import { marketSalary } from '../core/gm/value';
 import { POINT_GAIN, atCeiling, isStar, levelOfPlayer, pointsOf, spendPoint, xpNeed, xpOfPlayer } from '../core/org/xp';
 import { releaseDeadCap, releasePlayer } from '../core/org/roster';
+import { FORM_NAME, FORM_RATING, formOf } from '../core/org/week';
 import { careerStats, emptyStats, ovr } from '../core/ratings';
 import { RATING_KEYS, RATING_NAMES } from '../core/types';
 import type { StatLine, Trait } from '../core/types';
@@ -66,6 +67,7 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
             <div class="row wrap"><span class="tag pos">{p.pos}</span><span>#{p.num}</span><span class="dim">Age {p.age}</span></div>
             <div class="row">{prospect ? <span class="dim">Unscouted prospect</span> : <Stars v={ovr(p)} big />}{!prospect && isStar(p) && <span class="tag gold">STAR</span>}</div>
             <div class="dim nowrap">{team ? fullName(team) : p.retired ? 'Retired' : prospect || save.draftClass.includes(p.id) ? 'Draft prospect' : 'Free agent'}</div>
+            {mine && formOf(p) !== 0 && <div class={formOf(p) > 0 ? 'accent' : ''} style={formOf(p) < 0 ? { color: '#7fc4ff' } : undefined}>{formOf(p) > 0 ? '▲'.repeat(formOf(p)) : '▼'.repeat(-formOf(p))} {FORM_NAME[formOf(p)]}: playing {Math.abs(formOf(p)) * FORM_RATING} points {formOf(p) > 0 ? 'above' : 'below'} his ratings</div>}
             {p.injury && <div class="bad">{p.injury.desc === 'suspended' ? 'Suspended' : `Injured: ${p.injury.desc}`}, {p.injury.weeks} wk</div>}
             {save.tradeDemands.includes(p.id) && <div class="bad">Has asked for a trade</div>}
           </div>

@@ -26,6 +26,7 @@ src/
     gm/          AI general managers: trade value, free agency, draft
     org/         Finances, contracts, staff, facilities, morale, owner, events,
                  coach progression (levels, perks, trophies, feature unlocks)
+                 the week between games (plans, edges, form, rivals, sponsor deals)
     offseason/   Awards, retirements, re-signing, draft, free agency, camp
   data/        Name lists, cities, team names, event and news text
   game/        The arcade part: court renderer, sprites, input, shot meter,

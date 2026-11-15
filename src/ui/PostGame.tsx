@@ -5,6 +5,7 @@ import type { BoxLine } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { act, useSave } from '../state/store';
 import { Btn, Panel, Sprite, Tabs, short } from './kit';
+import { FORM_NAME } from '../core/org/week';
 import { nav, reset } from './router';
 
 function Box({ lines, names }: { lines: BoxLine[]; names: (id: number) => string }) {
@@ -75,6 +76,19 @@ export function PostGameScreen({ params }: { params: Record<string, any> }) {
           <Panel title="YOUR CHALLENGE">
             <div class="row"><span class="grow">{post.objective.text}</span><span class={`tag ${post.objective.done ? 'good' : 'bad'}`}>{post.objective.done ? 'DONE' : 'MISSED'}</span></div>
             {post.objective.done && <div class="gold" style={{ marginTop: '4px' }}>{post.objective.reward}</div>}
+          </Panel>
+        )}
+        {((post.notes ?? []).length > 0 || (post.form ?? []).length > 0) && (
+          <Panel title="WHAT IT MEANT">
+            <div class="list">
+              {(post.notes ?? []).map(n => <div class="item" style={{ minHeight: 0 }}><span class={n.good ? 'good' : 'bad'}>{n.text}</span></div>)}
+              {(post.form ?? []).map(f => save.players[f.playerId] && (
+                <div class="item tap" style={{ minHeight: 0 }} onClick={() => nav('player', { id: f.playerId })}>
+                  <span class="grow">{short(save.players[f.playerId].name)} {f.up ? (f.form > 0 ? 'is heating up' : f.form === 0 ? 'is back to his usual self' : 'is coming around') : f.form < 0 ? 'has gone cold' : f.form === 0 ? 'has cooled off' : 'cools a little'}</span>
+                  {f.form !== 0 && <span class={`tag form ${f.form > 0 ? 'hot' : 'cold'}`}>{f.form > 0 ? '▲'.repeat(f.form) : '▼'.repeat(-f.form)} {FORM_NAME[f.form]}</span>}
+                </div>
+              ))}
+            </div>
           </Panel>
         )}
         <Panel title="COACH XP">
