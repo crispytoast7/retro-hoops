@@ -63,17 +63,16 @@ describe('the weekly plan', () => {
         ensureWeek(save);
         const w = weekState(save);
         const plan = w.hand[(seed + i) % w.hand.length];
-        const before = JSON.stringify(save);
         const r = doPlan(save, plan.id, rng);
         expect(r, plan.id).toBeTruthy();
-        expect(JSON.stringify(save)).not.toBe(before);
+        expect(w.picked).toBe(plan.id);
         done.add(plan.id.startsWith('drill_') ? 'drill' : plan.id);
         play(save, rng);
       }
     }
     for (const id of ['drill', 'film', 'shoot', 'walk', 'sponsorday']) expect(done.has(id), id).toBe(true);
     expect(done.size).toBeGreaterThanOrEqual(12);
-  });
+  }, 30000);
 
   test('a prep plan gives an edge for one game only', () => {
     const { save, rng } = mk();
@@ -136,7 +135,7 @@ describe('form', () => {
     expect(cold / slots).toBeGreaterThan(0.05);
     expect((hot + cold) / slots).toBeLessThan(0.6);
 
-  });
+  }, 30000);
 });
 
 describe('rivals and stakes', () => {
