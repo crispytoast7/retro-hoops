@@ -42,7 +42,7 @@ export const SCENARIOS: Record<Scenario, { name: string; hint: string }> = {
   iso: { name: 'ISOLATION', hint: 'Clear out. Your star, one on one.' },
   open: { name: 'OPEN LOOK', hint: 'He is open. Shoot it before the defender arrives.' },
   lateclock: { name: 'SHOT CLOCK DOWN', hint: 'Seven seconds. Make something happen.' },
-  freethrows: { name: 'AT THE LINE', hint: 'Two shots. Hold, and release in the green.' },
+  freethrows: { name: 'AT THE LINE', hint: 'Two shots. Hold, then let go when the crosshair is on the rim.' },
 };
 export interface Guide {
   /** A spot to dribble to; the possession ends when the ball-handler gets there. */
@@ -88,6 +88,7 @@ const SHOT_CONE = 0.82;   // cos 35deg: a pull this well lined up with the hoop 
 const MATE_CONE = 0.92;   // cos 23deg: a pull lined up with a teammate is the start of a pass
 const LEAD_REACH = 26;    // a pass to a spot needs a teammate who will be this close to it
 const AIM_QUICK = 0.18;   // a flick off your player this fast is a move, not a shot
+const FT_HOLD = 0.3;      // a free throw has to be held this long: a tap does not shoot
 const R_SWISH = 3.0;      // reticle this close to the rim's centre: nothing but net
 const R_RIM = 7.2;        // inside this it may roll in
 const R_IRON = 11.5;      // inside this it hits iron; beyond is an airball
@@ -542,7 +543,8 @@ export class Arcade {
   private aimWobble(h: Ent): { amp: number; w: number } {
     const sht = h.p.ratings.sht / 100;
     const k = Math.pow(this.chal, 0.9), kw = 1 + 0.3 * (this.chal - 1);
-    if (this.ftMode) return { amp: 8.5 * (1.4 - 0.85 * sht) * this.diff.aim * k, w: (4.2 + 3 * (1 - sht)) * kw };
+    // wide enough that letting go without looking misses more often than not, slow enough to time
+    if (this.ftMode) return { amp: 11 * (1.45 - 0.85 * sht) * this.diff.aim * k, w: (3.4 + 2.6 * (1 - sht)) * kw };
     const dist = Math.hypot(h.x - HOOP.x, h.y - HOOP.y);
     const distK = dist > 135 ? 2 : isThree(h.x, h.y) ? 1.25 : dist < 45 ? 0.8 : 1;
     const { c } = this.contestAt(h);
@@ -613,6 +615,7 @@ export class Arcade {
     a.on = false;
     this.slowmo = 1;
     if (a.kind === 'none') { this.phase = 'live'; return; }
+    if (this.ftMode && a.t < FT_HOLD) { this.phase = 'live'; this.popup('HOLD, THEN LET GO', PAL.white, 1, 150); return; }
     if (!a.kb && !this.ftMode && a.t < AIM_QUICK) {
       // too fast to have been aimed: it was a flick, so make the move in the direction he flicked
       this.phase = 'live';
