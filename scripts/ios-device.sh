@@ -11,7 +11,7 @@ TEAM="${IOS_TEAM:-$(security find-certificate -c "Apple Development" -p 2>/dev/n
 if [ -z "$TEAM" ]; then echo "No Apple Development certificate found. Open Xcode > Settings > Accounts, add your Apple ID, then run this again."; exit 1; fi
 
 # a real iPhone only (simulators show up in this list too)
-DEVICE="$(xcrun devicectl list devices 2>/dev/null | awk '/iPhone/ && /physical/ && /(connected|available)/ {for (i = 1; i <= NF; i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F-]{8,}$/) {print $i; exit}}')"
+DEVICE="$(xcrun devicectl list devices 2>/dev/null | awk '/iPhone/ && !/simulated/ && /(connected|available)/ {for (i = 1; i <= NF; i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F-]{8,}$/) {print $i; exit}}')"
 if [ -z "$DEVICE" ]; then echo "No iPhone found. Plug it in, unlock it, tap Trust, and make sure Developer Mode is on."; exit 1; fi
 
 echo "Building the web app..."
