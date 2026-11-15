@@ -90,6 +90,8 @@ const LEAD_REACH = 26;    // a pass to a spot needs a teammate who will be this 
 const AIM_QUICK = 0.18;   // a flick off your player this fast is a move, not a shot
 const PUTBACK_RANGE = 42;  // an offensive board this close to the rim can go straight back up
 const PUTBACK_TIME = 0.9;   // seconds (real time) the chance stays open
+const AIM_HOLD = 0.22;     // the SHOOT button has to be held this long: a tap is not a shot
+const AMP_FLOOR = 9.5;     // the crosshair never swings less than this, so letting go blind is a bad bet for anyone
 const FT_HOLD = 0.3;      // a free throw has to be held this long: a tap does not shoot
 const R_SWISH = 3.0;      // reticle this close to the rim's centre: nothing but net
 const R_RIM = 7.2;        // inside this it may roll in
@@ -566,7 +568,8 @@ export class Arcade {
     this.putback = 0;
     const h = this.off[this.handler];
     h.vx = 0; h.vy = 0;
-    this.aim = { on: true, t: 0, kb, ph: Math.random() * 6.28, kind: 'none', mate: -1, tx: h.x, ty: h.y, wx: 0, wy: 0, amp: 0, armed: false };
+    // it starts out wide, left or right, so an instant release is a miss and the shot has to be timed
+    this.aim = { on: true, t: 0, kb, ph: (Math.random() < 0.5 ? 0.5 : 1.5) * Math.PI + (Math.random() - 0.5) * 0.9, kind: 'none', mate: -1, tx: h.x, ty: h.y, wx: 0, wy: 0, amp: 0, armed: false };
     this.phase = 'charge';
   }
   /** How far the reticle wanders: steadier for good shooters, wilder from deep or under pressure. */
@@ -574,14 +577,17 @@ export class Arcade {
     const sht = h.p.ratings.sht / 100;
     const k = Math.pow(this.chal, 0.9), kw = 1 + 0.3 * (this.chal - 1);
     // wide enough that letting go without looking misses more often than not, slow enough to time
-    if (this.ftMode) return { amp: 11 * (1.45 - 0.85 * sht) * this.diff.aim * k, w: (3.4 + 2.6 * (1 - sht)) * kw };
+    if (this.ftMode) return { amp: Math.max(AMP_FLOOR, 11 * (1.45 - 0.85 * sht)) * this.diff.aim * k, w: (3.4 + 2.6 * (1 - sht)) * kw };
     const dist = Math.hypot(h.x - HOOP.x, h.y - HOOP.y);
     const distK = dist > 135 ? 2 : isThree(h.x, h.y) ? 1.25 : dist < 45 ? 0.8 : 1;
     const { c } = this.contestAt(h);
     const heat = this.hot[h.p.id] ?? 0;
-    let amp = 10.5 * distK * (1.45 - 0.9 * sht) * (1 + c) * this.diff.aim * k;
-    amp *= (1 - 0.07 * this.pk.shooting) * (1 - 0.03 * this.s.ocStars) * (heat >= 3 ? 0.7 : heat === 2 ? 0.85 : 1) * (this.practice ? 0.6 : 1);
-    return { amp, w: (4 + 4.5 * (1 - sht)) * (1 + 0.35 * c) * kw };
+    // ratings, perks and a hot hand tighten the swing, but only down to the floor; past that they slow it
+    const ease = (1 - 0.07 * this.pk.shooting) * (1 - 0.03 * this.s.ocStars) * (heat >= 3 ? 0.7 : heat === 2 ? 0.85 : 1);
+    const raw = 10.5 * distK * (1.45 - 0.9 * sht) * (1 + c) * ease;
+    const amp = Math.max(AMP_FLOOR, raw) * this.diff.aim * k * (this.practice ? 0.6 : 1);
+    const slow = raw < AMP_FLOOR ? 0.75 + 0.25 * (raw / AMP_FLOOR) : 1;
+    return { amp, w: (4 + 4.5 * (1 - sht)) * (1 + 0.35 * c) * kw * slow };
   }
   /** Work out what the current pull is aimed at. Runs every frame while aiming, in real time. */
   private updateAim(): void {
@@ -645,6 +651,7 @@ export class Arcade {
     a.on = false;
     this.slowmo = 1;
     if (a.kind === 'none') { this.phase = 'live'; return; }
+    if (a.kb && !this.ftMode && a.t < AIM_HOLD) { this.phase = 'live'; this.popup('HOLD TO AIM', PAL.white, 1, 150); return; }
     if (this.ftMode && a.t < FT_HOLD) { this.phase = 'live'; this.popup('HOLD, THEN LET GO', PAL.white, 1, 150); return; }
     if (!a.kb && !this.ftMode && a.t < AIM_QUICK) {
       // too fast to have been aimed: it was a flick, so make the move in the direction he flicked
@@ -664,7 +671,7 @@ export class Arcade {
     const d = Math.hypot(a.wx, a.wy);
     const q = d <= R_SWISH ? 3 : d <= R_RIM ? 2 : d <= R_IRON ? 1 : 0;
     this.lastQuality = q;
-    let made = q === 3 || (q === 2 && Math.random() < 1 - 0.7 * ((d - R_SWISH) / (R_RIM - R_SWISH)));
+    let made = q === 3 || (q === 2 && Math.random() < 1 - 0.8 * ((d - R_SWISH) / (R_RIM - R_SWISH)));
     if (q === 3) { sfx.perfect(); this.highlights.push('perfect'); }
     this.popup(['WAY OFF', 'OFF THE MARK', 'ON THE RIM', 'DEAD CENTRE!'][q], [PAL.red, '#ffa04d', PAL.white, PAL.green][q], 1, h.y - 46);
     if (this.ftMode) { this.launch(h, made, 'mid', 1, q, -1, false, a.wx, a.wy); return; }
