@@ -188,3 +188,66 @@ describe('sponsor deals', () => {
     expect(save.credits).toBeGreaterThan(credits);
   });
 });
+
+describe('the league reacts to you', () => {
+  test('a new coach starts on the weakest roster, with a gentle court and a patient owner', async () => {
+    const { worstTeam, chooseTeam: choose } = await import('../src/core/offseason/offseason');
+    const { teamStrength } = await import('../src/core/gm/value');
+    const { challenge, CHALLENGE_START } = await import('../src/core/org/progress');
+    const { checkFired } = await import('../src/core/org/people');
+    const save = newLeague({ seed: 9, coachName: 'T', coachLook: { skin: 0, hair: 0, hairColor: 0 }, settings: { sound: false, difficulty: 'normal', haptics: false }, calendar: CALENDARS.classic });
+    const w = worstTeam(save);
+    for (const t of save.teams) expect(teamStrength(save, t)).toBeGreaterThanOrEqual(teamStrength(save, w));
+    choose(save, w.id, new Rng(save.rng));
+    expect(challenge(save)).toBe(CHALLENGE_START);
+    save.owner.approval = 0;
+    expect(checkFired(save)).toBe(false); // first season: safe
+    save.year++;
+    save.owner.approval = 0;
+    expect(checkFired(save)).toBe(true);
+  });
+
+  test('struggling eases the court quickly, cruising tightens it, within limits', async () => {
+    const { adaptChallenge, challenge, CHALLENGE_MIN, coachTips } = await import('../src/core/org/progress');
+    const { save } = mk();
+    const start = challenge(save);
+    adaptChallenge(save, 1, 11);
+    const eased = challenge(save);
+    expect(eased).toBeLessThanOrEqual(start - 0.2);
+    for (let i = 0; i < 6; i++) adaptChallenge(save, 0, 11);
+    expect(challenge(save)).toBe(CHALLENGE_MIN);
+    for (let i = 0; i < 12; i++) adaptChallenge(save, 10, 11);
+    expect(challenge(save)).toBe(2.6);
+    const tips = coachTips({ moments: 11, scored: 2, turnovers: 4, wayOff: 3, shotClock: 0, fakes: 0, passes: 0 }, 'normal', CHALLENGE_MIN);
+    expect(tips.length).toBe(3);
+    expect(tips[0]).toMatch(/losing the ball/);
+    expect(tips[2]).toMatch(/Rookie/);
+    expect(coachTips({ moments: 11, scored: 7, turnovers: 4, wayOff: 3, shotClock: 0, fakes: 0, passes: 0 }, 'normal', 1)).toEqual([]);
+  });
+
+  test("winners get everyone's best game and strugglers are taken lightly", async () => {
+    const { pressure, withPressure } = await import('../src/core/org/week');
+    const { buildSetup } = await import('../src/core/season/flow');
+    const { save, rng } = mk();
+    expect(pressure(save)).toBe(0);
+    const me = save.teams[save.userTeamId];
+    me.record.w = 9; me.record.l = 1;
+    expect(pressure(save)).toBeGreaterThanOrEqual(2);
+    const g = userGame(save)!;
+    const oppId = g.homeId === me.id ? g.awayId : g.homeId;
+    const setup = buildSetup(save, g, 0);
+    const oppSide = setup.home.team.id === oppId ? setup.home : setup.away, mySide = setup.home.team.id === oppId ? setup.away : setup.home;
+    const real = save.players[oppSide.players[0].id];
+    expect(oppSide.players[0].ratings.def).toBe(Math.min(99, real.ratings.def + pressure(save)));
+    expect(mySide.players[0].ratings.def).toBe(save.players[mySide.players[0].id].ratings.def);
+    me.record.w = 1; me.record.l = 9;
+    expect(pressure(save)).toBeLessThanOrEqual(-1.5);
+    expect(withPressure(real, 0)).toBe(real);
+    // last year's champions carry a target all season
+    me.record.w = 0; me.record.l = 0;
+    save.history.push({ year: save.year, championId: me.id, runnerUpId: 0, mvp: null, awards: [], userTeamId: me.id, userW: 12, userL: 2, userPlayoff: 'champ' });
+    save.year++;
+    expect(pressure(save)).toBe(3);
+    void rng;
+  });
+});

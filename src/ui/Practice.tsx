@@ -1,4 +1,4 @@
-// Hands-on tutorial for the on-court controls: four short drills against a passive defense.
+// Hands-on tutorial for the on-court controls: seven short drills against a passive defense.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { VIEW_H } from '../game/render';
 import { Arcade, ArcadeResult, Guide, Phase } from '../game/arcade';
@@ -27,6 +27,9 @@ const DRILLS: Drill[] = [
   { title: 'SHOOT', brief: 'Hold the SHOOT button, bottom right. A crosshair drifts around the rim: let go when it is over the rim. It works from anywhere on the court.',
     say: { live: 'HOLD the SHOOT button', charge: 'LET GO when the crosshair is over the rim (green)', shot: 'Green crosshair = swish' }, guide: { demo: 'hold' },
     done: r => { const s = shot(r); return !!s && (s.type === 'three' || s.type === 'mid') && r.quality >= 2; }, retry: 'Hold SHOOT, wait for the crosshair to turn green or gold, then let go.' },
+  { title: 'PUMP FAKE', brief: 'A defender right on you? TAP the SHOOT button: a quick tap, not a hold. Your player shows the ball. If the defender jumps he is out of the play for a moment, and you are open.',
+    say: { live: 'TAP SHOOT. When he jumps, HOLD SHOOT and score.', charge: 'LET GO when the crosshair is over the rim' }, guide: { tight: true, demo: 'faketap' },
+    done: r => r.highlights.includes('fake'), retry: 'A tap, not a hold. If he does not jump, wait a second and tap again. Then take your shot.' },
   { title: 'PASS', brief: 'Tap a teammate to pass him the ball. You then control him.',
     say: { live: 'TAP the teammate with the yellow ring', pass: 'The ball is on its way' }, guide: { mate: 1, demo: 'tap', endOnCatch: true },
     done: r => r.passes > 0, retry: 'Tap right on the teammate with the ring.' },
@@ -97,7 +100,8 @@ export function PracticeScreen(_p: { params: Record<string, any> }) {
                 <div class="bigcall">READY TO PLAY</div>
                 <div class="panel" style={{ maxWidth: '330px', fontSize: '19px', textAlign: 'left' }}>
                   <div>In real games there is a shot clock, defenders reach for the ball, and passes can be picked off.</div>
-                  <div class="dim" style={{ marginTop: '6px' }}>Missed shots can be rebounded by your big men for a second chance.</div>
+                  <div class="dim" style={{ marginTop: '6px' }}>When one of your players grabs a rebound near the rim, the button flashes PUT BACK: press it and he goes straight back up.</div>
+                  <div class="dim" style={{ marginTop: '6px' }}>The court starts out forgiving and gets tougher as you score more.</div>
                 </div>
                 <Btn kind="primary big" onClick={back}>Done</Btn>
               </>

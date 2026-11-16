@@ -4,7 +4,7 @@ import { genFreeAgents, genProspects, genStaffPool, shortName } from '../gen/lea
 import { aiDraftChoice, rookieContract } from '../gm/draft';
 import { aiFillRosters, runFreeAgencyDay } from '../gm/freeAgency';
 import { aiMakeRoom, aiMaintainRosters, aiResignPhase, updateStrategies } from '../gm/teamAi';
-import { askingContract, marketSalary } from '../gm/value';
+import { askingContract, marketSalary, teamStrength } from '../gm/value';
 import { fixLineup } from '../lineup';
 import { effLevel, headline, maybePoach, pushNews, scoutPointsPerSeason, teamName } from '../org/economy';
 import { signingPath } from '../org/finance';
@@ -16,6 +16,7 @@ import { cal } from '../season/calendar';
 import { cmpTeams, genSchedule } from '../season/schedule';
 import type { OffseasonStep, Player, PlayoffSeries, Save, SeasonHistory, StatLine, Team, TeamSeason } from '../types';
 import { grantXp } from '../org/xp';
+import { startChallenge } from '../org/progress';
 
 const STEPS: OffseasonStep[] = ['awards', 'retirements', 'contracts', 'draft', 'freeAgency', 'camp', 'done'];
 const per = (s: StatLine, k: keyof StatLine): number => (s.gp ? s[k] / s.gp : 0);
@@ -188,6 +189,11 @@ export function beginOffseason(save: Save, rng: Rng): void {
     // a bigger club comes calling
     const better = save.teams.filter(t => t.id !== me.id && t.prestige > me.prestige + 8).sort((a, b) => b.prestige - a.prestige);
     if (better.length) save.offseason.jobOffers = [rng.pick(better.slice(0, 3)).id];
+  }
+  if (myFinish === 'champ' && !save.fired) {
+    // nothing left to prove here: the worst club in the league asks whether you could do it again
+    const bottom = save.teams.filter(t => t.id !== me.id).sort((x, y) => teamStrength(save, x) - teamStrength(save, y))[0];
+    if (bottom && !save.offseason.jobOffers!.includes(bottom.id)) save.offseason.jobOffers!.push(bottom.id);
   }
 }
 
@@ -476,8 +482,11 @@ export function startNewSeason(save: Save, rng: Rng): void {
 }
 
 /** First-time setup after the user picks a franchise. */
+/** The weakest roster in the league: where every new coach starts. */
+export const worstTeam = (save: Save): Team => save.teams.slice().sort((x, y) => teamStrength(save, x) - teamStrength(save, y))[0];
 export function chooseTeam(save: Save, teamId: number, rng: Rng): void {
   save.userTeamId = teamId;
+  startChallenge(save);
   save.coach.stops = [{ teamId, from: 1, to: null, w: 0, l: 0, titles: 0 }];
   save.fans = clamp(Math.round(35 + save.teams[teamId].prestige * 0.3), 20, 75);
   save.schedule = genSchedule(save, rng);

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { cal, ROUND_NAMES } from '../core/season/calendar';
 import { Objective, offerObjectives } from '../core/org/objectives';
-import { adaptChallenge, challenge, courtStyle, perk } from '../core/org/progress';
-import { edgeFor, intel, withForm } from '../core/org/week';
+import { MomentStats, adaptChallenge, challenge, coachTips, courtStyle, perk } from '../core/org/progress';
+import { edgeFor, intel, pressure, withForm, withPressure } from '../core/org/week';
 import { Rng } from '../core/rng';
 import { finishUserGame, startLiveGame, PostGame } from '../core/season/flow';
 import type { PossessionResult } from '../core/sim/api';
@@ -67,6 +67,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
   const edge = useRef(edgeFor(save)).current;
   const info = useRef(intel(save, g)).current;
   const [fast, setFast] = useState(false);
+  const tipsRef = useRef<string[]>([]);
 
   // keep the 8:9 court as large as the space allows
   useEffect(() => {
@@ -107,6 +108,8 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
     let myRun = 0, oppRun = 0, moments = 0;
     let adjust: Adjust | null = null;
     let scored = 0;
+    const lean = pressure(save);
+    const stats: MomentStats = { moments: 0, scored: 0, turnovers: 0, wayOff: 0, shotClock: 0, fakes: 0, passes: 0 };
     const run = async () => {
       await new Promise<void>(res => { c.started = res; });
       sfx.whistle();
@@ -133,7 +136,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
           if (c.cancel) break;
           setOverlay(null); setPlaying(true);
           const res = await arcade.play({
-            poss: s, offense: s.offense.map(id => withForm(save.players[id])), defense: s.defense.map(id => save.players[id]),
+            poss: s, offense: s.offense.map(id => withForm(save.players[id])), defense: s.defense.map(id => withPressure(save.players[id], lean)),
             offColors: me.colors, defColors: (iAmHome ? away : home).colors,
             ocStars: me.staff.oc?.stars ?? 0, difficulty: save.settings.difficulty,
             perks: { shooting: perk(save, 'shooting') + (adjust === 'shoot' ? 2 : 0) + (edge?.kind === 'shoot' ? 1 : 0), handles: perk(save, 'handles'), passing: perk(save, 'passing'), rim: perk(save, 'rim') + (adjust === 'rim' ? 2 : 0) },
@@ -143,6 +146,11 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
           setPlaying(false);
           highlights.push('played', ...res.highlights);
           if (res.points > 0) scored++;
+          stats.moments++; if (res.points > 0) stats.scored++;
+          stats.passes += res.passes;
+          if (res.highlights.includes('fake')) stats.fakes++;
+          for (const ev of res.outcome.events) if (ev.t === 'tov') { if ((ev as { kind?: string }).kind === 'shotclock') stats.shotClock++; else stats.turnovers++; }
+          if (res.quality === 0 || res.quality === 1) stats.wayOff++;
           let fire = '';
           for (const sh of res.shots) {
             hot[sh.by] = sh.made ? (hot[sh.by] ?? 0) + 1 : 0;
@@ -176,6 +184,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
       const post = act((s, rng) => { adaptChallenge(s, scored, moments); return finishUserGame(s, s.schedule.find(x => x.id === g.id)!, result, highlights, rng, c.objective); });
       setScore(sc => ({ ...sc, home: result.homeScore, away: result.awayScore }));
       sfx.buzzer(); if (post.won) { sfx.cheer(true); sfx.fanfare(); } else sfx.groan();
+      tipsRef.current = coachTips(stats, save.settings.difficulty, challenge(getSave()));
       setOverlay({ kind: 'final', post });
     };
     void run();
@@ -249,7 +258,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
           <div class="overlay dimmed">
             <div class="bigcall" style={{ color: overlay.post.won ? 'var(--good)' : 'var(--bad)' }}>{overlay.post.won ? 'VICTORY!' : 'DEFEAT'}</div>
             <div class="head">{myScore} - {oppScore}</div>
-            <Btn kind="primary big" onClick={() => replace('postgame', { post: overlay.post })}>Continue</Btn>
+            <Btn kind="primary big" onClick={() => replace('postgame', { post: overlay.post, tips: tipsRef.current })}>Continue</Btn>
           </div>
         )}
       </div>

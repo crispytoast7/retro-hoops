@@ -9,7 +9,7 @@ import { afterUserGame, bumpFans, bumpOwner, checkFired, healWeek, rollEvent, ro
 import { checkTrophies, gameProgress, isUnlocked, perk, seasonProgress } from '../org/progress';
 import { Objective, ObjectiveResult, settleObjective } from '../org/objectives';
 import { gameXp } from '../org/xp';
-import { FormChange, awardPlayerOfWeek, edgeFor, hasEdge, isRivalGame, notePerformance, settleSponsor, sponsorOf, updateForm, weekState, withForm } from '../org/week';
+import { FormChange, awardPlayerOfWeek, edgeFor, hasEdge, pressure, withPressure, isRivalGame, notePerformance, settleSponsor, sponsorOf, updateForm, weekState, withForm } from '../org/week';
 import { addStats } from '../ratings';
 import type { Rng } from '../rng';
 import { createLiveGame, simulateGame } from '../sim/engine';
@@ -35,8 +35,11 @@ export function sideInput(save: Save, teamId: number): SideInput {
 }
 export function buildSetup(save: Save, g: ScheduledGame, controlled: number): GameSetup {
   const mine = g.homeId === save.userTeamId || g.awayId === save.userTeamId;
+  // against the user, opponents raise or drop their game with how he is doing
+  const lean = mine ? pressure(save) : 0;
+  const side = (id: number): SideInput => { const s = sideInput(save, id); return lean && id !== save.userTeamId ? { ...s, players: s.players.map(p => withPressure(p, lean)) } : s; };
   return {
-    home: sideInput(save, g.homeId), away: sideInput(save, g.awayId),
+    home: side(g.homeId), away: side(g.awayId),
     userTeamId: mine && controlled > 0 ? save.userTeamId : null,
     controlled, playoff: !!g.playoff,
     fans: g.homeId === save.userTeamId ? save.fans : 50,

@@ -8,7 +8,7 @@ import { advance } from '../core/season/flow';
 import { gamesInWeek, userGame, userGamesInWeek } from '../core/season/schedule';
 import { playoffMoment } from '../core/season/bracket';
 import { readyToLevel } from '../core/org/xp';
-import { doPlan, edgeFor, ensureWeek, honorNow, intel, needsWeek, plansOpen, signSponsor, sponsorOf, sponsorOffers, sponsorOpen, sponsorProgress, weekState } from '../core/org/week';
+import { doPlan, edgeFor, ensureWeek, honorNow, intel, pressure, needsWeek, plansOpen, signSponsor, sponsorOf, sponsorOffers, sponsorOpen, sponsorProgress, weekState } from '../core/org/week';
 import { ovr } from '../core/ratings';
 import { teamRatings } from '../core/sim/engine';
 import type { Effect, Save } from '../core/types';
@@ -158,6 +158,7 @@ export function HubScreen(_p: { params: Record<string, any> }) {
   const seriesText = !series || c.seriesWins === 1 ? '' : myW === oppW ? `Series tied ${myW}-${oppW}` : myW > oppW ? `You lead ${myW}-${oppW}` : `You trail ${myW}-${oppW}`;
   const info = g ? intel(save, g) : null;
   const edge = edgeFor(save);
+  const lean = g ? pressure(save) : 0;
   const planWaiting = plansOpen(save) && !needsWeek(save) && weekState(save).hand.length > 0 && !weekState(save).picked;
   const sponsor = sponsorOf(save);
   const openGames = save.phase !== 'offseason' && gamesInWeek(save, save.week).some(x => !x.played);
@@ -203,6 +204,8 @@ export function HubScreen(_p: { params: Record<string, any> }) {
                 {info.star && <div class="tap" onClick={() => nav('player', { id: info.star!.id })}><span class="dim">Their star:</span> {info.star.pos} {short(info.star.name)} <Stars v={ovr(info.star)} />{info.starPpg > 0 ? <span class="dim"> {info.starPpg.toFixed(1)} ppg</span> : null}</div>}
                 {info.run && <div class={info.run.startsWith('Won') ? 'bad' : 'good'}>{opp.name}: {info.run.toLowerCase()}</div>}
                 {info.race && <div class="dim">{info.race}</div>}
+                {lean >= 1.5 && <div class="bad">TARGET ON YOUR BACK · everyone brings their best against you (opponents +{lean})</div>}
+                {lean <= -1 && <div class="good">TAKEN LIGHTLY · they are not up for this one (opponents {lean})</div>}
                 {edge && <div class="good">EDGE · {edge.label}</div>}
               </div>
             )}

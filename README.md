@@ -62,6 +62,11 @@ one hands the run to the opponent. Games are full length (12-minute quarters, sc
   when the playoffs begin and after every round, a championship celebration, a Player of
   the Week, an awards night, a draft-lottery reveal, a summer progress report and a playable
   training-camp shootaround.
+- A career that starts at the bottom and stays interesting: every new coach is handed the
+  weakest roster (with an owner who cannot fire him in year one), opponents raise their game
+  against champions and runaway leaders and ease off against a team at the bottom, the court
+  adapts in both directions to how you are scoring, a rough game ends with concrete coach's
+  notes, and a title brings an offer to do it again with the worst club in the league.
 - Saves automatically on the device; export/import a save file in Settings.
 
 ## Run locally

@@ -327,7 +327,9 @@ function AwardsStep({ save }: { save: Save }) {
                 <div class="row dim ox-sub">{last && <span>{last.w}-{last.l} last season</span>}<span class="row" style={{ gap: '4px' }}>Prestige <Stars n={Math.max(0.5, Math.round(t.prestige / 10) / 2)} /></span></div>
               </div>
             </div>
-            <div class="dim" style={{ fontSize: '18px', margin: '6px 0' }}>A bigger club wants you as head coach. You do not have to answer: the offer lapses when you continue.</div>
+            <div class="dim" style={{ fontSize: '18px', margin: '6px 0' }}>{t.prestige > save.teams[save.userTeamId].prestige + 8
+              ? 'A bigger club wants you as head coach. You do not have to answer: the offer lapses when you continue.'
+              : 'A NEW CHALLENGE: you have won it all here. This club, one of the weakest in the league, asks whether you could do it again. Your coach level, perks and credits come with you. You do not have to answer.'}</div>
             <Btn kind="primary" class="block" onClick={() => { void take(id); }}>Take the job</Btn>
           </Panel>
         );

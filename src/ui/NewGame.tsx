@@ -1,4 +1,6 @@
 import { useState } from 'preact/hooks';
+import { worstTeam } from '../core/offseason/offseason';
+import { ovr } from '../core/ratings';
 import { teamRatings } from '../core/sim/engine';
 import { CALENDARS } from '../core/season/calendar';
 import type { Difficulty, Save } from '../core/types';
@@ -47,27 +49,40 @@ export function NewGameScreen(_p: { params: Record<string, any> }) {
             ))}
           </div>
         </Panel>
-        <Btn kind="primary big" onClick={() => make()}>Generate League</Btn>
+        <Btn kind="primary big" onClick={() => make()}>Start my career</Btn>
       </Screen>
     );
   }
 
-  const rows = league.teams.map(t => ({ t, r: teamRatings(t.roster.map(id => league.players[id]), t.lineup) })).sort((a, b) => b.r.ovr - a.r.ovr);
+  // every new coach is handed the weakest roster in the league
+  const t = worstTeam(league);
+  const r = teamRatings(t.roster.map(id => league.players[id]), t.lineup);
+  const best = t.roster.map(id => league.players[id]).sort((a, b) => ovr(b) - ovr(a)).slice(0, 3);
   return (
-    <Screen title="Choose a Franchise" onBack={() => setLeague(null)} right={<Btn kind="small" onClick={() => { const s = (seed * 1664525 + 1013904223) >>> 0; setSeed(s); make(s); }}>Reroll</Btn>}>
-      <div class="dim">16 teams, 2 conferences. Weaker teams are a harder job, with a more patient owner.</div>
-      <div class="panel list" style={{ padding: '2px 6px' }}>
-        {rows.map(({ t, r }, i) => (
-          <div class="item tap" onClick={() => { pickTeam(t.id); reset('hub'); }}>
-            <span class="swatch" style={{ background: t.colors.primary, boxShadow: `4px 0 0 ${t.colors.secondary}`, marginRight: '4px' }} />
-            <div class="grow">
-              <div class="nowrap">{fullName(t)}</div>
-              <div class="row dim" style={{ fontSize: '17px' }}><Stars n={teamStarCount(r.ovr)} /><span>{i < 4 ? 'Contender' : i < 10 ? 'Mid-table' : 'Rebuild'}</span><span>{t.conf ? 'West' : 'East'}</span></div>
-            </div>
-            <span class="tag">{t.abbr}</span>
-          </div>
-        ))}
-      </div>
+    <Screen title="Your First Job" onBack={() => setLeague(null)} team={t}>
+      <Panel team>
+        <div class="head dim">THE ONLY CLUB THAT CALLED</div>
+        <div class="row" style={{ marginTop: '6px' }}>
+          <span class="swatch" style={{ background: t.colors.primary, boxShadow: `4px 0 0 ${t.colors.secondary}`, marginRight: '6px' }} />
+          <div class="grow"><h2>{fullName(t).toUpperCase()}</h2><div class="row dim"><Stars n={teamStarCount(r.ovr)} /><span>{t.conf ? 'West' : 'East'}</span><span>Weakest of 16</span></div></div>
+        </div>
+      </Panel>
+      <Panel title="WHAT YOU ARE WALKING INTO">
+        <div class="list">
+          <div class="item"><span class="grow">The worst roster in the league. Nobody expects anything this year.</span></div>
+          <div class="item"><span class="grow">The owner is patient: you cannot be fired in your first season.</span></div>
+          <div class="item"><span class="grow">Bad teams get the best odds at the first pick in the draft.</span></div>
+          <div class="item"><span class="grow">Win here and bigger clubs will come calling.</span></div>
+        </div>
+      </Panel>
+      <Panel title="YOUR BEST PLAYERS">
+        <div class="list">
+          {best.map(p => (
+            <div class="item"><span class="tag pos">{p.pos}</span><Sprite player={p} team={t} /><div class="grow"><div class="nowrap">{p.name}</div><div class="row dim" style={{ fontSize: '17px' }}><Stars v={ovr(p)} /><span>Age {p.age}</span></div></div></div>
+          ))}
+        </div>
+      </Panel>
+      <Btn kind="primary big" onClick={() => { pickTeam(t.id); reset('hub'); }}>Take the job</Btn>
     </Screen>
   );
 }

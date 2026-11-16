@@ -52,7 +52,9 @@ export interface Guide {
   /** End the possession as soon as a pass is caught. */
   endOnCatch?: boolean;
   /** Animated finger showing the gesture. */
-  demo?: 'hold' | 'drag' | 'tap' | 'flick';
+  demo?: 'hold' | 'drag' | 'tap' | 'flick' | 'faketap';
+  /** Practice only: his defender stands right on him (for the pump-fake drill). */
+  tight?: boolean;
 }
 export interface ArcadeResult {
   outcome: UserPossessionOutcome;
@@ -294,7 +296,7 @@ export class Arcade {
     this.practice = !!setup.practice;
     this.guide = setup.guide ?? null;
     this.hot = setup.hot ?? {};
-    this.chal = this.practice ? 1 : clamp(setup.challenge ?? 1, 0.8, 2.6);
+    this.chal = this.practice ? 1 : clamp(setup.challenge ?? 1, 0.5, 2.6);
     this.doubled = false;
     this.aim.on = false;
     this.reached = false; this.lastQuality = -1; this.hang = 0;
@@ -461,7 +463,7 @@ export class Arcade {
     if (i === this.handler && this.phase !== 'pass') {
       const dx = HOOP.x - this.lag.x, dy = HOOP.y - this.lag.y, d = Math.hypot(dx, dy) || 1;
       // in practice he stands off so the first shots are open
-      const gap = Math.min(this.practice ? 26 : 13, d * 0.6);
+      const gap = Math.min(this.practice && !this.guide?.tight ? 26 : 13, d * 0.6);
       return { x: this.lag.x + (dx / d) * gap, y: this.lag.y + (dy / d) * gap };
     }
     // a hot hand draws a second defender, which leaves somebody open
@@ -569,12 +571,12 @@ export class Arcade {
     const on = this.nearestDef(h.x, h.y);
     if (!on.e || on.d > 26) return; // nobody near enough to fool
     // shooters sell it, good defenders stay down, and the same trick works less each time
-    const p = clamp(0.58 + 0.4 * (h.p.ratings.sht / 100) - 0.4 * (on.e.p.ratings.def / 100) - 0.22 * (this.fakes - 1) + this.diff.move + (this.practice ? 0.4 : 0), 0.06, 0.85) / Math.sqrt(this.chal);
+    const p = clamp(0.58 + 0.4 * (h.p.ratings.sht / 100) - 0.4 * (on.e.p.ratings.def / 100) - (this.practice ? 0 : 0.22 * (this.fakes - 1)) + this.diff.move + (this.practice ? 0.4 : 0), 0.06, 0.85) / Math.sqrt(this.chal);
     if (Math.random() < p) {
       on.e.stun = 0.75; on.e.lift = 9; on.e.armsUp = 0.5;
-      this.popup('HE BIT!', PAL.green, 2); sfx.good();
+      this.popup('SENT FLYING!', PAL.green, 2); sfx.good();
       this.highlights.push('fake'); this.crowd = Math.min(100, this.crowd + 3);
-    } else this.popup('NO BITE', '#c8c8d8', 1, 150);
+    } else this.popup('NOT FOOLED', '#c8c8d8', 1, 150);
   }
   /** Straight back up off an offensive rebound: a dunk for a finisher, a tip-in for anyone else. */
   private doPutback(): void {
@@ -1588,6 +1590,11 @@ export class Arcade {
       pressed = t < 1.25;
       fx = BTN.x + 4; fy = BTN.y - 6 - (pressed ? 0 : 6);
       drawText(g, pressed ? 'HOLD THIS' : 'LET GO', BTN.x, BTN.y - BTN.r - 10, PAL.yellow, { align: 'center', outline: PAL.ink });
+    } else if (gd.demo === 'faketap') {
+      // a quick tap on the shoot button: down and straight back up
+      pressed = t % 0.8 < 0.18;
+      fx = BTN.x + 4; fy = BTN.y - 6 - (pressed ? 0 : 6);
+      drawText(g, 'TAP, DO NOT HOLD', BTN.x - 14, BTN.y - BTN.r - 10, PAL.yellow, { align: 'center', outline: PAL.ink });
     } else if (gd.demo === 'drag') {
       const tx = gd.target?.x ?? HOOP.x, ty = gd.target?.y ?? HOOP.y;
       const dx = tx - h.x, dy = ty - h.y, d = Math.hypot(dx, dy) || 1;

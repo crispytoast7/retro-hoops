@@ -62,10 +62,10 @@ const STEP_TIPS: Record<string, Tip> = {
 };
 const WELCOME: Tip = {
   id: 'welcome', title: 'Welcome, Coach',
-  text: ['You are the head coach and the general manager. The owner sets goals and can fire you.',
+  text: ['You have been handed the worst team in the league. You are the head coach and the general manager. The owner knows it is a rebuild: he will not fire you in your first season, and the worst teams get the best chance at the first pick in the draft.',
     'Each game you play about a dozen key moments by hand: fast breaks, pick-and-rolls, post-ups, free throws, the last shot. Score and your team goes on a run; waste one and the other side does.',
     'The club opens up as you go: facilities, staff, trades and more unlock over your first few games.',
-    'Start with Roster and Lineup, try Practice to learn the controls, then play your first game.'],
+    'Start with Practice: seven short drills teach every control. Then play your first game. The court is forgiving at first and gets harder as you get better.'],
   go: 'practice', goLabel: 'Go to Practice',
 };
 const WEEK_TIP: Tip = {
@@ -105,7 +105,30 @@ export const challenge = (save: Save): number => (prog(save) as Progress & { dda
 export function adaptChallenge(save: Save, scored: number, moments: number): void {
   if (moments < 4) return;
   const p = prog(save) as Progress & { dda?: number };
-  p.dda = clamp((p.dda ?? 1) + (scored / moments - DDA_TARGET) * 0.9, 0.85, 2.6);
+  const gap = scored / moments - DDA_TARGET;
+  // it eases off quickly for someone who is struggling, and tightens a little faster for someone cruising
+  const step = gap * 0.9 * (gap < -0.15 ? 1.7 : gap > 0.2 ? 1.25 : 1);
+  p.dda = clamp((p.dda ?? 1) + step, CHALLENGE_MIN, 2.6);
+}
+/** The gentlest and the starting setting: a new coach begins below the baseline and it finds his level. */
+export const CHALLENGE_MIN = 0.5, CHALLENGE_START = 0.75;
+export function startChallenge(save: Save): void { (prog(save) as Progress & { dda?: number }).dda = CHALLENGE_START; }
+
+// ---- coach's tips after a rough game ------------------------------------------------------
+export interface MomentStats { moments: number; scored: number; turnovers: number; wayOff: number; shotClock: number; fakes: number; passes: number }
+/** Up to two concrete pointers for someone who struggled in the moments he played. Empty when he did fine. */
+export function coachTips(st: MomentStats, difficulty: string, challengeNow: number): string[] {
+  if (st.moments < 4 || st.scored / st.moments >= 0.4) return [];
+  const tips: [number, string][] = [];
+  if (st.wayOff >= 2) tips.push([st.wayOff * 2, 'Your shots are leaving early. Hold SHOOT, watch the crosshair swing, and let go only when it is over the rim. Gold is good, green is a swish.']);
+  if (st.turnovers >= 2) tips.push([st.turnovers * 2.2, 'You are losing the ball. Do not dribble into a defender: tap an open teammate (the green label) before he reaches you, or flick sideways to get past.']);
+  if (st.shotClock >= 1) tips.push([st.shotClock * 3, 'The shot clock is beating you. If nothing is open after a few seconds, pass to a teammate and shoot from there.']);
+  if (st.passes === 0) tips.push([2, 'You never passed. Tap a teammate with a green label: the man who catches it gets a moment before his defender arrives.']);
+  if (st.fakes === 0 && st.wayOff + st.turnovers >= 2) tips.push([1.5, 'Try a pump fake: tap SHOOT with a defender on you. If he jumps, you are open.']);
+  tips.push([1, 'Closer is easier. Drag toward the basket and keep going: near the rim he lays it in or dunks by himself.']);
+  const out = tips.sort((a, b) => b[0] - a[0]).slice(0, 2).map(t => t[1]);
+  if (difficulty !== 'easy' && challengeNow <= CHALLENGE_MIN + 0.05) out.push('Still tough? Settings has a Rookie difficulty with a steadier crosshair and slower defenders.');
+  return out;
 }
 
 // ---- first-season checklist --------------------------------------------------------------
@@ -119,14 +142,14 @@ export function checklist(save: Save): Step[] {
   const p = prog(save), c = p.counters, seen = (id: string) => p.seen.includes(id);
   const games = careerGames(save);
   const all: (Step & { when: boolean })[] = [
-    { id: 'practice', text: 'Learn the controls in Practice', why: 'Six short drills: move, shoot, pass, drive, crossover.', go: 'practice', done: seen('practice_done'), when: true },
+    { id: 'practice', text: 'Learn the controls in Practice', why: 'Seven short drills: move, shoot, fake, pass, drive, crossover.', go: 'practice', done: seen('practice_done'), when: true },
     { id: 'roster', text: 'Meet your players', why: 'Tap anyone for his star ratings. Stars decide who should shoot, handle and finish.', go: 'roster', done: seen('v_roster'), when: true },
     { id: 'lineup', text: 'Check your starting five', why: 'Your best five should start. Tap two players to swap them.', go: 'lineup', done: seen('v_lineup'), when: true },
     { id: 'game1', text: 'Play your first game', why: 'Press PLAY above. You take the key moments; what you do in them swings the rest of the game.', go: '', done: games >= 1, when: true },
     { id: 'captain', text: 'Name a team captain', why: 'Open a player and tap Make Captain. A captain steadies morale after losses.', go: 'roster', done: save.captainId !== null, when: games >= 1 },
     { id: 'facility', text: 'Upgrade or maintain a facility', why: 'Spend the credits you earn. Start with the Training Center or the Arena.', go: 'facilities', done: (c.facility ?? 0) > 0, when: isUnlocked(save, 'facilities') },
     { id: 'coachperk', text: 'Spend a perk point', why: 'Each coach level gives one. Perks change how you play and run the club.', go: 'coach', done: perkPointsSpent(save) > 0, when: isUnlocked(save, 'coach') && coachLevel(save) >= 2 },
-    { id: 'hire', text: 'Hire a coordinator', why: 'An offensive coordinator makes your shot meter bigger; a defensive one helps the simulated defense.', go: 'staff', done: (c.hire ?? 0) > 0, when: isUnlocked(save, 'staff') },
+    { id: 'hire', text: 'Hire a coordinator', why: 'An offensive coordinator steadies your crosshair; a defensive one helps the simulated defense.', go: 'staff', done: (c.hire ?? 0) > 0, when: isUnlocked(save, 'staff') },
     { id: 'train', text: 'Level up a player', why: 'Your players earn XP in games. When one levels up, open him and choose which rating improves.', go: 'roster', done: (c.train ?? 0) > 0, when: games >= 2 },
     { id: 'money', text: 'Look at your finances', why: 'Salaries, the cap, how much room you have, and whose contract is about to run out.', go: 'finances', done: seen('v_finances'), when: isUnlocked(save, 'finances') },
     { id: 'trade', text: 'Browse trades and free agents', why: 'See what other teams would give you, or sign someone who is unattached.', go: 'trades', done: seen('v_trades'), when: isUnlocked(save, 'trades') },
@@ -151,7 +174,7 @@ export const rankName = (level: number): string => RANKS[Math.min(RANKS.length -
 // ---- perks ---------------------------------------------------------------------------
 export interface Perk { id: string; name: string; desc: string; max: number; level: number; group: 'Court' | 'Club' }
 export const PERKS: Perk[] = [
-  { id: 'shooting', name: 'Shooting Coach', desc: 'The green zone of the shot meter is 8% bigger per rank.', max: 3, level: 1, group: 'Court' },
+  { id: 'shooting', name: 'Shooting Coach', desc: 'Your crosshair swings 7% less per rank.', max: 3, level: 1, group: 'Court' },
   { id: 'handles', name: 'Ball-Handling Drills', desc: 'Crossovers work more often and defenders strip you less (6% per rank).', max: 3, level: 1, group: 'Court' },
   { id: 'passing', name: 'Playmaker', desc: 'Passes are 8% faster and harder to intercept per rank.', max: 2, level: 2, group: 'Court' },
   { id: 'rim', name: 'Rim Attack', desc: 'Layups and dunks go in 4% more often per rank.', max: 2, level: 3, group: 'Court' },
@@ -213,6 +236,7 @@ export const TROPHIES: Trophy[] = [
   { id: 'star', name: 'Franchise Player', desc: 'Have a five-star player on your roster.', credits: 4, test: s => me(s).roster.some(id => ovr(s.players[id]) >= 92) },
   { id: 'hof', name: 'Immortal', desc: 'Send one of your players to the Hall of Fame.', credits: 8, test: s => s.hallOfFame.some(h => s.coach.stops.some(st => st.teamId === h.teamId)) },
   { id: 'fans', name: 'Sold Out', desc: 'Fan support at 90 or more.', credits: 4, test: s => s.fans >= 90 },
+  { id: 'second_act', name: 'Second Act', desc: 'Win a title with a second club.', credits: 15, test: s => s.coach.stops.filter(st => st.titles >= 1).length >= 2 },
   { id: 'rebuild', name: 'Redemption', desc: 'Win a title after being fired.', credits: 15, test: s => s.coach.fired >= 1 && s.coach.stops.length > 1 && s.coach.stops[s.coach.stops.length - 1].titles >= 1 },
   { id: 'level10', name: 'Old Hand', desc: 'Reach coach level 10.', credits: 10, test: s => coachLevel(s) >= 10 },
 ];

@@ -609,6 +609,9 @@ describe('people', () => {
     save.owner.approval = 5;
     expect(checkFired(save)).toBe(false);
     save.owner.approval = 0;
+    expect(checkFired(save)).toBe(false); // the first season at a club is safe
+    save.year++;
+    save.owner.approval = 0;
     expect(checkFired(save)).toBe(true);
     expect(save.fired!.offers.length).toBe(3);
     expect(save.fired!.offers).not.toContain(ME);

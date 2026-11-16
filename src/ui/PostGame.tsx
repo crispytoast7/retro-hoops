@@ -28,6 +28,7 @@ function Box({ lines, names }: { lines: BoxLine[]; names: (id: number) => string
 export function PostGameScreen({ params }: { params: Record<string, any> }) {
   const save = useSave();
   const post = params.post as PostGame;
+  const tips = (params.tips as string[] | undefined) ?? [];
   const g = save.schedule.find(x => x.id === post.gameId);
   const [tab, setTab] = useState<'Mine' | 'Theirs'>('Mine');
   useEffect(() => { if (post.total > 0) setTimeout(() => sfx.coin(), 400); if (post.levelUp) setTimeout(() => sfx.fanfare(), 800); }, []);
@@ -64,6 +65,14 @@ export function PostGameScreen({ params }: { params: Record<string, any> }) {
               <div class="grow"><div>{top.name} <span class="dim">{topTeam.abbr}</span></div>
                 <div class="gold">{topLine.pts} PTS · {topLine.orb + topLine.drb} REB · {topLine.ast} AST{topLine.stl + topLine.blk > 2 ? ` · ${topLine.stl + topLine.blk} STOCKS` : ''}</div></div>
             </div>
+          </Panel>
+        )}
+        {tips.length > 0 && (
+          <Panel title="COACH'S NOTES">
+            <div class="dim" style={{ fontSize: '17px', marginBottom: '4px' }}>That was a rough one in the moments you played. Next game will be a little kinder.</div>
+            <div class="list">{tips.map(t => <div class="item" style={{ minHeight: 0 }}><span class="gold" style={{ marginRight: '4px' }}>›</span><span class="grow">{t}</span></div>)}</div>
+            <div style={{ height: '6px' }} />
+            <Btn kind="small" onClick={() => nav('practice')}>Go to Practice</Btn>
           </Panel>
         )}
         <Panel title="CREDITS EARNED">

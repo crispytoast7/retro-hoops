@@ -100,6 +100,9 @@ export function evaluateGoals(save: Save): string[] {
 // ---- getting fired -------------------------------------------------------------------
 export function checkFired(save: Save): boolean {
   if (save.owner.approval > 0 || save.fired) return !!save.fired;
+  // nobody is sacked in his first season at a club: the owner knew what he was handing over
+  const stop = save.coach.stops[save.coach.stops.length - 1];
+  if (stop && stop.from === save.year) { save.owner.approval = 6; return false; }
   const worst = save.teams.filter(t => t.id !== save.userTeamId)
     .sort((a, b) => teamStrength(save, a) - teamStrength(save, b)).slice(0, 3).map(t => t.id);
   save.fired = { offers: worst };

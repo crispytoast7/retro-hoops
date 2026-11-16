@@ -449,3 +449,36 @@ export function awardPlayerOfWeek(save: Save): { player: Player; text: string; m
 }
 /** The honour to show on the hub this week, if one of the user's players earned it last week. */
 export const honorNow = (save: Save): string | null => { const h = weekState(save).honor; return h && h.key === keyOf(save) ? h.text : null; };
+
+// ---- the league reacts to you ------------------------------------------------------------
+/**
+ * How opponents treat the user's team, in rating points added to every opponent player in his games.
+ * Champions and runaway leaders get everyone's best game; a team at the bottom is taken lightly.
+ */
+export function pressure(save: Save): number {
+  const me = save.teams[save.userTeamId];
+  let v = 0;
+  // last season with this club
+  const last = save.history[save.history.length - 1];
+  if (last && last.userTeamId === me.id && last.year === save.year - 1) {
+    v += { champ: 3, F: 2, SF: 1, R1: 0, none: 0 }[last.userPlayoff] ?? 0;
+    const prev = save.history[save.history.length - 2];
+    if (last.userPlayoff === 'champ' && prev && prev.userTeamId === me.id && prev.userPlayoff === 'champ') v += 1.5; // a dynasty
+  }
+  // this season so far
+  const played = me.record.w + me.record.l;
+  if (played >= 4) {
+    const pct = me.record.w / played;
+    if (pct >= 0.6) v += (pct - 0.6) * 7.5;         // 80% wins: +1.5, unbeaten: +3
+    else if (pct <= 0.3) v -= (0.3 - pct) * 8 + 0.6; // 20% wins: -1.4, winless: -3
+  }
+  if (save.phase === 'playoffs') v = Math.max(v, 1);  // nobody coasts in the playoffs
+  return Math.round(clamp(v, -3, 6) * 2) / 2;
+}
+/** An opponent as he plays against the user right now. */
+export function withPressure(p: Player, amount: number): Player {
+  if (!amount) return p;
+  const ratings = { ...p.ratings };
+  for (const k of RATING_KEYS) ratings[k] = clamp(ratings[k] + amount, 15, 99);
+  return { ...p, ratings };
+}
