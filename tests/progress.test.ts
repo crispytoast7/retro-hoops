@@ -84,7 +84,7 @@ describe('coach progression', () => {
 
   test('difficulty adapts to how often you score in your key moments', () => {
     const { save } = mk();
-    expect(challenge(save)).toBe(0.75); // a new coach starts on a forgiving court
+    expect(challenge(save)).toBe(0.85); // a new coach starts a little below the baseline
     adaptChallenge(save, 10, 12);
     const up = challenge(save);
     expect(up).toBeGreaterThan(1);
@@ -94,6 +94,6 @@ describe('coach progression', () => {
     for (let i = 0; i < 30; i++) adaptChallenge(save, 12, 12);
     expect(challenge(save)).toBeLessThanOrEqual(2.6);
     for (let i = 0; i < 30; i++) adaptChallenge(save, 0, 12);
-    expect(challenge(save)).toBe(0.5);
+    expect(challenge(save)).toBe(0.65);
   });
 });

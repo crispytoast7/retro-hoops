@@ -107,11 +107,11 @@ export function adaptChallenge(save: Save, scored: number, moments: number): voi
   const p = prog(save) as Progress & { dda?: number };
   const gap = scored / moments - DDA_TARGET;
   // it eases off quickly for someone who is struggling, and tightens a little faster for someone cruising
-  const step = gap * 0.9 * (gap < -0.15 ? 1.7 : gap > 0.2 ? 1.25 : 1);
+  const step = gap * 0.9 * (gap < -0.15 ? 1.3 : gap > 0.2 ? 1.25 : 1);
   p.dda = clamp((p.dda ?? 1) + step, CHALLENGE_MIN, 2.6);
 }
 /** The gentlest and the starting setting: a new coach begins below the baseline and it finds his level. */
-export const CHALLENGE_MIN = 0.5, CHALLENGE_START = 0.75;
+export const CHALLENGE_MIN = 0.65, CHALLENGE_START = 0.85;
 export function startChallenge(save: Save): void { (prog(save) as Progress & { dda?: number }).dda = CHALLENGE_START; }
 
 // ---- coach's tips after a rough game ------------------------------------------------------

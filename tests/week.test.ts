@@ -213,7 +213,7 @@ describe('the league reacts to you', () => {
     const start = challenge(save);
     adaptChallenge(save, 1, 11);
     const eased = challenge(save);
-    expect(eased).toBeLessThanOrEqual(start - 0.2);
+    expect(eased).toBeLessThan(start - 0.15);
     for (let i = 0; i < 6; i++) adaptChallenge(save, 0, 11);
     expect(challenge(save)).toBe(CHALLENGE_MIN);
     for (let i = 0; i < 12; i++) adaptChallenge(save, 10, 11);
@@ -241,7 +241,8 @@ describe('the league reacts to you', () => {
     expect(oppSide.players[0].ratings.def).toBe(Math.min(99, real.ratings.def + pressure(save)));
     expect(mySide.players[0].ratings.def).toBe(save.players[mySide.players[0].id].ratings.def);
     me.record.w = 1; me.record.l = 9;
-    expect(pressure(save)).toBeLessThanOrEqual(-1.5);
+    expect(pressure(save)).toBeLessThanOrEqual(-1);
+    expect(pressure(save)).toBeGreaterThanOrEqual(-2);
     expect(withPressure(real, 0)).toBe(real);
     // last year's champions carry a target all season
     me.record.w = 0; me.record.l = 0;

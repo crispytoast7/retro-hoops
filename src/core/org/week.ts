@@ -470,10 +470,10 @@ export function pressure(save: Save): number {
   if (played >= 4) {
     const pct = me.record.w / played;
     if (pct >= 0.6) v += (pct - 0.6) * 7.5;         // 80% wins: +1.5, unbeaten: +3
-    else if (pct <= 0.3) v -= (0.3 - pct) * 8 + 0.6; // 20% wins: -1.4, winless: -3
+    else if (pct <= 0.3) v -= (0.3 - pct) * 6 + 0.4; // 20% wins: -1, winless: -2
   }
   if (save.phase === 'playoffs') v = Math.max(v, 1);  // nobody coasts in the playoffs
-  return Math.round(clamp(v, -3, 6) * 2) / 2;
+  return Math.round(clamp(v, -2, 6) * 2) / 2;
 }
 /** An opponent as he plays against the user right now. */
 export function withPressure(p: Player, amount: number): Player {
