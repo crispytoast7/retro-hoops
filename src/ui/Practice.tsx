@@ -21,16 +21,16 @@ interface Drill {
 }
 const shot = (r: ArcadeResult) => r.outcome.events.find(e => e.t === 'shot') as { type: string; made: boolean } | undefined;
 const DRILLS: Drill[] = [
-  { title: 'MOVE', brief: 'Put a finger on the court (not on your player) and drag. The player with the yellow ring follows.',
+  { title: 'MOVE', brief: 'Press on the court (not on your player) and drag: a finger, or the mouse. The player with the yellow ring follows. On a keyboard, WASD or the arrow keys.',
     say: { live: 'DRAG on the court toward the yellow spot' }, guide: { target: { x: 62, y: 150 }, demo: 'drag' },
     done: r => r.reached, retry: 'Start your drag on empty court and keep your finger down until he reaches the yellow spot.' },
-  { title: 'SHOOT', brief: 'Hold the SHOOT button, bottom right. A crosshair drifts around the rim: let go when it is over the rim. It works from anywhere on the court.',
+  { title: 'SHOOT', brief: 'Hold the SHOOT button, bottom right (or hold Space). A crosshair drifts around the rim: let go when it is over the rim. It works from anywhere on the court.',
     say: { live: 'HOLD the SHOOT button', charge: 'LET GO when the crosshair is over the rim (green)', shot: 'Green crosshair = swish' }, guide: { demo: 'hold' },
     done: r => { const s = shot(r); return !!s && (s.type === 'three' || s.type === 'mid') && r.quality >= 2; }, retry: 'Hold SHOOT, wait for the crosshair to turn green or gold, then let go.' },
-  { title: 'PUMP FAKE', brief: 'A defender right on you? TAP the SHOOT button: a quick tap, not a hold. Your player shows the ball. If the defender jumps he is out of the play for a moment, and you are open.',
+  { title: 'PUMP FAKE', brief: 'A defender right on you? TAP the SHOOT button (or Space): a quick tap, not a hold. Your player shows the ball. If the defender jumps he is out of the play for a moment, and you are open.',
     say: { live: 'TAP SHOOT. When he jumps, HOLD SHOOT and score.', charge: 'LET GO when the crosshair is over the rim' }, guide: { tight: true, demo: 'faketap' },
     done: r => r.highlights.includes('fake'), retry: 'A tap, not a hold. If he does not jump, wait a second and tap again. Then take your shot.' },
-  { title: 'PASS', brief: 'Tap a teammate to pass him the ball. You then control him.',
+  { title: 'PASS', brief: 'Tap or click a teammate to pass him the ball (or press his number, 1-4). You then control him.',
     say: { live: 'TAP the teammate with the yellow ring', pass: 'The ball is on its way' }, guide: { mate: 1, demo: 'tap', endOnCatch: true },
     done: r => r.passes > 0, retry: 'Tap right on the teammate with the ring.' },
   { title: 'AIM A PASS', brief: 'You can also aim a pass: touch your player and pull back, away from a teammate. A ring lights up on him. Aim into open space and the nearest teammate runs onto it.',
@@ -39,7 +39,7 @@ const DRILLS: Drill[] = [
   { title: 'DRIVE', brief: 'Dribble all the way to the basket. Close to the rim he lays it in or dunks by himself.',
     say: { live: 'DRAG toward the basket and keep going', finish: 'He finishes at the rim by himself' }, guide: { demo: 'drag' },
     done: r => { const s = shot(r); return !!s && (s.type === 'layup' || s.type === 'dunk'); }, retry: 'Keep dragging toward the rim until he jumps.' },
-  { title: 'CROSSOVER', brief: 'A defender in your way? Flick your finger on the court: a short, fast swipe. A good ball-handler leaves him standing. Flick away from the basket for a step-back.',
+  { title: 'CROSSOVER', brief: 'A defender in your way? Flick on the court: a short, fast swipe (on a keyboard, Shift while moving). A good ball-handler leaves him standing. Flick away from the basket for a step-back.',
     say: { live: 'Get near your defender, then FLICK sideways. Then score.' }, guide: { demo: 'flick' },
     done: r => r.moves > 0 && !!shot(r), retry: 'A flick is a quick swipe and release, not a slow drag. Then go and score.' },
 ];

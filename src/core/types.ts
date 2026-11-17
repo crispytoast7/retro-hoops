@@ -256,7 +256,7 @@ export interface HallOfFamer {
 }
 
 export type Difficulty = 'easy' | 'normal' | 'hard';
-export interface Settings { sound: boolean; difficulty: Difficulty; haptics: boolean; /** Soundtrack on/off (on when missing). */ music?: boolean }
+export interface Settings { sound: boolean; difficulty: Difficulty; haptics: boolean; /** Soundtrack on/off (on when missing). */ music?: boolean; /** Assistant GM does the weekly chores by himself. */ assistant?: boolean }
 
 /** Season shape, chosen at New Game. */
 export interface Calendar {

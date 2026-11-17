@@ -67,6 +67,13 @@ one hands the run to the opponent. Games are full length (12-minute quarters, sc
   against champions and runaway leaders and ease off against a team at the bottom, the court
   adapts in both directions to how you are scoring, a rough game ends with concrete coach's
   notes, and a title brings an offer to do it again with the worst club in the league.
+- Management without the busywork: a TO DO list with one-tap and Do-all chores (or an
+  Assistant GM who does them every week), auto level-ups, a trade Shop that shows up to three
+  offers for any player, a plain-language money screen, a few big decisions a season (a star
+  wants a new deal, a rookie breaks out, a rival poaches your coach, deadline day), and a
+  pixel-art picture of your club that grows with every upgrade.
+- Plays with touch, or with mouse and keyboard (WASD/arrows, Space to shoot or fake, 1-4 to
+  pass, Shift for a crossover, Enter and Escape in the menus).
 - Saves automatically on the device; export/import a save file in Settings.
 
 ## Run locally

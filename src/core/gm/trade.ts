@@ -406,13 +406,13 @@ export function aiTradesWeek(save: Save, rng: Rng): void {
   }
 }
 
-/** Occasionally an AI team proposes a trade to the user (about once every 3-4 weeks before the deadline; more likely for players in save.tradeDemands). Must be one the AI would accept and that validates. null if none. Does not execute. The AI team is `aId`, the user is `bId`. */
+/** Often an AI team proposes a trade to the user (a little under every other week before the deadline; more likely for players in save.tradeDemands). Must be one the AI would accept and that validates. null if none. Does not execute. The AI team is `aId`, the user is `bId`. */
 export function aiOfferToUser(save: Save, rng: Rng): TradeOffer | null {
   if (tradesOpen(save)) return null;
   const user = save.teams[save.userTeamId];
   if (!user) return null;
   const demands = save.tradeDemands.filter(id => user.roster.includes(id));
-  if (!rng.chance(demands.length ? 0.55 : 0.28)) return null;
+  if (!rng.chance(demands.length ? 0.7 : 0.42)) return null;
 
   const ai = rng.shuffle(save.teams.filter(t => t.id !== user.id));
   for (const team of ai.slice(0, 6)) {
@@ -476,4 +476,94 @@ export function suggestSweetener(save: Save, offer: TradeOffer, aiTeamId: number
     if (evaluateTrade(save, trial, aiTeamId).accept) return c.pick ? { pick: c.pick } : { playerId: c.playerId };
   }
   return null;
+}
+
+// ---- shopping a player -------------------------------------------------------------------
+/** What a deal is worth to the user: the players and picks coming back, weighted by where his roster is thin. */
+function valueToUser(save: Save, gets: TradeSide, without: readonly number[]): number {
+  const user = save.teams[save.userTeamId];
+  const out = new Set(without);
+  const needs = needsForRoster(save, user.roster.filter(id => !out.has(id)));
+  let v = 0;
+  for (const id of gets.players) {
+    const p = save.players[id];
+    const pv = playerValue(save, p);
+    v += pv > 0 ? pv * (0.85 + 0.3 * needs[p.pos]) : pv;
+  }
+  for (const pk of gets.picks) v += pickValue(save, pk);
+  return v;
+}
+type OfferKind = 'players' | 'mix' | 'picks' | 'relief';
+const kindOf = (side: TradeSide): OfferKind =>
+  side.players.length && side.picks.length ? 'mix' : side.players.length ? 'players' : side.picks.length ? 'picks' : 'relief';
+
+/**
+ * Put one of the user's players on the market: the best offer from up to `max` different AI teams, each a
+ * different kind of deal where possible (players, a player and a pick, picks, or simply taking the contract).
+ * Every offer validates and is one the AI team accepts. Best for the user first. Empty when trades are closed.
+ * The AI team is `aId`, the user is `bId`. Depends only on the save, so the same week shows the same offers.
+ */
+export function shopPlayer(save: Save, playerId: number, max = 3): TradeOffer[] {
+  if (tradesOpen(save)) return [];
+  const user = save.teams[save.userTeamId];
+  const target = save.players[playerId];
+  if (!user || !target || !user.roster.includes(playerId) || target.contract.years <= 0) return [];
+  const targetV = playerValue(save, target);
+  const cap = Math.max(0, targetV) * 1.5 + 3;
+  const cands: { offer: TradeOffer; v: number; kind: OfferKind }[] = [];
+  for (const team of save.teams) {
+    if (team.id === user.id) continue;
+    const best = new Map<OfferKind, { offer: TradeOffer; v: number }>();
+    const pkgs: TradeSide[] = [...packages(team)];
+    if (targetV < 3) pkgs.push({ players: [], picks: [] }); // a bad contract: someone may just take it off your hands
+    for (const pkg of pkgs) {
+      if (rawSideValue(save, pkg) > cap) continue;
+      const offer: TradeOffer = { aId: team.id, bId: user.id, aGives: pkg, bGives: { players: [playerId], picks: [] } };
+      if (validateTrade(save, offer)) continue;
+      if (!evaluateTrade(save, offer, team.id).accept) continue;
+      const kind = kindOf(pkg);
+      const v = valueToUser(save, pkg, [playerId]);
+      const cur = best.get(kind);
+      if (!cur || v > cur.v) best.set(kind, { offer, v });
+    }
+    for (const [kind, b] of best) cands.push({ ...b, kind });
+  }
+  // greedy: the best deal on the table, then the best from another team, leaning toward a different kind of deal
+  const chosen: typeof cands = [];
+  const usedTeams = new Set<number>(), usedKinds = new Set<OfferKind>();
+  while (chosen.length < max) {
+    let pick: (typeof cands)[number] | null = null, score = -Infinity;
+    for (const c of cands) {
+      if (usedTeams.has(c.offer.aId)) continue;
+      const s = c.v - (usedKinds.has(c.kind) ? Math.max(2, Math.abs(c.v) * 0.2) : 0);
+      if (s > score || (s === score && pick && c.offer.aId < pick.offer.aId)) { score = s; pick = c; }
+    }
+    if (!pick) break;
+    chosen.push(pick); usedTeams.add(pick.offer.aId); usedKinds.add(pick.kind);
+  }
+  return chosen.sort((a, b) => b.v - a.v || a.offer.aId - b.offer.aId).map(c => c.offer);
+}
+
+/** Deadline day: up to `max` offers, each for a different player on the user's roster and from a different team. */
+export function deadlineOffers(save: Save, rng: Rng, max = 3): TradeOffer[] {
+  if (tradesOpen(save)) return [];
+  const user = save.teams[save.userTeamId];
+  if (!user) return [];
+  const pool = user.roster.filter(id => save.players[id].contract.years > 0);
+  const out: TradeOffer[] = [];
+  const usedTeams = new Set<number>();
+  // more wanted players are more likely to draw a call, but anyone can
+  const order: number[] = [];
+  const left = pool.slice();
+  while (left.length) {
+    const i = rng.weighted(left.map(id => 1 + Math.max(0, playerValue(save, save.players[id]))));
+    order.push(left.splice(i, 1)[0]);
+  }
+  for (const id of order.slice(0, 7)) {
+    if (out.length >= max) break;
+    const offer = shopPlayer(save, id, 3).find(o => !usedTeams.has(o.aId));
+    if (!offer) continue;
+    out.push(offer); usedTeams.add(offer.aId);
+  }
+  return out;
 }

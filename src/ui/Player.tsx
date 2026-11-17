@@ -1,5 +1,7 @@
 import { ROSTER_MIN } from '../core/constants';
 import { marketSalary } from '../core/gm/value';
+import { autoSpend } from '../core/org/chores';
+import { isUnlocked } from '../core/org/progress';
 import { POINT_GAIN, atCeiling, isStar, levelOfPlayer, pointsOf, readyToLevel, spendPoint, xpNeed, xpOfPlayer } from '../core/org/xp';
 import { releaseDeadCap, releasePlayer } from '../core/org/roster';
 import { FORM_NAME, FORM_RATING, formOf } from '../core/org/week';
@@ -9,7 +11,7 @@ import type { StatLine, Trait } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { act, touch, useSave } from '../state/store';
 import { Btn, Meter, Panel, Screen, Sprite, Stars, avg, confirmDialog, fullName, money, pct, short, toast } from './kit';
-import { back, replace } from './router';
+import { back, nav, replace } from './router';
 
 const TRAIT_DESC: Record<Trait, string> = {
   Leader: 'Steadies the room. A great captain.',
@@ -81,11 +83,12 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
         <div class="panel levelbar">
           <div class="grow">
             <div class="head gold">LEVEL UP</div>
-            <div>{spending ? `${pts} point${pts === 1 ? '' : 's'} to spend: tap + on a rating below.` : 'Nothing to spend on him.'}{waiting.length > 0 ? ` ${waiting.length} more player${waiting.length === 1 ? '' : 's'} waiting.` : ''}</div>
+            <div>{spending ? `${pts} point${pts === 1 ? '' : 's'} to spend: tap + on a rating, or Auto to let your assistant pick.` : 'Nothing to spend on him.'}{waiting.length > 0 ? ` ${waiting.length} more player${waiting.length === 1 ? '' : 's'} waiting.` : ''}</div>
           </div>
-          {waiting.length > 0
-            ? <Btn kind={spending ? 'small' : 'primary'} onClick={() => replace('player', { id: waiting[0].id })}>Next: {short(waiting[0].name)} ›</Btn>
-            : null}
+          <div class="col" style={{ gap: '6px', alignItems: 'stretch' }}>
+            {spending && <Btn kind="small primary" onClick={() => { const ks = act(s => autoSpend(s, p.id)); sfx.coin(); toast(ks.length ? `${RATING_NAMES[ks[0]]}${ks.length > 1 ? ` and ${ks.length - 1} more` : ''} up` : 'Nothing to spend.', true); }}>Auto</Btn>}
+            {waiting.length > 0 && <Btn kind="small" onClick={() => replace('player', { id: waiting[0].id })}>Next: {short(waiting[0].name)} ›</Btn>}
+          </div>
         </div>
       )}
       {!prospect && (
@@ -130,6 +133,9 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
           </Btn>
           <Btn kind="danger" onClick={release}>Release</Btn>
         </div>
+      )}
+      {mine && isUnlocked(save, 'trades') && (
+        <Btn class="block" onClick={() => nav('trades', { tab: 'Shop', playerId: p.id })}>See what he would fetch in a trade</Btn>
       )}
 
       {(p.season.gp > 0 || p.seasons.length > 0) && (

@@ -17,6 +17,8 @@ import { replace } from './router';
 const fmtClock = (s: number): string => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`;
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 const HINT_KEY = 'retro-hoops-hints-seen';
+/** A mouse (and so, most likely, a keyboard) rather than a touch screen. */
+const DESKTOP = typeof matchMedia !== 'undefined' && matchMedia('(hover: hover) and (pointer: fine)').matches;
 
 /** Choose the situation for the next key moment: varied, never the same twice running. */
 type Adjust = 'rim' | 'shoot' | 'lock';
@@ -192,6 +194,28 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
   }, []);
 
   const start = () => { try { localStorage.setItem(HINT_KEY, '1'); } catch { /* fine */ } setOverlay(null); ctl.current.started?.(); };
+  // mouse and keyboard: every prompt in the game answers to a key
+  const overlayNow = useRef(overlay);
+  overlayNow.current = overlay;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      const k = e.key.toLowerCase(), o = overlayNow.current, go = k === ' ' || k === 'enter';
+      if (!o) return;
+      if (o.kind === 'intro') {
+        if (go) { e.preventDefault(); start(); }
+        else if (k >= '1' && k <= '3' && offers[+k - 1]) { ctl.current.objective = offers[+k - 1]; start(); }
+      } else if (o.kind === 'ball') {
+        if (go) { e.preventDefault(); ctl.current.go?.(); }
+        else if (k === 't') ctl.current.callTimeout?.();
+      } else if (o.kind === 'half') {
+        const a = (['rim', 'shoot', 'lock'] as Adjust[])['123'.indexOf(k)];
+        if (a && k !== '') ctl.current.adjust?.(a);
+      } else if (o.kind === 'final' && go) { e.preventDefault(); replace('postgame', { post: o.post, tips: tipsRef.current }); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   let seen = false;
   try { seen = !!localStorage.getItem(HINT_KEY); } catch { /* fine */ }
   const q = score.q > 4 ? `OT${score.q - 4 > 1 ? score.q - 4 : ''}` : `Q${score.q}`;
@@ -214,17 +238,18 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
             {edge && <div class="good" style={{ maxWidth: '330px' }}>EDGE · {edge.label}</div>}
             <div class="panel" style={{ maxWidth: '330px', fontSize: '19px', textAlign: 'left' }}>
               <div class="dim">You play the key moments. Score, and your team goes on a run. Waste one, and the other side does.</div>
-              {!seen && <div style={{ marginTop: '6px' }}><span class="gold">Drag</span> the court to move. <span class="gold">Hold SHOOT</span> and let go when the crosshair is on the rim. <span class="gold">Tap a teammate</span> to pass. <span class="gold">Flick</span> for a move.</div>}
+              {DESKTOP && <div style={{ marginTop: '6px' }}><span class="gold">Keyboard:</span> WASD or arrows move · hold <span class="gold">Space</span> to shoot, tap it to fake · <span class="gold">1-4</span> pass · <span class="gold">Shift</span> crossover. Or play with the mouse: drag to move, hold SHOOT.</div>}
+              {!seen && !DESKTOP && <div style={{ marginTop: '6px' }}><span class="gold">Drag</span> the court to move. <span class="gold">Hold SHOOT</span> and let go when the crosshair is on the rim. <span class="gold">Tap a teammate</span> to pass. <span class="gold">Flick</span> for a move.</div>}
             </div>
             <div class="panel col" style={{ maxWidth: '330px', gap: '6px', textAlign: 'left' }}>
               <div class="head gold">PICK A CHALLENGE</div>
-              {offers.map(o => (
+              {offers.map((o, i) => (
                 <Btn class="opt" onClick={() => { ctl.current.objective = o; start(); }} silent>
-                  <span>{o.text}</span><span class="fx gold">{o.reward}</span>
+                  <span>{DESKTOP ? `${i + 1}. ` : ''}{o.text}</span><span class="fx gold">{o.reward}</span>
                 </Btn>
               ))}
             </div>
-            <div class="row"><Btn onClick={start}>No challenge: tip off</Btn>{!seen && <Btn onClick={() => replace('practice')}>Practice first</Btn>}</div>
+            <div class="row"><Btn onClick={start}>No challenge: tip off{DESKTOP ? ' (Space)' : ''}</Btn>{!seen && <Btn onClick={() => replace('practice')}>Practice first</Btn>}</div>
           </div>
         )}
         {overlay?.kind === 'ball' && (
@@ -235,7 +260,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
             <div class="panel" style={{ maxWidth: '300px', fontSize: '20px' }}>{overlay.hint}</div>
             {overlay.run && <div class={overlay.run.startsWith('They') ? 'bad' : overlay.run.startsWith('Your') || overlay.run.startsWith('Timeout') ? 'good' : 'dim'}>{overlay.run}</div>}
             {overlay.timeout && <Btn kind="danger" onClick={() => ctl.current.callTimeout?.()}>Timeout: stop their run ({timeouts} left)</Btn>}
-            <div class="head dim">TAP TO PLAY</div>
+            <div class="head dim">{DESKTOP ? 'CLICK OR PRESS SPACE TO PLAY' : 'TAP TO PLAY'}{overlay.timeout && DESKTOP ? ' · T: TIMEOUT' : ''}</div>
           </div>
         )}
         {overlay?.kind === 'half' && (
@@ -244,9 +269,9 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
             <div class="head">{away.abbr} {score.away} · {home.abbr} {score.home}</div>
             <div class="panel col" style={{ maxWidth: '330px', gap: '6px', textAlign: 'left' }}>
               <div class="head gold">SECOND-HALF ADJUSTMENT</div>
-              {(Object.keys(ADJUST) as Adjust[]).map(k => (
+              {(Object.keys(ADJUST) as Adjust[]).map((k, i) => (
                 <Btn class="opt" onClick={() => ctl.current.adjust?.(k)}>
-                  <span>{ADJUST[k].label}</span><span class="fx">{ADJUST[k].effect}</span>
+                  <span>{DESKTOP ? `${i + 1}. ` : ''}{ADJUST[k].label}</span><span class="fx">{ADJUST[k].effect}</span>
                 </Btn>
               ))}
             </div>
@@ -287,7 +312,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
           )}
         </div>
         <div class="lines">
-          {playing ? <div class="dim">Drag: move · Hold SHOOT, let go on the rim · Tap SHOOT: fake · Tap a teammate: pass</div> : lines.slice(-3).map(l => <div class={l.cls}>{l.text}</div>)}
+          {playing ? <div class="dim">{DESKTOP ? 'WASD/arrows: move · Space: hold to shoot, tap to fake · 1-4: pass · Shift: crossover' : 'Drag: move · Hold SHOOT, let go on the rim · Tap SHOOT: fake · Tap a teammate: pass'}</div> : lines.slice(-3).map(l => <div class={l.cls}>{l.text}</div>)}
         </div>
       </div>
     </div>

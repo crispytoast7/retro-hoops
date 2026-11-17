@@ -21,6 +21,10 @@ function SaveSettings() {
         <Tabs tabs={['easy', 'normal', 'hard'] as const} labels={{ easy: 'Rookie', normal: 'Pro', hard: 'Legend' }} value={save.settings.difficulty} onChange={(v: Difficulty) => touch(s => { s.settings.difficulty = v; })} />
         <div class="dim" style={{ fontSize: '17px', marginTop: '6px' }}>Sets how steady your aim is and how sharp defenders are. On top of this the game adapts: score in most of your key moments and it gets tougher; struggle and it eases off.</div>
       </Panel>
+      <Panel title="ASSISTANT GM">
+        <Tabs tabs={['On', 'Off'] as const} value={save.settings.assistant ? 'On' : 'Off'} onChange={v => touch(s => { s.settings.assistant = v === 'On'; })} />
+        <div class="dim" style={{ fontSize: '17px', marginTop: '6px' }}>Every week your assistant maintains run-down facilities, spends level-up points, replaces injured starters and uses scouting reports. Trades, signings, the draft and every big decision stay yours.</div>
+      </Panel>
     </>
   );
 }

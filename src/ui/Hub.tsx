@@ -8,6 +8,10 @@ import { advance } from '../core/season/flow';
 import { gamesInWeek, userGame, userGamesInWeek } from '../core/season/schedule';
 import { playoffMoment } from '../core/season/bracket';
 import { readyToLevel } from '../core/org/xp';
+import { choresList, doChores } from '../core/org/chores';
+import { pendingMoment } from '../core/org/moments';
+import { BigMomentHost } from './BigMoment';
+import { ClubView } from './ClubView';
 import { doPlan, edgeFor, ensureWeek, honorNow, intel, pressure, needsWeek, plansOpen, signSponsor, sponsorOf, sponsorOffers, sponsorOpen, sponsorProgress, weekState } from '../core/org/week';
 import { ovr } from '../core/ratings';
 import { teamRatings } from '../core/sim/engine';
@@ -68,6 +72,7 @@ function EventModal({ save }: { save: Save }) {
 
 /** The playoff moment already on its way to the screen, so a re-render does not open it twice. */
 let shownMoment = '';
+const CHORE_SCREEN = { repair: 'facilities', level: 'roster', lineup: 'lineup', scout: 'scouting' } as const;
 const PLAN_GROUP = { train: 'TRAIN', prep: 'PREPARE', club: 'CLUB' } as const;
 /** One move a week: three to choose from, and what you pass on is gone. */
 function WeekPlan({ save }: { save: Save }) {
@@ -141,6 +146,14 @@ export function HubScreen(_p: { params: Record<string, any> }) {
   const xp = xpBar(save);
   const levelers = readyToLevel(save);
   const steps = checklist(save);
+  const chores = choresList(save);
+  const choreCost = chores.reduce((s, c) => s + c.cost, 0);
+  // the things only you can decide
+  const people = [
+    save.tradeOffer && isUnlocked(save, 'trades') ? <div class="item tap" onClick={() => nav('trades', { tab: 'Offers' })}><span class="grow">Trade offer from the {save.teams[save.tradeOffer.aId].name}</span><span class="tag gold">VIEW</span></div> : null,
+    ...save.tradeDemands.filter(id => me.roster.includes(id)).map(id => <div class="item tap" onClick={() => nav('player', { id })}><span class="grow">{save.players[id].name} wants a trade</span><span class="tag bad">UNHAPPY</span></div>),
+    me.roster.length < 8 ? <div class="item tap" onClick={() => nav('trades', { tab: 'Free Agents' })}><span class="grow">Roster is short: sign free agents</span><span class="tag bad">SIGN</span></div> : null,
+  ].filter(Boolean);
   const todo = steps.filter(x => !x.done);
   const REG_WEEKS = c.regWeeks, TRADE_DEADLINE_WEEK = c.deadlineWeek;
   const sim = (mode: 'simGame' | 'simWeek') => {
@@ -175,6 +188,7 @@ export function HubScreen(_p: { params: Record<string, any> }) {
         <Btn kind="small" onClick={() => nav('settings')}>⚙</Btn>
       </div>
       <div class="body">
+        <ClubView save={save} compact onPick={() => isUnlocked(save, 'facilities') ? nav('facilities') : toast(`Facilities unlock after ${gamesToUnlock(save, 'facilities')} more game${gamesToUnlock(save, 'facilities') === 1 ? '' : 's'}.`)} />
         <div class="panel row" style={{ gap: '10px' }}>
           <Meter label="OWNER" value={save.owner.approval} />
           <Meter label="FANS" value={save.fans} />
@@ -252,18 +266,25 @@ export function HubScreen(_p: { params: Record<string, any> }) {
           </Panel>
         )}
 
-        {(save.tradeOffer || levelers.length > 0 || injuredStarters > 0 || rundown > 0 || save.tradeDemands.length > 0 || me.roster.length < 8) && (
-          <Panel title="NEEDS ATTENTION">
+        {(chores.length > 0 || people.length > 0) && (
+          <Panel title="TO DO">
             <div class="list">
-              {levelers.length > 0 && <div class="item tap" onClick={() => nav('player', { id: levelers[0].id })}><span class="grow">{levelers.length === 1 ? `${levelers[0].name} levelled up` : `${levelers.length} players levelled up`}: choose what improves</span><span class="tag gold">LEVEL UP</span></div>}
-              {save.tradeOffer && isUnlocked(save, 'trades') && <div class="item tap" onClick={() => nav('trades')}><span class="grow">Trade offer from {save.teams[save.tradeOffer.aId].name}</span><span class="tag gold">VIEW</span></div>}
-              {injuredStarters > 0 && <div class="item tap" onClick={() => nav('lineup')}><span class="grow">{injuredStarters} injured starter{injuredStarters > 1 ? 's' : ''}</span><span class="tag bad">LINEUP</span></div>}
-              {save.tradeDemands.filter(id => me.roster.includes(id)).map(id => <div class="item tap" onClick={() => nav('player', { id })}><span class="grow">{save.players[id].name} wants a trade</span><span class="tag bad">UNHAPPY</span></div>)}
-              {rundown > 0 && <div class="item tap" onClick={() => nav('facilities')}><span class="grow">{rundown} facilit{rundown > 1 ? 'ies need' : 'y needs'} maintenance</span><span class="tag gold">FIX</span></div>}
-              {me.roster.length < 8 && <div class="item tap" onClick={() => nav('trades', { tab: 'Free Agents' })}><span class="grow">Roster is short: sign free agents</span><span class="tag bad">SIGN</span></div>}
+              {people}
+              {chores.map(c => (
+                <div class="item todo-row">
+                  <span class="grow tap" onClick={() => nav(CHORE_SCREEN[c.id])}>{c.text}</span>
+                  <Btn kind="small" disabled={c.cost > save.credits} onClick={() => { const done = act(s => doChores(s, c.id)); sfx.coin(); toast(done.join('. ') || 'Done.', true); }}>{c.cost ? `Do it ◉${c.cost}` : 'Do it'}</Btn>
+                </div>
+              ))}
+            </div>
+            {chores.length > 1 && <><div style={{ height: '6px' }} /><Btn kind="primary block" onClick={() => { const done = act(s => doChores(s)); sfx.coin(); toast(done.length ? `${done.length} jobs done` : 'Done.', true); }}>Do all {choreCost ? `(◉ up to ${choreCost})` : ''}</Btn></>}
+            <div class="row tap" style={{ marginTop: '8px', gap: '8px' }} onClick={() => touch(s => { s.settings.assistant = !s.settings.assistant; })}>
+              <span class={`tag ${save.settings.assistant ? 'good' : ''}`}>{save.settings.assistant ? 'ON' : 'OFF'}</span>
+              <span class="dim grow" style={{ fontSize: '17px' }}>Assistant GM: do these for me every week</span>
             </div>
           </Panel>
         )}
+        {chores.length === 0 && people.length === 0 && save.settings.assistant && save.phase !== 'offseason' && <div class="dim center" style={{ fontSize: '17px' }}>Your assistant is handling the chores. <span class="tap gold" onClick={() => touch(s => { s.settings.assistant = false; })}>Turn off</span></div>}
 
         {GROUPS.map(([title, names]) => (
           <div class="col" style={{ gap: '5px' }}>
@@ -308,7 +329,8 @@ export function HubScreen(_p: { params: Record<string, any> }) {
         </Panel>
         <Btn kind="small" onClick={() => reset('title')}>Title screen</Btn>
       </div>
-      <EventModal save={save} />
+      {pendingMoment(save) ? null : <EventModal save={save} />}
+      <BigMomentHost save={save} />
     </div>
   );
 }

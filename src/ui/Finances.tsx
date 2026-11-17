@@ -1,7 +1,8 @@
-import { HARD_LIMIT, MAX_CONTRACT_YEARS, MIN_DEAL_YEARS, MIN_SALARY, SALARY_CAP } from '../core/constants';
+import { useState } from 'preact/hooks';
+import { HARD_LIMIT, MAX_CONTRACT_YEARS, MAX_SALARY, MIN_DEAL_YEARS, MIN_SALARY, SALARY_CAP } from '../core/constants';
 import { capSpace, limitSpace, payroll, statusOf } from '../core/org/finance';
 import { useSave } from '../state/store';
-import { Panel, Screen, money } from './kit';
+import { Btn, Panel, Screen, money } from './kit';
 import { CapBar, CapTag } from './OffseasonParts';
 import { nav } from './router';
 
@@ -24,42 +25,40 @@ export function FinancesScreen(_p: { params: Record<string, any> }) {
   const finalYear = players.filter(p => p.contract.years === 1);
   const finalTotal = Math.round(finalYear.reduce((s, p) => s + p.contract.salary, 0) * 10) / 10;
 
+  const [rules, setRules] = useState(false);
+  // the one thing that matters most, in plain words
+  const headline = space >= MIN_SALARY
+    ? { big: `You can offer a free agent up to ${money(Math.min(space, MAX_SALARY))}`, small: 'That is your room under the salary cap. You can also re-sign your own players.', cls: 'good' }
+    : toLimit < 2
+      ? { big: 'You are at the hard limit', small: 'Minimum deals and draft picks only, until some salary comes off.', cls: 'bad' }
+      : { big: 'Over the cap: minimum deals only', small: `Other teams' free agents will only get a ${money(MIN_SALARY)} deal from you. You can still re-sign your own players, up to ${money(toLimit)} more.`, cls: 'gold' };
+
   return (
     <Screen title="Finances" right={<div class="head gold">◉ {save.credits}</div>}>
-      <Panel title="PAYROLL AND THE CAP" team>
-        <div class="row between"><span>Payroll <b>{money(pay)}</b></span><CapTag status={status} /></div>
+      <Panel title="YOUR MONEY AT A GLANCE" team>
+        <div class={`fin-big ${headline.cls}`}>{headline.big}</div>
+        <div class="dim" style={{ fontSize: '18px', margin: '2px 0 8px' }}>{headline.small}</div>
+        <div class="row between"><span>Payroll <b>{money(pay)}</b> of a {money(SALARY_CAP)} cap</span><CapTag status={status} /></div>
         <CapBar pay={pay} />
         <div class="list" style={{ marginTop: '6px' }}>
           <div class="item" style={{ minHeight: '34px' }}>
-            <span class="grow">{space >= 0 ? 'Cap space' : 'Over the cap by'}</span>
-            <span class={space >= MIN_SALARY ? 'good' : ''}>{money(Math.abs(space))}</span>
+            <span class="grow">Contracts ending this summer</span>
+            <span class={finalYear.length ? 'gold right' : 'dim'}>{finalYear.length ? finalYear.map(p => p.name.split(' ').slice(-1)[0]).join(', ') : 'None'}</span>
           </div>
-          <div class="item" style={{ minHeight: '34px' }}>
-            <span class="grow">Room under the hard limit</span>
-            <span class={toLimit < 2 ? 'bad' : ''}>{money(Math.max(0, toLimit))}</span>
-          </div>
-          <div class="item" style={{ minHeight: '34px' }}>
-            <span class="grow">Dead money</span>
-            <span class={me.deadCap > 0 ? 'bad' : 'dim'}>{money(me.deadCap)}</span>
-          </div>
-          <div class="item" style={{ minHeight: '34px' }}>
-            <span class="grow">Contracts in their final year</span>
-            <span class={finalYear.length ? 'gold' : 'dim'}>{finalYear.length} ({money(finalTotal)})</span>
-          </div>
+          {finalYear.length > 0 && <div class="dim" style={{ fontSize: '17px', padding: '0 6px 6px' }}>Re-sign them in the offseason, or they leave for nothing. That frees {money(finalTotal)} if they go.</div>}
+          {me.deadCap > 0 && (
+            <div class="item" style={{ minHeight: '34px' }}>
+              <span class="grow">Dead money (released players)</span>
+              <span class="bad">{money(me.deadCap)}</span>
+            </div>
+          )}
         </div>
-        <div class="dim cap-note" style={{ marginTop: '6px' }}>
-          {space >= MIN_SALARY
-            ? `You can offer another team's free agent up to ${money(Math.min(space, 45))} a season.`
-            : toLimit < 2
-              ? 'You are at the hard limit: minimum deals and draft picks only until salary comes off.'
-              : `You are over the cap: no room for another team's free agents beyond minimum deals. You can still re-sign your own players, up to ${money(toLimit)} more.`}
-        </div>
-      </Panel>
-
-      <Panel title="LEAGUE RULES">
-        <div class="list cap-rules">
-          {RULES.map((r, i) => <div class="item"><span class="n">{i + 1}</span><span class="grow">{r}</span></div>)}
-        </div>
+        <Btn kind="small" class="block" onClick={() => setRules(!rules)}>{rules ? 'Hide the rules' : 'How the cap works ▾'}</Btn>
+        {rules && (
+          <div class="list cap-rules" style={{ marginTop: '6px' }}>
+            {RULES.map((r, i) => <div class="item"><span class="n">{i + 1}</span><span class="grow">{r}</span></div>)}
+          </div>
+        )}
       </Panel>
 
       <Panel title="PAYROLL">

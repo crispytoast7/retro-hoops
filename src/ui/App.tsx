@@ -4,7 +4,7 @@ import { unlockAudio } from '../audio/sfx';
 import { markTip, prog } from '../core/org/progress';
 import { hasSave, touch, useSave } from '../state/store';
 import { ConfirmHost, ToastHost } from './kit';
-import { useRoute } from './router';
+import { route, useRoute } from './router';
 import { BracketScreen } from './Bracket';
 import { ChampionScreen } from './Champion';
 import { CoachScreen } from './Coach';
@@ -60,6 +60,24 @@ export function App() {
     const f = () => { unlockAudio(); kickMusic(); };
     window.addEventListener('pointerdown', f);
     return () => window.removeEventListener('pointerdown', f);
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.repeat || (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT'))) return;
+      const k = e.key;
+      const modal = document.querySelector('.modal, .moment');
+      if (k === 'Enter') {
+        // the main button of whatever is on top: a pop-up first, then the screen's footer
+        const btn = (modal?.querySelector('.btn.primary:not(:disabled)') ?? (!modal ? document.querySelector('.screen .footer .btn.primary:not(:disabled)') : null)) as HTMLElement | null;
+        if (btn) { e.preventDefault(); btn.click(); }
+      } else if (k === 'Escape' && !modal && route().name !== 'game' && route().name !== 'practice') {
+        const backBtn = document.querySelector('.screen .topbar .btn.small') as HTMLElement | null;
+        if (backBtn && backBtn.textContent?.trim() === '<') { e.preventDefault(); backBtn.click(); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
   useEffect(() => { setTrack(r.name === 'game' || r.name === 'practice' ? 'game' : 'menu'); }, [r.name]);
   const C = SCREENS[r.name] ?? TitleScreen;

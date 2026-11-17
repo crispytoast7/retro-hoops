@@ -12,7 +12,7 @@ export const holdTips = (v: boolean): void => { held = v; };
 
 export function ProgressHost({ route }: { route: string }) {
   const save = useSave();
-  const show = !held && ((route === 'hub' && !save.pendingEvent && !save.fired) || route === 'offseason');
+  const show = !held && ((route === 'hub' && !save.pendingEvent && !save.fired && !(save as { moments?: { pending: unknown } }).moments?.pending) || route === 'offseason');
   const fresh = show ? prog(save).fresh : [];
   const tip = show && !fresh.length ? nextTip(save) : null;
   useEffect(() => { if (fresh.length) sfx.fanfare(); else if (tip) sfx.select(); }, [fresh.length, tip?.id]);

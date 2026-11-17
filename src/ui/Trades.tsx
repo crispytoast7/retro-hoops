@@ -1,7 +1,7 @@
-import { useRef, useState } from 'preact/hooks';
+import { useMemo, useRef, useState } from 'preact/hooks';
 import { MIN_SALARY, ROSTER_MAX, SALARY_CAP } from '../core/constants';
 import { instantSigning } from '../core/gm/freeAgency';
-import { evaluateTrade, executeTrade, suggestSweetener, tradeMatch, validateTrade } from '../core/gm/trade';
+import { evaluateTrade, executeTrade, shopPlayer, suggestSweetener, tradeMatch, validateTrade } from '../core/gm/trade';
 import type { TradeMatch, TradeOffer, TradeSide } from '../core/gm/trade';
 import { askingContract, teamNeeds } from '../core/gm/value';
 import { pushNews, teamName } from '../core/org/economy';
@@ -12,6 +12,7 @@ import { ovr } from '../core/ratings';
 import { cal } from '../core/season/calendar';
 import type { DraftPick, Player, Save, Team } from '../core/types';
 import { POSITIONS } from '../core/types';
+import { sfx } from '../audio/sfx';
 import { act, useSave } from '../state/store';
 import { Btn, Modal, Panel, Screen, Stars, Tabs, confirmDialog, fullName, money, recordStr, toast } from './kit';
 import { CapTag, FreeAgentList, PlayerLine, STATUS_CLASS, STRATEGY_HINT, VIA_TEXT, contractText, dealText, pickText } from './OffseasonParts';
@@ -19,8 +20,8 @@ import { CapTag, FreeAgentList, PlayerLine, STATUS_CLASS, STRATEGY_HINT, VIA_TEX
 const r1 = (v: number): number => Math.round(v * 10) / 10;
 import { nav } from './router';
 
-type Tab = 'Propose' | 'Offers' | 'Free Agents';
-const TABS: readonly Tab[] = ['Propose', 'Offers', 'Free Agents'];
+type Tab = 'Shop' | 'Offers' | 'Propose' | 'Free Agents';
+const TABS: readonly Tab[] = ['Shop', 'Offers', 'Propose', 'Free Agents'];
 
 const samePick = (a: DraftPick, b: DraftPick): boolean => a.year === b.year && a.round === b.round && a.origTeamId === b.origTeamId;
 const sortPicks = (ps: DraftPick[]): DraftPick[] => ps.slice().sort((a, b) => a.year - b.year || a.round - b.round || a.origTeamId - b.origTeamId);
@@ -59,21 +60,142 @@ function tradeWindow(save: Save): { open: boolean; text: string } {
 }
 
 /** Survives a trip to a player page and back (screens remount on navigation). */
-const memo: { tab: Tab; partnerId: number | null; give: TradeSide; get: TradeSide } = {
-  tab: 'Propose', partnerId: null, give: { players: [], picks: [] }, get: { players: [], picks: [] },
+const memo: { tab: Tab; partnerId: number | null; give: TradeSide; get: TradeSide; shopId: number | null } = {
+  tab: 'Shop', partnerId: null, give: { players: [], picks: [] }, get: { players: [], picks: [] }, shopId: null,
 };
 
 export function TradesScreen(p: { params: Record<string, any> }) {
   const save = useSave();
+  // a deep link (from a player page) names who to shop
+  if (typeof p.params.playerId === 'number' && memo.shopId !== p.params.playerId && p.params.tab === 'Shop') memo.shopId = p.params.playerId;
   const [tab, setTabState] = useState<Tab>(TABS.includes(p.params.tab) ? p.params.tab : memo.tab);
   const setTab = (t: Tab) => { memo.tab = t; setTabState(t); };
+  const shop = (id: number) => { memo.shopId = id >= 0 ? id : null; setTab('Shop'); };
   return (
     <Screen title="Trades" right={save.tradeOffer ? <span class="tag gold">OFFER IN</span> : undefined}>
       <div class="ox-chips"><Tabs tabs={TABS} value={tab} onChange={setTab} labels={{ Offers: save.tradeOffer ? 'Offers (1)' : 'Offers' }} /></div>
+      {tab === 'Shop' && <ShopTab save={save} />}
       {tab === 'Propose' && <ProposeTab save={save} />}
-      {tab === 'Offers' && <OffersTab save={save} />}
+      {tab === 'Offers' && <OffersTab save={save} onShop={shop} />}
       {tab === 'Free Agents' && <FreeAgentsTab save={save} />}
     </Screen>
+  );
+}
+
+// ---- offer cards ---------------------------------------------------------------------
+/** "1st-round pick, Season 3", and whose it was if it is not the giving team's own. */
+function pickWords(save: Save, holder: Team, pk: DraftPick): string {
+  const from = pk.origTeamId !== holder.id && save.teams[pk.origTeamId] ? ` (from the ${save.teams[pk.origTeamId].name})` : '';
+  return `${pk.round === 1 ? '1st' : '2nd'}-round pick, Season ${pk.year}${from}`;
+}
+const playersWord = (save: Save, ids: readonly number[]): string => ids.map(id => save.players[id]?.name ?? '?').join(' and ');
+
+/** One trade offer, laid out the same everywhere: who, what you get, what it does to your payroll. */
+function OfferCard({ save, offer, title, onAccept, onDecline }: { save: Save; offer: TradeOffer; title?: string; onAccept: () => void; onDecline?: () => void }) {
+  const me = save.teams[save.userTeamId];
+  const from = save.teams[offer.aId];
+  const reason = validateTrade(save, offer);
+  const m = tradeMatch(save, offer, me.id);
+  const diff = r1(m.payAfter - m.payBefore);
+  const gets = offer.aGives;
+  return (
+    <div class="panel offer-card" style={{ '--oc': from.colors.primary, '--oc2': from.colors.secondary } as any}>
+      <div class="offer-head">
+        <span class="swatch" style={{ background: from.colors.primary, boxShadow: `4px 0 0 ${from.colors.secondary}`, marginRight: '4px' }} />
+        <div class="grow">
+          <div class="head">{title ?? `THE ${from.name.toUpperCase()} OFFER`}</div>
+          <div class="row dim ox-sub"><span>{recordStr(from)}</span><span class="tag">{STRATEGY_HINT[from.strategy]}</span></div>
+        </div>
+      </div>
+      <div class="offer-label">YOU GET</div>
+      <div class="list">
+        {gets.players.map(id => save.players[id]).filter(Boolean).map(pl => (
+          <PlayerLine save={save} player={pl} sub={<span>{contractText(pl)}</span>} />
+        ))}
+        {gets.picks.map(pk => <div class="item" style={{ minHeight: '36px' }}><span class="tag gold">PICK</span><span class="grow">{pickWords(save, from, pk)}</span></div>)}
+        {!gets.players.length && !gets.picks.length && <div class="item dim" style={{ minHeight: '36px' }}>Nothing back: they simply take the contract off your hands.</div>}
+      </div>
+      <div class="offer-label">YOU GIVE</div>
+      <div class="offer-give">{[playersWord(save, offer.bGives.players), ...offer.bGives.picks.map(pk => pickWords(save, me, pk))].filter(Boolean).join(', ') || 'Nothing'}</div>
+      <div class="offer-money">
+        Your payroll {money(m.payBefore)} → <b class={STATUS_CLASS[m.status]}>{money(m.payAfter)}</b>
+        {diff < 0 ? <span class="good"> · saves {money(-diff)}</span> : diff > 0 ? <span class="gold"> · adds {money(diff)}</span> : null}
+        <span class="dim"> · {vsCap(m.payAfter)} the cap</span>
+      </div>
+      {reason && <div class="bad">{reason}</div>}
+      <div class="row" style={{ marginTop: '8px' }}>
+        {onDecline && <Btn class="grow" kind="danger" onClick={onDecline}>Decline</Btn>}
+        <Btn class="grow" kind="primary" disabled={!!reason} onClick={onAccept}>Accept</Btn>
+      </div>
+    </div>
+  );
+}
+
+/** Ask, then do it. True if the trade went through. */
+async function takeOffer(save: Save, offer: TradeOffer): Promise<boolean> {
+  const from = save.teams[offer.aId];
+  const gets = [playersWord(save, offer.aGives.players), ...offer.aGives.picks.map(pk => pickWords(save, from, pk).replace(/^1st/, 'a 1st').replace(/^2nd/, 'a 2nd'))].filter(Boolean);
+  const what = gets.length ? gets.join(' and ') : 'nothing (they take the contract)';
+  if (!(await confirmDialog(`Trade ${playersWord(save, offer.bGives.players)} to the ${from.city} ${from.name} for ${what}?`, 'Trade'))) return false;
+  const err = validateTrade(save, offer);
+  if (err) { toast(err); return false; }
+  act(s => {
+    executeTrade(s, offer); noteTrade(s);
+    if (s.tradeOffer && validateTrade(s, s.tradeOffer)) s.tradeOffer = null;
+  });
+  sfx.coin();
+  toast(`Done! Welcome ${gets.length ? gets[0] : 'the cap space'}.`, true);
+  return true;
+}
+
+// ---- shop ------------------------------------------------------------------------------
+function ShopTab({ save }: { save: Save }) {
+  const me = save.teams[save.userTeamId];
+  const [sel, setSelState] = useState<number | null>(memo.shopId !== null && me.roster.includes(memo.shopId) ? memo.shopId : null);
+  const setSel = (id: number | null) => { memo.shopId = id; setSelState(id); };
+  const win = tradeWindow(save);
+  const p = sel !== null ? save.players[sel] : null;
+  // depends on the roster and the week; recomputed when either changes
+  const offers = useMemo(() => (p ? shopPlayer(save, p.id) : []), [sel, save.week, me.roster.join(',')]);
+  if (!win.open) return <div class="panel ox-warn"><span class="bad">{win.text}</span></div>;
+  if (!p) {
+    const players = me.roster.map(id => save.players[id]).filter(Boolean).sort((a, b) => ovr(b) - ovr(a));
+    return (
+      <>
+        <div class="panel"><span>{win.text}</span></div>
+        <Panel title="WHO DO YOU WANT TO SHOP?">
+          <div class="dim" style={{ fontSize: '18px', marginBottom: '4px' }}>Tap a player. Up to three teams will tell you what they would give for him.</div>
+          <div class="list">
+            {players.map(pl => (
+              <PlayerLine save={save} player={pl} onClick={() => setSel(pl.id)}
+                note={save.tradeDemands.includes(pl.id) ? <span class="tag bad" style={{ marginLeft: '4px' }}>WANTS OUT</span> : null}
+                sub={<span>{contractText(pl)}</span>} right={<span class="tag gold">SHOP</span>} />
+            ))}
+          </div>
+        </Panel>
+      </>
+    );
+  }
+  return (
+    <>
+      <div class="panel row">
+        <div class="grow">
+          <div class="head dim">ON THE MARKET</div>
+          <PlayerLine save={save} player={p} sub={<span>{contractText(p)}</span>} />
+        </div>
+        <Btn onClick={() => setSel(null)}>Change</Btn>
+      </div>
+      {offers.length === 0 ? (
+        <Panel title="NO TAKERS">
+          <div>Nobody is biting on {p.name} right now. {p.contract.salary > 15 ? 'His contract scares teams off.' : 'Try again next week, or build your own deal on the Propose tab.'}</div>
+        </Panel>
+      ) : (
+        <>
+          <div class="dim" style={{ fontSize: '18px' }}>{offers.length === 1 ? 'One team called.' : `${offers.length} teams called.`} Best for you first. Take one, or keep him.</div>
+          {offers.map(o => <OfferCard save={save} offer={o} onAccept={() => { void takeOffer(save, o).then(ok => { if (ok) setSel(null); }); }} />)}
+        </>
+      )}
+    </>
   );
 }
 
@@ -276,57 +398,28 @@ function SideList({ save, side, empty }: { save: Save; side: TradeSide; empty: s
   );
 }
 
-function OffersTab({ save }: { save: Save }) {
+function OffersTab({ save, onShop }: { save: Save; onShop: (id: number) => void }) {
   const me = save.teams[save.userTeamId];
   const o = save.tradeOffer;
   const demands = save.tradeDemands.filter(id => me.roster.includes(id)).map(id => save.players[id]).filter(Boolean);
-
-  const accept = async () => {
-    if (!o) return;
-    const err = validateTrade(save, o);
-    if (err) { toast(err); return; }
-    if (!(await confirmDialog(`Accept the trade with ${save.teams[o.aId].city}?`, 'Accept'))) return;
-    act(s => { executeTrade(s, o); noteTrade(s); s.tradeOffer = null; });
-    toast('Trade done!', true);
-  };
   const decline = () => { act(s => { s.tradeOffer = null; }); toast('Offer declined.', true); };
-
   return (
     <>
-      {o ? (() => {
-        const from = save.teams[o.aId];
-        const reason = validateTrade(save, o);
-        const mine = tradeMatch(save, o, me.id), theirs = tradeMatch(save, o, from.id);
-        const other = reason && reason !== mine.problem && reason !== theirs.problem ? reason : null;
-        return (
-          <Panel team title={`OFFER FROM ${from.city.toUpperCase()}`}>
-            <div class="row dim ox-sub"><span class="swatch" style={{ background: from.colors.primary }} /><span>{fullName(from)}</span><span>{recordStr(from)}</span><span class="tag">{STRATEGY_HINT[from.strategy]}</span></div>
-            <h3 style={{ marginTop: '10px' }}>YOU GIVE</h3>
-            <SideList save={save} side={o.bGives} empty="Nothing." />
-            <h3 style={{ marginTop: '10px' }}>YOU GET</h3>
-            <SideList save={save} side={o.aGives} empty="Nothing." />
-            <div class="row between" style={{ margin: '8px 0 4px' }}><span class="dim">Your payroll</span><span>{money(mine.payBefore)} → <b class={STATUS_CLASS[mine.status]}>{money(mine.payAfter)}</b> ({vsCap(mine.payAfter)} the cap)</span></div>
-            <div class="col" style={{ gap: '4px' }}>
-              <MatchLine abbr={me.abbr} m={mine} />
-              <MatchLine abbr={from.abbr} m={theirs} />
-            </div>
-            {other && <div class="bad">{other}</div>}
-            <div class="row" style={{ marginTop: '8px' }}>
-              <Btn class="grow" kind="danger" onClick={decline}>Decline</Btn>
-              <Btn class="grow" kind="primary" disabled={!!reason} onClick={() => { void accept(); }}>Accept</Btn>
-            </div>
-          </Panel>
-        );
-      })() : (
-        <Panel title="NO OFFERS">
-          <div class="dim">No team has made you an offer. AI teams call now and then before the deadline. You can always make your own on the Propose tab.</div>
+      {o ? (
+        <OfferCard save={save} offer={o} title={`OFFER FROM THE ${save.teams[o.aId].name.toUpperCase()}`}
+          onAccept={() => { void takeOffer(save, o).then(ok => { if (ok) act(s => { s.tradeOffer = null; }); }); }} onDecline={decline} />
+      ) : (
+        <Panel title="NO OFFERS RIGHT NOW">
+          <div class="dim">Teams call most weeks before the deadline. Want a deal now? Shop a player and see what comes back.</div>
+          <div style={{ height: '6px' }} />
+          <Btn class="block" onClick={() => onShop(-1)}>Shop a player</Btn>
         </Panel>
       )}
       <Panel title="TRADE REQUESTS">
         {demands.length ? (
           <>
-            <div class="dim" style={{ fontSize: '18px' }}>These players have asked out. AI teams are more likely to make offers for them, and they will not re-sign with you.</div>
-            <div class="list">{demands.map(pl => <PlayerLine save={save} player={pl} sub={<span>{contractText(pl)}</span>} right={<span class="tag bad">WANTS OUT</span>} />)}</div>
+            <div class="dim" style={{ fontSize: '18px' }}>These players have asked out. They will not re-sign with you, so it may be time to see what they fetch.</div>
+            <div class="list">{demands.map(pl => <PlayerLine save={save} player={pl} sub={<span>{contractText(pl)}</span>} right={<Btn kind="small" onClick={() => onShop(pl.id)}>Shop</Btn>} />)}</div>
           </>
         ) : <div class="dim">Nobody on your roster has asked for a trade.</div>}
       </Panel>

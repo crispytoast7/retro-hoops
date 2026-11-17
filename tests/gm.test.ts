@@ -654,9 +654,9 @@ describe('AI trading', () => {
       expect(evaluateTrade(save, offer, offer.aId).accept).toBe(true);
     }
     expect(userSnapshot(save)).toBe(before);
-    // About once every 3-4 weeks.
-    expect(offers / N).toBeGreaterThan(0.12);
-    expect(offers / N).toBeLessThan(0.4);
+    // A little under every other week.
+    expect(offers / N).toBeGreaterThan(0.2);
+    expect(offers / N).toBeLessThan(0.55);
 
     const unhappy = byOvr(save, save.teams[USER])[1];
     save.tradeDemands.push(unhappy.id);

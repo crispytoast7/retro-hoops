@@ -9,6 +9,8 @@ import { afterUserGame, bumpFans, bumpOwner, checkFired, healWeek, rollEvent, ro
 import { checkTrophies, gameProgress, isUnlocked, perk, seasonProgress } from '../org/progress';
 import { Objective, ObjectiveResult, settleObjective } from '../org/objectives';
 import { gameXp } from '../org/xp';
+import { heatedGame, rollMoment } from '../org/moments';
+import { doChores } from '../org/chores';
 import { FormChange, awardPlayerOfWeek, edgeFor, hasEdge, pressure, withPressure, isRivalGame, notePerformance, settleSponsor, sponsorOf, updateForm, weekState, withForm } from '../org/week';
 import { addStats } from '../ratings';
 import type { Rng } from '../rng';
@@ -136,8 +138,10 @@ export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult,
   const rival = isRivalGame(save, g);
   if (rival) {
     const opp = save.teams[home ? g.awayId : g.homeId];
-    if (won) { credits.push({ label: 'Rivalry win', amount: 2 }); bumpFans(save, 3); notes.push({ text: `You beat your rivals, the ${opp.name}. Fans +3.`, good: true }); }
-    else { bumpFans(save, -2); notes.push({ text: `You lost to your rivals, the ${opp.name}. Fans -2.`, good: false }); }
+    // after trash talk in the press, the stakes double
+    const heat = heatedGame(save) === g.id;
+    if (won) { credits.push({ label: heat ? 'Rivalry win (you fired back)' : 'Rivalry win', amount: heat ? 4 : 2 }); bumpFans(save, heat ? 6 : 3); notes.push({ text: `You beat your rivals, the ${opp.name}. Fans +${heat ? 6 : 3}.${heat ? ' Your words held up.' : ''}`, good: true }); }
+    else { bumpFans(save, heat ? -5 : -2); notes.push({ text: `You lost to your rivals, the ${opp.name}. Fans -${heat ? 5 : 2}.${heat ? ' After all that talk.' : ''}`, good: false }); }
   }
   if (edge?.kind === 'promo') {
     const gate = credits.find(x => x.label === 'Home gate');
@@ -277,6 +281,12 @@ function closeWeek(save: Save, rng: Rng): void {
     else save.week++;
   }
   if (wasRegular) {
+    // the assistant GM does the chores, if you let him
+    if (save.settings.assistant) {
+      const done = doChores(save);
+      if (done.length) pushNews(save, 'team', `Your assistant: ${done.join('; ')}.`, true);
+    }
+    rollMoment(save, rng);
     // named once the calendar has moved on, so the hub shows it in the week that follows
     const potw = awardPlayerOfWeek(save);
     if (potw) pushNews(save, 'award', `Player of the Week: ${potw.player.name} (${save.teams[potw.player.teamId!].name}), ${potw.text}.${potw.mine ? ' The club gets 1 credit.' : ''}`, potw.mine);

@@ -1536,6 +1536,7 @@ export class Arcade {
     disc(BTN.r - 2, held ? 'rgba(255,170,90,0.95)' : 'rgba(255,138,60,0.72)');
     const put = this.putback > 0 && !held;
     if (put && Math.floor(this.time * 10) % 2) disc(BTN.r - 2, 'rgba(255,210,60,0.95)');
+    if (this.usedKeys && !held) drawText(g, 'SPACE', BTN.x + 1, BTN.y + 6, put ? PAL.ink : PAL.yellow, { align: 'center', outline: put ? undefined : PAL.ink });
     drawText(g, held ? 'LET GO' : put ? 'PUT BACK' : 'SHOOT', BTN.x + 1, BTN.y - 2, held || put ? PAL.ink : PAL.white, { align: 'center', outline: held || put ? undefined : PAL.ink });
   }
 
