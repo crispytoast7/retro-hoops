@@ -149,7 +149,8 @@ export function newLeague(opts: NewGameOpts): Save {
       colors: { primary: t.primary, secondary: t.secondary },
       roster: [], lineup: [],
       staff: { oc: genStaff(save, rng, 'OC', clamp(Math.round(2 + rng.gauss()), 1, 4)), dc: genStaff(save, rng, 'DC', clamp(Math.round(2 + rng.gauss()), 1, 4)) },
-      facilities: Object.fromEntries(FACILITY_KEYS.map(k => [k, facility(facLevel(), rng)])) as Record<FacilityKey, Facility>,
+      // the store and the trophy room are new everywhere: every club starts them at level 1
+      facilities: Object.fromEntries(FACILITY_KEYS.map(k => [k, k === 'store' || k === 'trophy' ? { level: 1, condition: 100 } : facility(facLevel(), rng)])) as Record<FacilityKey, Facility>,
       picks: [],
       record: { w: 0, l: 0, pf: 0, pa: 0, confW: 0, confL: 0, streak: 0 },
       deadCap: 0, history: [], titles: [], strategy: 'middle',

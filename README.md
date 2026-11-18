@@ -71,7 +71,8 @@ one hands the run to the opponent. Games are full length (12-minute quarters, sc
   Assistant GM who does them every week), auto level-ups, a trade Shop that shows up to three
   offers for any player, a plain-language money screen, a few big decisions a season (a star
   wants a new deal, a rookie breaks out, a rival poaches your coach, deadline day), and a
-  pixel-art picture of your club that grows with every upgrade.
+  pixel-art picture of your club that grows with every upgrade, across six facilities: arena,
+  training center, medical center, scouting office, team store and trophy room.
 - Plays with touch, or with mouse and keyboard (WASD/arrows, Space to shoot or fake, 1-4 to
   pass, Shift for a crossover, Enter and Escape in the menus).
 - Saves automatically on the device; export/import a save file in Settings.

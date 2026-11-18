@@ -86,7 +86,7 @@ export function FinancesScreen(_p: { params: Record<string, any> }) {
         <div class="head gold" style={{ marginBottom: '8px' }}>◉ {save.credits}</div>
         <div class="list">
           {[
-            ['Win', '3'], ['Loss', '1'], ['Home gate', 'fans x arena level'], ['Highlight plays', 'up to 3'],
+            ['Win', '3'], ['Loss', '1'], ['Home gate', 'fans x arena level'], ['Team store', 'every game, by store level'], ['Highlight plays', 'up to 3'],
             ['Milestones', 'streaks, win totals'], ['Playoff win', '5'], ['Championship', '15'],
           ].map(([a, b]) => <div class="item row between" style={{ minHeight: '32px' }}><span>{a}</span><span class="gold">{b}</span></div>)}
         </div>

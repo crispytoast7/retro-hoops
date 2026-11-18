@@ -69,7 +69,7 @@ function mkSave(seed = 1): Save {
       id: t, city: `City${t}`, name: `Team${t}`, abbr: `T${t}`, conf: t % 2,
       colors: { primary: '#000', secondary: '#fff' },
       roster: [], lineup: [], staff: { oc: null, dc: null },
-      facilities: { arena: fac(), training: fac(), medical: fac(), scouting: fac() },
+      facilities: { arena: fac(), training: fac(), medical: fac(), scouting: fac(), store: fac(), trophy: fac() },
       picks: [], record: { w: 0, l: 0, pf: 0, pa: 0, confW: 0, confL: 0, streak: 0 },
       deadCap: 0, history: [], titles: [], strategy: 'middle', prestige: 50,
     };

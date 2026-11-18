@@ -1,6 +1,7 @@
 // Save storage: IndexedDB is the main store, localStorage is a fallback copy.
 import { SAVE_VERSION } from '../core/constants';
 import type { Save } from '../core/types';
+import { FACILITY_KEYS } from '../core/types';
 
 const DB = 'retro-hoops', STORE = 'kv', KEY = 'save', LS_KEY = 'retro-hoops-save';
 
@@ -36,6 +37,8 @@ export function migrate(raw: unknown): Save | null {
   if (!s || typeof s !== 'object' || typeof s.version !== 'number' || !Array.isArray(s.teams) || !s.players) return null;
   if (s.version > SAVE_VERSION) return null;
   // v1 is the first version; future migrations go here: if (s.version === 1) { ...; s.version = 2; }
+  // buildings added after launch start at level 1
+  for (const t of s.teams) if (t?.facilities) for (const k of FACILITY_KEYS) if (!t.facilities[k]) t.facilities[k] = { level: 1, condition: 100 };
   s.draftClass ??= [];
   s.tradeOffer ??= null;
   return s;

@@ -51,7 +51,7 @@ function makeSquad(id: number, starters = 66, bench = 56, seed = id): Squad {
     colors: { primary: '#fff', secondary: '#000' },
     roster: players.map(p => p.id), lineup: players.slice(0, 5).map(p => p.id),
     staff: { oc: null, dc: null },
-    facilities: { arena: { ...facility }, training: { ...facility }, medical: { ...facility }, scouting: { ...facility } },
+    facilities: { arena: { ...facility }, training: { ...facility }, medical: { ...facility }, scouting: { ...facility }, store: { ...facility }, trophy: { ...facility } },
     picks: [], record: { w: 0, l: 0, pf: 0, pa: 0, confW: 0, confL: 0, streak: 0 },
     deadCap: 0, history: [], titles: [], strategy: 'middle', prestige: 50,
   };

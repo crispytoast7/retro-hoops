@@ -532,8 +532,9 @@ describe('economy: credits', () => {
     const playoffWin = gameCredits(save, result(0, ME, 80, 90), [], true);
     expect(homeWin.some(l => l.label === 'Home gate')).toBe(true);
     expect(awayWin.some(l => l.label === 'Home gate')).toBe(false);
-    expect(sum(awayWin)).toBe(3);
-    expect(sum(homeLoss)).toBe(1 + (homeLoss.find(l => l.label === 'Home gate')?.amount ?? 0));
+    const extra = (l: { label: string; amount: number }[]) => l.find(x => x.label === 'Team store')?.amount ?? 0;
+    expect(sum(awayWin) - extra(awayWin)).toBe(3);
+    expect(sum(homeLoss)).toBeCloseTo(1 + (homeLoss.find(l => l.label === 'Home gate')?.amount ?? 0) + extra(homeLoss), 5);
     expect(sum(playoffWin)).toBeGreaterThan(sum(awayWin));
     expect(sum(gameCredits(save, result(0, ME, 90, 80), [], false))).toBeLessThan(sum(awayWin));
   });

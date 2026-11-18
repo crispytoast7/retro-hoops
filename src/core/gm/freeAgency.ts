@@ -5,7 +5,7 @@ import { signPlayer } from '../org/roster';
 import { clamp, ovr, round1 } from '../ratings';
 import type { Rng } from '../rng';
 import type { FreeAgentOffer, Player, Save, Team } from '../types';
-import { FACILITY_KEYS, POSITIONS } from '../types';
+import { POSITIONS } from '../types';
 import { CORE_OVR, askingContract, keepCeiling, leaguePosAverages, needsForRoster, playerValue, teamSuccess } from './value';
 
 function formerTeamId(p: Player): number | null {
@@ -38,8 +38,11 @@ export function offerScore(save: Save, p: Player, offer: FreeAgentOffer): number
   const o = ovr(p), success = teamSuccess(team);
   score += (success - 0.5) * (o >= 85 ? 28 : o >= 80 ? 20 : 14);
   let fac = 0;
-  for (const k of FACILITY_KEYS) fac += team.facilities[k].level;
-  score += (fac / FACILITY_KEYS.length - 3) * 2;
+  const base = ['arena', 'training', 'medical', 'scouting'] as const;
+  for (const k of base) fac += team.facilities[k].level;
+  score += (fac / base.length - 3) * 2;
+  // the tour of the trophy room
+  score += ((team.facilities.trophy?.level ?? 1) - 1) * 0.8;
   const rep = offer.teamId === save.userTeamId ? save.coach.rep : team.prestige;
   score += ((rep - 50) / 50) * 4;
   score += (needsForRoster(save, team.roster)[p.pos] - 0.5) * 8;

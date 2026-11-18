@@ -7,14 +7,14 @@ import { drawText, textWidth } from '../game/font';
 import { shade } from '../game/render';
 
 /** Logical width of the scene. Heights: compact strip for the hub, full view for Facilities. */
-const W = 208;
+const W = 262;
 const H_COMPACT = 58, H_FULL = 90;
 /** Rows of extra sky the full view adds above the compact scene. */
 const SKY_EXTRA = 26;
-const SLOT: Record<FacilityKey, [number, number]> = { scouting: [2, 30], training: [32, 66], arena: [68, 132], medical: [134, 168] };
-const PLAZA: [number, number] = [170, 206];
-const LABEL: Record<FacilityKey, string> = { scouting: 'SCOUTS', training: 'TRAINING', arena: 'ARENA', medical: 'MEDICAL' };
-const ORDER: FacilityKey[] = ['scouting', 'training', 'arena', 'medical'];
+const SLOT: Record<FacilityKey, [number, number]> = { scouting: [2, 30], training: [32, 66], store: [68, 94], arena: [96, 160], trophy: [162, 188], medical: [190, 224] };
+const PLAZA: [number, number] = [226, 260];
+const LABEL: Record<FacilityKey, string> = { scouting: 'SCOUTS', training: 'TRAIN', store: 'STORE', arena: 'ARENA', trophy: 'TROPHY', medical: 'MEDIC' };
+const ORDER: FacilityKey[] = ['scouting', 'training', 'store', 'arena', 'trophy', 'medical'];
 
 interface Box { x: number; y: number; w: number; h: number }
 interface Scene {
@@ -294,6 +294,73 @@ function scouting(s: Scene, lvl: number, shab: boolean): Box {
   return { x, y, w: bw, h: bh };
 }
 
+function store(s: Scene, lvl: number, shab: boolean): Box {
+  const g = s.g, GY = s.GY, cx = cen('store');
+  const [bw, bh] = ([[12, 8], [18, 11], [22, 14], [24, 19], [26, 24]] as const)[lvl - 1];
+  const x = Math.round(cx - bw / 2), y = GY - bh;
+  // a little jersey: the club's colours with a number
+  const jersey = (jx: number, jy: number) => { R(g, jx, jy, 5, 6, s.p1); R(g, jx - 1, jy, 1, 2, s.p1); R(g, jx + 5, jy, 1, 2, s.p1); R(g, jx + 2, jy, 1, 1, s.p2); R(g, jx + 1, jy + 2, 3, 2, s.p2); };
+  const awning = (ax: number, ay: number, w: number) => { for (let i = 0; i < w; i++) R(g, ax + i, ay, 1, 3, Math.floor(i / 2) % 2 ? '#ffffff' : s.p1); for (let i = 0; i < w; i += 2) R(g, ax + i, ay + 3, 1, 1, s.p1); };
+  if (lvl === 1) {
+    // a merch cart on wheels with an umbrella
+    R(g, x, GY - 6, bw, 5, '#c89a5a'); R(g, x, GY - 6, bw, 1, '#e8c088');
+    R(g, x + 1, GY - 1, 2, 1, '#22202e'); R(g, x + bw - 3, GY - 1, 2, 1, '#22202e');
+    R(g, cx, GY - 14, 1, 8, '#8a8a96');
+    for (let i = 0; i < 12; i++) R(g, cx - 6 + i, GY - 15 + Math.abs(i - 6) / 3, 1, 2, i % 4 < 2 ? s.p1 : '#ffffff');
+    jersey(x + 3, GY - 12);
+  } else {
+    R(g, x, y, bw, bh, lvl >= 4 ? '#e9e2d4' : '#d9b48a');
+    R(g, x - 1, y - 1, bw + 2, 2, lvl >= 4 ? '#8a8496' : '#9a6a4a');
+    awning(x, y + bh - 10, bw);
+    // the shop window, with jerseys from level 3
+    R(g, x + 2, GY - 6, bw - 9, 6, s.night ? '#ffe9a8' : '#9fd0ef');
+    if (lvl >= 3) jersey(x + 4, GY - 6);
+    if (lvl >= 4) jersey(x + 11, GY - 6);
+    R(g, x + bw - 6, GY - 6, 4, 6, '#5a4632');
+    if (lvl >= 4) winRow(s, x + 3, y + 3, Math.floor((bw - 4) / 5), 3, 3, 2, 120 + lvl, shab);
+    if (lvl === 5) {
+      // a neon sign on the roof that flickers on and off
+      const on = !(s.night || s.dusk) || Math.floor(s.t * 3) % 7 !== 0;
+      R(g, cx - 10, y - 8, 21, 7, '#14121f');
+      drawText(g, 'SHOP', cx + 1, y - 7, on ? (s.night ? '#ff6ad5' : s.p2) : '#4a3a4a', { align: 'center' });
+    } else if (lvl >= 2) plate(s, cx, y - 6, lvl === 2 ? 'GEAR' : 'STORE');
+  }
+  return { x, y: lvl === 1 ? GY - 8 : y, w: bw, h: lvl === 1 ? 8 : bh };
+}
+
+function trophyRoom(s: Scene, lvl: number, shab: boolean, titles: number): Box {
+  const g = s.g, GY = s.GY, cx = cen('trophy');
+  const [bw, bh] = ([[10, 9], [16, 11], [20, 14], [22, 17], [24, 20]] as const)[lvl - 1];
+  const x = Math.round(cx - bw / 2), y = GY - bh;
+  const gold = '#ffd23c', goldD = '#c8921a';
+  const cup = (ux: number, uy: number, big = false) => {
+    if (big) { R(g, ux - 3, uy, 7, 4, gold); R(g, ux - 5, uy + 1, 2, 2, gold); R(g, ux + 4, uy + 1, 2, 2, gold); R(g, ux - 2, uy + 4, 5, 1, goldD); R(g, ux - 1, uy + 5, 3, 2, gold); R(g, ux - 3, uy + 7, 7, 2, goldD); R(g, ux - 1, uy, 1, 2, '#fff3b0'); }
+    else { R(g, ux - 1, uy, 3, 2, gold); R(g, ux, uy + 2, 1, 1, goldD); R(g, ux - 1, uy + 3, 3, 1, goldD); }
+  };
+  if (lvl === 1) {
+    // a display case: a cabinet with glass and one small cup
+    R(g, x, y, bw, bh, '#6a4a32'); R(g, x + 1, y + 1, bw - 2, bh - 3, s.night ? '#3a3550' : '#b9d6ea');
+    cup(cx, y + 3);
+  } else {
+    const marble = lvl >= 4;
+    R(g, x, y, bw, bh, marble ? '#ece8df' : '#b8604a');
+    // a pediment over the door, columns from level 3
+    for (let r = 0; r < 4; r++) R(g, cx - (bw / 2 - 1) + r * 2, y - 4 + r, bw - 2 - r * 4, 1, marble ? '#d8d2c4' : '#8a4a3a');
+    if (lvl >= 3) for (let c = x + 2; c < x + bw - 1; c += 4) R(g, c, y + 2, 2, bh - 2, marble ? '#fbf8f0' : '#d8c8b0');
+    R(g, cx - 2, GY - 7, 5, 7, s.night ? '#ffe9a8' : '#3a2a22');
+    // one cup in the window for every title, up to four
+    for (let i = 0; i < Math.min(4, titles); i++) cup(x + 3 + i * 4 + (i >= 2 ? 6 : 0), GY - 11);
+    if (lvl >= 4) {
+      // a golden trophy statue on the roof; at the top level it is huge and lit
+      const big = lvl === 5;
+      cup(cx, y - (big ? 15 : 10), big);
+      if (big && (s.night || s.dusk) && Math.floor(s.t * 2) % 2) R(g, cx - 6, y - 16, 13, 1, 'rgba(255,230,120,0.5)');
+    }
+    if (shab) R(g, x + 1, y + 1, 3, 2, '#5a5a66');
+  }
+  return { x, y, w: bw, h: bh };
+}
+
 // ---- states: run down, under construction ------------------------------------------------
 function shabby(s: Scene, b: Box, seed: number): void {
   const g = s.g;
@@ -383,9 +450,10 @@ function drawScene(g: CanvasRenderingContext2D, save: Save, t: number, full: boo
   const draw: Record<FacilityKey, (lvl: number, shab: boolean) => Box> = {
     scouting: (l, sh) => scouting(s, l, sh), training: (l, sh) => training(s, l, sh),
     arena: (l, sh) => arena(s, l, sh, team.titles.length), medical: (l, sh) => medical(s, l, sh),
+    store: (l, sh) => store(s, l, sh), trophy: (l, sh) => trophyRoom(s, l, sh, team.titles.length),
   };
   ORDER.forEach((k, i) => {
-    const fac: Facility = f[k];
+    const fac: Facility = f[k] ?? { level: 1, condition: 100 };
     const lvl = Math.max(1, Math.min(5, fac.level));
     const shab = fac.condition < 50;
     const b = draw[k](lvl, shab);
@@ -424,7 +492,7 @@ function drawScene(g: CanvasRenderingContext2D, save: Save, t: number, full: boo
     R(g, 0, GY + 3, W, H - GY - 3, '#24223a');
     R(g, 0, GY + 3, W, 1, '#3a3760');
     for (const k of ORDER) {
-      const fac = f[k], c = cen(k);
+      const fac = f[k] ?? { level: 1, condition: 100 }, c = cen(k);
       drawText(g, LABEL[k], c, GY + 5, fac.condition < 50 ? '#ff9a7a' : '#e8e4f8', { align: 'center' });
       for (let i = 0; i < 5; i++) {
         const on = i < fac.level, next = fac.pending && i === fac.level;

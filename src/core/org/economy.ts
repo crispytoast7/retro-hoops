@@ -21,6 +21,8 @@ export const FACILITY_INFO: Record<FacilityKey, { name: string; desc: string; pe
   arena: { name: 'Arena', desc: 'Fan support and home-court advantage.', perks: ['Small home edge', 'Louder crowd, more gate credits', 'Fans grow faster', 'Strong home edge', 'Fortress: best home edge and gate'] },
   training: { name: 'Training Center', desc: 'Faster player progression.', perks: ['Basic gym', 'Young players develop faster', 'Veterans hold their ratings longer', 'Cheaper rating upgrades', 'Elite development'] },
   medical: { name: 'Medical Center', desc: 'Fewer and shorter injuries.', perks: ['First-aid kit', 'Fewer injuries', 'Shorter recoveries', 'Far fewer injuries', 'Players rarely miss time'] },
+  store: { name: 'Team Store', desc: 'Sells your jerseys: credits every game, more at home and when fans love you.', perks: ['A merch cart: a little extra every game', 'A real shop: more from every game', 'Jerseys in the window: more again', 'Two floors of gear: a lot more', 'The flagship megastore: the most of all'] },
+  trophy: { name: 'Trophy Room', desc: 'Shows off your titles, awards and legends. Fans and free agents notice.', perks: ['A display case in the hallway', 'Fans drift up a little every week', 'Free agents are impressed by the tour', 'Fans drift up faster and higher', 'A hall of legends: fans and free agents love it'] },
   scouting: { name: 'Scouting Office', desc: 'Better draft info and free-agent interest.', perks: ['3 scouting reports a season', '6 reports, tighter rating estimates', '9 reports, free agents take notice', '12 reports, sharp estimates', '15 reports, nothing stays hidden'] },
 };
 /** Cost in credits to reach level L from L-1. */
@@ -28,6 +30,9 @@ export const FACILITY_COST = [0, 0, 8, 14, 22, 32];
 /** Level that actually applies: run-down buildings (condition < 50) act one level lower. */
 export const effLevel = (f: Facility): number => Math.max(1, f.level - (f.condition < 50 ? 1 : 0));
 export const repairCost = (f: Facility): number => (f.condition >= 95 ? 0 : 1 + f.level);
+
+/** Credits a home game earns at the team store, by level, before the fans multiplier. */
+export const STORE_PER_GAME = [0, 0.25, 0.5, 0.8, 1.15, 1.6];
 
 export function upgradeFacility(save: Save, key: FacilityKey): string | null {
   const f = save.teams[save.userTeamId].facilities[key];
@@ -62,6 +67,8 @@ export function weeklyFacilities(save: Save, rng: Rng): void {
     } else {
       const before = f.condition;
       f.condition = clamp(f.condition - rng.int(1, 3), 0, 100);
+      // a trophy room pulls the city in, week after week, up to a point
+      if (k === 'trophy') { const lv = effLevel(f); if (lv >= 2 && save.fans < 40 + 12 * lv) save.fans = clamp(save.fans + (lv >= 4 ? 2 : 1), 0, 100); }
       if (before >= 50 && f.condition < 50) pushNews(save, 'team', `The ${FACILITY_INFO[k].name} is run down and working a level below its best. Maintenance needed.`, true);
     }
   }
@@ -175,6 +182,10 @@ export function gameCredits(save: Save, result: GameResult, highlights: string[]
     const gate = r2((save.fans / 100) * (1 + arena) * 0.75 * scale * (1 + 0.25 * perk(save, 'gate')));
     if (gate > 0) out.push({ label: 'Home gate', amount: gate });
   }
+  // the team store sells every game, twice as much at home, more when the fans love you
+  const store = effLevel(save.teams[me].facilities.store ?? { level: 1, condition: 100 });
+  const merch = r2(STORE_PER_GAME[store] * (home ? 1 : 0.5) * (0.6 + save.fans / 125) * scale);
+  if (merch > 0) out.push({ label: 'Team store', amount: merch });
   const big = highlights.filter(h => h === 'dunk' || h === 'buzzer' || h === 'andone' || h === 'ankles' || h === 'perfect').length;
   if (big >= 3) out.push({ label: 'Highlight plays', amount: Math.min(3, Math.floor(big / 3)) });
   if (highlights.includes('buzzer')) out.push({ label: 'Buzzer beater', amount: 2 });

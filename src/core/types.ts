@@ -83,8 +83,8 @@ export interface StaffMember {
   age: number;
 }
 
-export type FacilityKey = 'arena' | 'training' | 'medical' | 'scouting';
-export const FACILITY_KEYS: FacilityKey[] = ['arena', 'training', 'medical', 'scouting'];
+export type FacilityKey = 'arena' | 'training' | 'medical' | 'scouting' | 'store' | 'trophy';
+export const FACILITY_KEYS: FacilityKey[] = ['arena', 'training', 'medical', 'scouting', 'store', 'trophy'];
 export interface Facility {
   /** 1-5 (effective level) */
   level: number;

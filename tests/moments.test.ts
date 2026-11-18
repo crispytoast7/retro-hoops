@@ -135,3 +135,37 @@ describe('big moments', () => {
     }
   });
 });
+
+describe('the team store and the trophy room', () => {
+  test('the store pays every game, more at home and more as it grows', async () => {
+    const { gameCredits } = await import('../src/core/org/economy');
+    const { save } = mk();
+    const me = save.teams[save.userTeamId];
+    const res = (home: boolean) => ({ homeId: home ? me.id : (me.id + 1) % 16, awayId: home ? (me.id + 1) % 16 : me.id, homeScore: 100, awayScore: 90, box: { home: [], away: [] } } as any);
+    const merch = (home: boolean) => gameCredits(save, res(home), [], false).find(c => c.label === 'Team store')?.amount ?? 0;
+    me.facilities.store = { level: 1, condition: 100 };
+    const low = merch(true);
+    me.facilities.store = { level: 5, condition: 100 };
+    expect(merch(true)).toBeGreaterThan(low * 4);
+    expect(merch(false)).toBeCloseTo(merch(true) / 2, 1);
+  });
+
+  test('a trophy room lifts fan support week by week, up to a ceiling', async () => {
+    const { weeklyFacilities } = await import('../src/core/org/economy');
+    const { save, rng } = mk();
+    const me = save.teams[save.userTeamId];
+    me.facilities.trophy = { level: 3, condition: 100 };
+    save.fans = 40;
+    for (let i = 0; i < 40; i++) { weeklyFacilities(save, rng); me.facilities.trophy.condition = 100; }
+    expect(save.fans).toBeGreaterThanOrEqual(76);
+    expect(save.fans).toBeLessThanOrEqual(77);
+  });
+
+  test('an old save without the new buildings gets them at level 1', async () => {
+    const { migrate } = await import('../src/state/persist');
+    const { save } = mk();
+    for (const t of save.teams) { delete (t.facilities as any).store; delete (t.facilities as any).trophy; }
+    const back = migrate(JSON.parse(JSON.stringify(save)))!;
+    for (const t of back.teams) { expect(t.facilities.store.level).toBe(1); expect(t.facilities.trophy.level).toBe(1); }
+  });
+});
