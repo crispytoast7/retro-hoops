@@ -89,16 +89,15 @@ export function SettingsScreen(_p: { params: Record<string, any> }) {
       <Panel title="HOW TO PLAY">
         {has && getSave().schedule.length > 0 && <><Btn class="block" kind="primary" onClick={() => nav('practice')}>Practice the controls</Btn><div style={{ height: '8px' }} /></>}
         <div class="list" style={{ fontSize: '19px' }}>
-          <div class="item">Drag on the court: dribble and drive</div>
-          <div class="item">Hold the SHOOT button, let go when the crosshair is on the rim</div>
-          <div class="item">Tap SHOOT for a pump fake: a defender who bites is out of the play for a moment</div>
-          <div class="item">Offensive rebound near the rim: press PUT BACK while it flashes to go straight back up</div>
-          <div class="item">Touch your player, pull back, let go: throw a pass where you aim (or shoot, pulling back from the rim)</div>
-          <div class="item">Let go when the crosshair is over the rim. Green is a swish.</div>
-          <div class="item">Tap a teammate: quick pass</div>
-          <div class="item">Quick flick: crossover, or a step-back away from the basket</div>
-          <div class="item">Drive at the rim with a lane: layup or dunk</div>
-          <div class="item dim">Keyboard: arrows/WASD move, hold Space to aim a shot and release, Shift for a move, 1-4 pass</div>
+          <div class="item"><b class="gold">Move:</b> drag on the court (not on your player). Keep dragging at the rim to lay it in or dunk.</div>
+          <div class="item"><b class="gold">Shoot:</b> hold the SHOOT button. A crosshair swings around the rim: let go when it is on the rim. Gold is good, green is a swish.</div>
+          <div class="item"><b class="gold">Change your mind:</b> while holding SHOOT, slide your finger off the button and let go. No shot.</div>
+          <div class="item"><b class="gold">Pump fake:</b> tap SHOOT. A defender who bites leaves his feet and you are open.</div>
+          <div class="item"><b class="gold">Pass:</b> tap a teammate. To lead him or throw a lob, touch your player and pull back away from where you want the ball to go, then let go.</div>
+          <div class="item"><b class="gold">Crossover:</b> a quick flick on the court. Flick away from the basket for a step-back.</div>
+          <div class="item"><b class="gold">Putback:</b> grab an offensive rebound near the rim and the button flashes PUT BACK. Press it.</div>
+          <div class="item"><b class="gold">Free throws:</b> hold SHOOT and let go on the rim. A quick tap does nothing.</div>
+          <div class="item dim">Keyboard: WASD or arrows move, hold Space to shoot (tap it to fake, Escape to call it off), 1-4 pass, Shift for a crossover. Menus: Enter and Escape.</div>
         </div>
       </Panel>
     </Screen>

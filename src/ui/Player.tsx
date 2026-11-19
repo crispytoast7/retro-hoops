@@ -26,7 +26,7 @@ const TRAIT_DESC: Record<Trait, string> = {
   Lazy: 'Develops slowly. Skips the odd practice.',
 };
 const RATING_DESC: Record<string, string> = {
-  sht: 'Bigger, slower shot meter. Range.', hnd: 'Dribble speed, crossovers, fewer steals.', pas: 'Faster passes, fewer interceptions.',
+  sht: 'Steadier, slower crosshair. Range.', hnd: 'Dribble speed, crossovers, fewer steals.', pas: 'Faster passes, fewer interceptions.',
   spd: 'Movement on drives.', fin: 'Layups and dunks in traffic.', def: 'Steals, blocks, simulated defense.', reb: 'Boards at both ends.',
 };
 

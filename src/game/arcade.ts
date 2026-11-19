@@ -1,4 +1,4 @@
-// The hand-played possession: input, movement, defender AI, pull-back aiming, passes, drives,
+// The hand-played possession: input, movement, defender AI, the SHOOT button, pull-back passes, drives,
 // rebounds. Reads player ratings, returns a list of PlayEvents for the sim to score.
 import type { Difficulty, Player } from '../core/types';
 import type { PlayEvent, ShotType, UserPossessionOutcome, UserPossessionSetup } from '../core/sim/api';
@@ -80,13 +80,12 @@ const DIFF: Record<Difficulty, { aim: number; lag: number; steal: number; dspd: 
   normal: { aim: 1.0, lag: 0.20, steal: 1.0, dspd: 1.0, make: 0, move: 0 },
   hard:   { aim: 1.25, lag: 0.13, steal: 1.3, dspd: 1.05, make: -0.03, move: -0.08 },
 };
-// Pull-back aiming: touch your player, drag away from the target, release.
+// Pull-back passing: touch your player, drag away from the target, release. Shots use the SHOOT button.
 const AIM_TOUCH = 15;     // how near the ball-handler a touch must start (a touch anywhere else moves him)
 const AIM_MIN = 8;        // px of pull before an aim counts
 const AIM_GAIN = 3.3;     // court px thrown per px pulled
-const SNAP_HOOP = 24;     // an aim this close to the rim is a shot
 const SNAP_MATE = 18;     // an aim this close to a teammate is a pass to him
-const SHOT_CONE = 0.82;   // cos 35deg: a pull this well lined up with the hoop is a shot, however long it is
+const SHOT_CONE = 0.82;   // cos 35deg: a pull this well lined up with the hoop may be a lob to a cutter
 const MATE_CONE = 0.92;   // cos 23deg: a pull lined up with a teammate is the start of a pass
 const LEAD_REACH = 26;    // a pass to a spot needs a teammate who will be this close to it
 const AIM_QUICK = 0.18;   // a flick off your player this fast is a move, not a shot
@@ -373,7 +372,7 @@ export class Arcade {
     Object.assign(this.ptr, { down: true, id: e.pointerId, x0: p.x, y0: p.y, x: p.x, y: p.y, t0: this.time, mode: 'press', mate: -1 });
     if (this.phase === 'live') {
       const hh = this.off[this.handler];
-      // a touch that starts on your player is an aim: pull back to throw or shoot
+      // a touch that starts on your player is an aim: pull back to throw a pass
       if (this.ftMode || Math.hypot(p.x - hh.x, p.y - (hh.y - 12)) < AIM_TOUCH) { this.ptr.mode = 'aim'; this.startAim(false); return; }
       let best = -1, bd = MATE_PICK_R;
       this.off.forEach((m, i) => {
@@ -668,8 +667,8 @@ export class Arcade {
           }
           a.armed = true;
         }
-        if (Math.hypot(tx - HOOP.x, ty - HOOP.y) < SNAP_HOOP) { kind = 'shot'; tx = HOOP.x; ty = HOOP.y; }
-        else {
+        // pulling back throws passes only: shots belong to the SHOOT button, so a drag can never shoot by accident
+        {
           const pas = h.p.ratings.pas / 100, spd = 105 + 115 * pas;
           let bd = SNAP_MATE, reach = 1e9;
           this.off.forEach((m, i) => {
@@ -681,11 +680,8 @@ export class Arcade {
           });
           const inBounds = tx > SIDE_L + 4 && tx < SIDE_R - 4 && ty > BASE_Y + 4;
           if (mate >= 0) kind = 'pass';
-          // a spot someone can run onto is a lead pass; anything else lined up with the hoop is a shot,
-          // whether the pull was short or long; and a pull at nothing throws nothing
-          // (straight at the hoop it stays a shot, unless the spot is at the rim: that is a lob)
-          else if (reach < LEAD_REACH && inBounds && (atHoop < 0.94 || Math.hypot(tx - HOOP.x, ty - HOOP.y) < 40)) kind = 'lead';
-          else if (atHoop >= SHOT_CONE) { kind = 'shot'; tx = HOOP.x; ty = HOOP.y; }
+          // a spot someone can run onto is a lead pass (at the rim, a lob); a pull at nothing throws nothing
+          else if (reach < LEAD_REACH && inBounds) kind = 'lead';
           else { kind = 'none'; tx = h.x; ty = h.y; }
         }
       }

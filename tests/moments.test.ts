@@ -169,3 +169,31 @@ describe('the team store and the trophy room', () => {
     for (const t of back.teams) { expect(t.facilities.store.level).toBe(1); expect(t.facilities.trophy.level).toBe(1); }
   });
 });
+
+describe('GOAT lists', () => {
+  test('two a season, each reporter with an angle, and the news carries the list', async () => {
+    const { save, rng } = mk(4, 5);
+    const lists: NonNullable<Save['news'][number]['list']>[] = [];
+    for (let season = 0; season < 3; season++) {
+      const { takeJob } = await import('../src/core/org/people');
+      for (let i = 0; i < 60 && save.phase !== 'offseason'; i++) {
+        if (save.fired) takeJob(save, save.fired.offers[0], true);
+        advance(save, rng, 'simWeek');
+        const m = pendingMoment(save); if (m) resolveMoment(save, m.choices.findIndex(c => !c.disabled));
+      }
+      if (save.fired) takeJob(save, save.fired.offers[0], true);
+      // walk the offseason quickly
+      const { advanceOffseason } = await import('../src/core/offseason/offseason');
+      const { userOnClock, userDraftPick } = await import('../src/core/offseason/offseason');
+      for (let i = 0; i < 40 && save.phase === 'offseason'; i++) { if (userOnClock(save)) userDraftPick(save, null, rng); advanceOffseason(save, rng); }
+    }
+    for (const n of save.news) if (n.list) lists.push(n.list);
+    expect(lists.length).toBeGreaterThanOrEqual(5);
+    for (const l of lists) {
+      expect(l.rows.length).toBe(10);
+      expect(new Set(l.rows.map(r => r.playerId)).size).toBe(10);
+      expect(l.rows[0].note.length).toBeGreaterThan(5);
+    }
+    expect(new Set(lists.map(l => l.by)).size).toBe(3);
+  }, 60000);
+});

@@ -13,10 +13,10 @@ iPhone) to play offline.
 | Action | Touch / mouse | Keyboard |
 |---|---|---|
 | Dribble, drive | Drag on the court | Arrows / WASD |
-| Shoot | Hold the SHOOT button and release when the crosshair is over the rim (or touch your player and pull back from the basket) | Hold Space, release |
+| Shoot | Hold the SHOOT button, let go when the crosshair is on the rim; slide off the button to call it off | Hold Space, release (Esc to call it off) |
 | Pump fake | Tap the SHOOT button | Tap Space |
 | Putback | Press PUT BACK when it flashes after an offensive rebound near the rim | Space |
-| Aimed pass, lead pass, lob | Touch your player, pull back away from the target, release | |
+| Lead pass, lob | Touch your player, pull back away from the target, release | |
 | Quick pass | Tap a teammate | 1-4 |
 | Crossover, step-back | Quick flick | Shift (while moving) |
 | Layup / dunk | Drive at the rim with a lane | same |
@@ -36,7 +36,7 @@ one hands the run to the opponent. Games are full length (12-minute quarters, sc
   explainer each time something unlocks.
 - Coach progression: XP and levels, perks you choose, 30 trophies that pay credits, and
   unlockable home-court floors.
-- Arcade possessions: shot meter sized by Shooting, distance and defense; handles moves;
+- Arcade possessions: a shooting crosshair that swings more for poor shooters, long shots and tight defense; handles moves;
   interceptable passes; layups, dunks, and-ones, blocks, offensive rebounds; sped-up shot
   clock; crowd meter; buzzer-beaters; three difficulty levels.
 - Possession-by-possession simulation with full box scores, season and career stats.

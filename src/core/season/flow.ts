@@ -11,6 +11,7 @@ import { Objective, ObjectiveResult, settleObjective } from '../org/objectives';
 import { gameXp } from '../org/xp';
 import { heatedGame, rollMoment } from '../org/moments';
 import { doChores } from '../org/chores';
+import { publishGoatList } from '../org/goat';
 import { FormChange, awardPlayerOfWeek, edgeFor, hasEdge, pressure, withPressure, isRivalGame, notePerformance, settleSponsor, sponsorOf, updateForm, weekState, withForm } from '../org/week';
 import { addStats } from '../ratings';
 import type { Rng } from '../rng';
@@ -287,6 +288,8 @@ function closeWeek(save: Save, rng: Rng): void {
       if (done.length) pushNews(save, 'team', `Your assistant: ${done.join('; ')}.`, true);
     }
     rollMoment(save, rng);
+    // halfway through the season, someone has opinions about the greatest of all time
+    if (save.week === Math.floor(cal(save).regWeeks / 2) + 1) publishGoatList(save, 'midseason');
     // named once the calendar has moved on, so the hub shows it in the week that follows
     const potw = awardPlayerOfWeek(save);
     if (potw) pushNews(save, 'award', `Player of the Week: ${potw.player.name} (${save.teams[potw.player.teamId!].name}), ${potw.text}.${potw.mine ? ' The club gets 1 credit.' : ''}`, potw.mine);

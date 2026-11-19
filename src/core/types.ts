@@ -189,6 +189,8 @@ export interface NewsItem {
   text: string;
   /** True if it concerns the user's team. */
   mine?: boolean;
+  /** A ranked list attached to the story (a reporter's all-time top ten). */
+  list?: { by: string; outlet: string; motto: string; rows: { playerId: number; name: string; team: string; note: string }[] };
 }
 
 export type EffectKind =

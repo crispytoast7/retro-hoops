@@ -17,6 +17,7 @@ import { cmpTeams, genSchedule } from '../season/schedule';
 import type { OffseasonStep, Player, PlayoffSeries, Save, SeasonHistory, StatLine, Team, TeamSeason } from '../types';
 import { grantXp } from '../org/xp';
 import { startChallenge } from '../org/progress';
+import { publishGoatList } from '../org/goat';
 
 const STEPS: OffseasonStep[] = ['awards', 'retirements', 'contracts', 'draft', 'freeAgency', 'camp', 'done'];
 const per = (s: StatLine, k: keyof StatLine): number => (s.gp ? s[k] / s.gp : 0);
@@ -182,6 +183,7 @@ export function beginOffseason(save: Save, rng: Rng): void {
   else if (me.record.w < me.record.l) bumpRep(save, -3);
   const log = evaluateGoals(save);
   updateSeasonRecords(save);
+  publishGoatList(save, 'summer');
   save.phase = 'offseason';
   save.pendingEvent = null; save.tradeOffer = null;
   save.offseason = { step: 'awards', draftOrder: [], draftIdx: 0, prospects: [], faDay: 1, userOffers: {}, retired: [], campSpent: 0, log, jobOffers: [], awardRewards };

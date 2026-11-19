@@ -45,10 +45,10 @@ const FEATURE_TIPS: Record<Feature, Tip | null> = {
   stats: { id: 'u_stats', title: 'Stats & News unlocked', text: ['Every game produces a full box score.', 'Stats shows your players, the league leaders and every team. News follows the league: results, injuries, trades.'], go: 'stats', goLabel: 'Open Stats' },
   news: null,
   coach: { id: 'u_coach', title: 'Coach profile unlocked', text: ['You earn coach XP from every game, more for wins and for highlight plays you make yourself.', 'Each level gives a perk point. Perks change how you play and how you run the club.', 'Trophies pay credits and unlock new court styles.'], go: 'coach', goLabel: 'Open Coach' },
-  facilities: { id: 'u_facilities', title: 'Facilities unlocked', text: ['Credits (the gold coin, top right) come from wins, home crowds and highlight plays.', 'Spend them on four buildings: Arena, Training Center, Medical Center, Scouting Office.', 'Upgrades arrive the next week. Buildings wear down, so budget for maintenance.'], go: 'facilities', goLabel: 'Open Facilities' },
+  facilities: { id: 'u_facilities', title: 'Facilities unlocked', text: ['Credits (the gold coin, top right) come from wins, home crowds and highlight plays.', 'Spend them on six buildings: Arena, Training Center, Medical Center, Scouting Office, Team Store and Trophy Room. Each one shows up in the picture of your club.', 'Upgrades arrive the next week. Buildings wear down: the TO DO list on the hub has a one-tap Maintain button.'], go: 'facilities', goLabel: 'Open Facilities' },
   staff: { id: 'u_staff', title: 'Staff unlocked', text: ['Hire an Offensive Coordinator (helps the possessions you play) and a Defensive Coordinator (helps the simulated defense).', 'Better coordinators cost more credits and want a coach with a reputation. Win, and they will come.', 'From now on, things will also happen in the locker room. Your choices matter.'], go: 'staff', goLabel: 'Open Staff' },
   finances: { id: 'u_finances', title: 'Finances unlocked', text: ['Every player has a contract: salary and years.', 'Finances shows your payroll against the salary cap. Signing a free agent needs room under the cap; you can go over it only to keep your own players, and never past the hard limit.', 'Players in their final year leave next summer unless you re-sign them.'], go: 'finances', goLabel: 'Open Finances' },
-  trades: { id: 'u_trades', title: 'Trades & Free Agents unlocked', text: ['Propose trades to any team: players and draft picks. Their GM weighs age, contract and what his team needs.', 'Other teams will call you with offers, too.', 'Unsigned players are in the free-agent pool. The trade deadline falls a little past mid-season.'], go: 'trades', goLabel: 'Open Trades' },
+  trades: { id: 'u_trades', title: 'Trades & Free Agents unlocked', text: ['Shop any of your players and see up to three real offers, or build your own deal in Propose. Each GM weighs age, contract and what his team needs.', 'Other teams will call you with offers, too.', 'Unsigned players are in the free-agent pool. The trade deadline falls a little past mid-season.'], go: 'trades', goLabel: 'Open Trades' },
   scouting: { id: 'u_scouting', title: 'Scouting unlocked', text: ['Next summer\'s draft class is already out there.', 'Unscouted prospects show rough rating ranges. A scouting report reveals the true ratings and the ceiling.', 'A better Scouting Office gives more reports each season.'], go: 'scouting', goLabel: 'Open Scouting' },
   history: { id: 'u_history', title: 'History unlocked', text: ['Champions, awards, your franchise record book, the Hall of Fame and your own coaching career are all kept here.'], go: 'history', goLabel: 'Open History' },
 };
@@ -72,7 +72,9 @@ const WEEK_TIP: Tip = {
   id: 'week', title: 'Your week',
   text: ['Before every game you get one move, and three to pick from: make a player better for good, buy an edge for this game, or look after the club.',
     'The three change every week. What you pass on is gone.',
-    'Your players also run hot and cold. A big night heats a player up and he plays above his ratings; a bad one cools him off. Check the lineup before you tip off.'],
+    'You will be asked for it when you press Play, so you cannot miss it.',
+    'Your players also run hot and cold. A big night heats a player up and he plays above his ratings; a bad one cools him off. Check the lineup before you tip off.',
+    'Chores (maintenance, level-ups, injured starters) wait in the TO DO list with one-tap buttons. Turn on the Assistant GM and they get done for you every week.'],
 };
 /** The next explainer the player should see, or null. Purely derived from the save. */
 export function nextTip(save: Save): Tip | null {

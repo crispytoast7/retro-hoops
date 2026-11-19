@@ -347,3 +347,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 20px; }
   .item.tap:hover { background: var(--panel2); }
   .btn:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 }
+
+/* the GOAT lists */
+.goat-open { margin-top: 5px; }
+.goat-motto { font-size: 18px; font-style: italic; }
+.goat-row { gap: 10px; }
+.goat-rank { font-family: var(--head); font-size: 14px; min-width: 2ch; text-align: right; color: var(--dim); }
+.goat-row.podium .goat-rank { color: var(--gold); }
+.goat-row.mine { background: rgba(255,210,60,0.1); }

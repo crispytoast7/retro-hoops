@@ -9,9 +9,9 @@ import { Btn, Panel, Screen, Sprite, Stars, fullName, teamStarCount } from './ki
 import { reset } from './router';
 
 const DIFFS: { k: Difficulty; label: string; desc: string }[] = [
-  { k: 'easy', label: 'Rookie', desc: 'Bigger shot meter, slower defenders.' },
+  { k: 'easy', label: 'Rookie', desc: 'Steadier crosshair, slower defenders.' },
   { k: 'normal', label: 'Pro', desc: 'The intended balance.' },
-  { k: 'hard', label: 'Legend', desc: 'Small meter, quick hands on defense.' },
+  { k: 'hard', label: 'Legend', desc: 'Wild crosshair, quick hands on defense.' },
 ];
 
 export function NewGameScreen(_p: { params: Record<string, any> }) {
