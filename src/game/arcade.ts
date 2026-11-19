@@ -95,7 +95,7 @@ const PUTBACK_TIME = 0.9;   // seconds (real time) the chance stays open
 const AIM_HOLD = 0.22;     // the SHOOT button has to be held this long: a tap is not a shot
 const AMP_FLOOR = 9.5;     // the crosshair never swings less than this, so letting go blind is a bad bet for anyone
 const FT_HOLD = 0.3;
-const CINE_DUR = 2.4;   // real seconds the slam cam runs
+const CINE_DUR = 2.9;   // real seconds the slam cam runs
 const CINE_SLOW = 1.4;  // of which this long in deep slow motion      // a free throw has to be held this long: a tap does not shoot
 const R_SWISH = 3.0;      // reticle this close to the rim's centre: nothing but net
 const R_RIM = 7.2;        // inside this it may roll in
@@ -134,6 +134,7 @@ const SETS: SlotName[][] = [
 ];
 /** A leg of an off-ball route. */
 interface Leg { x: number; y: number; speed: number; hold?: number; screen?: boolean }
+const STYLE_CALL = { windmill: 'WINDMILL!', tomahawk: 'TOMAHAWK!', spin: '360 SLAM!', legs: 'BETWEEN THE LEGS!' } as const;
 const CALLS = {
   move: ['ANKLES!', 'SHOOK!', 'CROSSED UP!', 'SEE YA!'],
   swish: ['SWISH!', 'SPLASH!', 'NOTHING BUT NET!', 'WET!'],
@@ -248,7 +249,16 @@ export class Arcade {
   /** The finger on the shoot button, tracked apart from the one that moves the player. */
   private btn = { down: false, id: -1, cancelled: false };
   /** Slam cam: a slow, zoomed, swinging close-up of a great finish. */
-  private cine = { on: false, t: 0, fx: 0, fy: 0, label: '' };
+  private cine = { on: false, t: 0, fx: 0, fy: 0, label: '', ball: false };
+  /** When this possession last left a defender on the floor (game seconds). */
+  private ankleT = -99;
+  /** A slam-cam dunk gets a signature move. */
+  private style: '' | 'windmill' | 'tomahawk' | 'spin' | 'legs' = '';
+  /** Where the dunker has just been, for the after-images. */
+  private trail: { x: number; y: number; lift: number; face: number }[] = [];
+  private trailT = 0;
+  /** Hit stop: real seconds the action holds still on the slam. */
+  private freeze = 0;
   private ptr = { down: false, id: -1, x0: 0, y0: 0, x: 0, y: 0, t0: 0, mode: 'none' as 'none' | 'press' | 'drag' | 'mate' | 'aim', mate: -1 };
   private keys = new Set<string>();
   private usedKeys = false;
@@ -304,7 +314,7 @@ export class Arcade {
     this.doubled = false;
     this.aim.on = false;
     this.reached = false; this.lastQuality = -1; this.hang = 0;
-    this.passes = 0; this.moves = 0; this.fakes = 0; this.fakeCd = 0;
+    this.passes = 0; this.moves = 0; this.fakes = 0; this.fakeCd = 0; this.ankleT = -99; this.style = ''; this.trail = []; this.freeze = 0;
     const mk = (p: Player, slot: number, off: boolean): Ent => ({
       p, slot, off, x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, stun: 0, slow: 0, run: -1, face: 0,
       armsUp: 0, lift: 0, home: 'TOP', route: [], leg: 0, holdT: 0, screen: 0, wait: 0, jitter: Math.random() * 6,
@@ -553,6 +563,7 @@ export class Arcade {
         const away = (dx * (HOOP.x - h.x) + dy * (HOOP.y - h.y)) / (Math.hypot(HOOP.x - h.x, HOOP.y - h.y) || 1) < -0.45;
         this.popup(away ? 'STEP BACK!' : pick(CALLS.move), PAL.yellow, 2);
         this.highlights.push('ankles');
+        this.ankleT = this.time;
         this.crowd = Math.min(100, this.crowd + 4);
       } else {
         h.slow = 0.45;
@@ -598,6 +609,7 @@ export class Arcade {
       on.e.stun = 0.75; on.e.lift = 9; on.e.armsUp = 0.5;
       this.popup('SENT FLYING!', PAL.green, 2); sfx.good();
       this.highlights.push('fake'); this.crowd = Math.min(100, this.crowd + 3);
+      this.ankleT = this.time;
     } else this.popup('NOT FOOLED', '#c8c8d8', 1, 150);
   }
   /** Straight back up off an offensive rebound: a dunk for a finisher, a tip-in for anyone else. */
@@ -726,6 +738,11 @@ export class Arcade {
     if (by && c > 0.78 && Math.random() < 0.08 + 0.2 * (by.p.ratings.def / 100)) { blockBy = by.p.id; made = false; }
     if (by && c > 0.6 && blockBy < 0 && Math.random() < 0.05) foul = true;
     this.launch(h, made, three ? 'three' : 'mid', three ? 3 : 2, q, blockBy, foul, a.wx, a.wy);
+    // crossed him up and buried it: now and then that gets the slam cam too, following the ball
+    if (made && blockBy < 0 && this.time - this.ankleT < 3 && Math.random() < (three ? 0.45 : 0.3)) {
+      this.cine = { on: true, t: 0, fx: (h.x + HOOP.x) / 2, fy: TOP + (h.y + HOOP.y - RIM_Z) / 2, label: three ? 'COLD BLOODED' : 'ANKLES BROKEN', ball: true };
+      sfx.whoosh();
+    }
   }
   /** A pass thrown to a spot: the nearest teammate runs onto it. */
   private startLead(x: number, y: number): void {
@@ -808,7 +825,13 @@ export class Arcade {
     // the great ones get the slam cam: every putback and alley-oop that goes down, plenty of dunks, the odd layup
     const putback = this.highlights[this.highlights.length - 1] === 'putback';
     if (made && blockBy < 0 && (oop || (dunk && Math.random() < 0.45) || (!dunk && Math.random() < 0.08))) {
-      this.cine = { on: true, t: 0, fx: (h.x + HOOP.x) / 2, fy: TOP + (h.y + HOOP.y - RIM_Z) / 2, label: putback ? 'PUTBACK SLAM' : oop ? 'ALLEY-OOP' : dunk ? 'SLAM CAM' : 'SMOOTH' };
+      this.cine = { on: true, t: 0, fx: (h.x + HOOP.x) / 2, fy: TOP + (h.y + HOOP.y - RIM_Z) / 2, label: putback ? 'PUTBACK SLAM' : oop ? 'ALLEY-OOP' : dunk ? 'SLAM CAM' : 'SMOOTH', ball: false };
+      if (dunk) {
+        // a dunk on camera is never an ordinary dunk: a bigger jump, longer in the air, and a move
+        this.style = pick(['windmill', 'tomahawk', 'spin', 'legs'] as const);
+        this.shot.dur *= 1.45;
+        this.trail = []; this.trailT = 0;
+      }
       sfx.whoosh();
     }
     // glide to the rim
@@ -873,8 +896,17 @@ export class Arcade {
       for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; this.sparks.push({ x: HOOP.x, y: HOOP.y - RIM_Z + 2, vx: Math.cos(a) * (18 + Math.random() * 14), vy: Math.sin(a) * 10 - 14, t: 0 }); }
       this.popups.push({ text: `+${sh.pts}`, color: PAL.green, t: 0, scale: 2, y: HOOP.y - RIM_Z + 42 });
       if (sh.type === 'dunk') { this.rimShake = 1; this.hang = 0.45; }
+      if (sh.type === 'dunk' && this.style) {
+        // the signature slam: the rim bends, the arena flashes, everything freezes for a beat
+        this.rimShake = 1.8; this.hang = 0.95; this.freeze = 0.2;
+        for (let i = 0; i < 18; i++) { const a = (i / 18) * Math.PI * 2; this.sparks.push({ x: HOOP.x, y: HOOP.y - RIM_Z + 2, vx: Math.cos(a) * (30 + Math.random() * 20), vy: Math.sin(a) * 16 - 20, t: 0 }); }
+        this.popup(STYLE_CALL[this.style], PAL.yellow, 2, 96);
+        this.cine.label = STYLE_CALL[this.style];
+      }
       if (sh.type === 'dunk') {
-        this.popup(pick(CALLS.dunk), PAL.yellow, 3); sfx.dunk(); sfx.cheer(true); this.shake = 0.5; this.flash = 0.25;
+        if (!this.style) this.popup(pick(CALLS.dunk), PAL.yellow, 3);
+        sfx.dunk(); sfx.cheer(true); this.shake = this.style ? 0.95 : 0.5; this.flash = this.style ? 0.16 : 0.25;
+        if (this.style) this.highlights.push('posterdunk');
         this.highlights.push('dunk'); this.crowd = Math.min(100, this.crowd + 14);
       } else if (sh.type === 'layup') {
         this.popup(pick(CALLS.layup), PAL.white, 2); sfx.swish(); sfx.cheer();
@@ -939,14 +971,15 @@ export class Arcade {
       if (this.putback <= 0) { this.putback = 0; if (this.phase === 'live') this.slowmo = 1; }
       else this.slowmo = 0.3;
     }
+    if (this.freeze > 0) { this.freeze -= dt; this.render(); this.raf = requestAnimationFrame(this.frame); return; }
     if (this.cine.on) {
       this.cine.t += dt;
-      if (this.cine.t >= CINE_DUR) { this.cine.on = false; this.slowmo = 1; }
+      if (this.cine.t >= CINE_DUR) { this.cine.on = false; this.slowmo = 1; this.style = ''; this.trail = []; }
       else {
         this.slowmo = this.cine.t < CINE_SLOW ? 0.38 : 0.8;
         // the camera follows the man in the air, then settles on the rim
         const h = this.off[this.handler];
-        if (h) { const tx = (h.x + HOOP.x) / 2, ty = TOP + (h.y - h.lift + HOOP.y - RIM_Z) / 2; this.cine.fx += (tx - this.cine.fx) * Math.min(1, dt * 6); this.cine.fy += (ty - this.cine.fy) * Math.min(1, dt * 6); }
+        if (h) { const tx = this.cine.ball ? (this.ball.x + HOOP.x) / 2 : (h.x + HOOP.x) / 2, ty = this.cine.ball ? TOP + (this.ball.y - this.ball.z * 0.6 + HOOP.y - RIM_Z) / 2 : TOP + (h.y - h.lift + HOOP.y - RIM_Z) / 2; this.cine.fx += (tx - this.cine.fx) * Math.min(1, dt * 6); this.cine.fy += (ty - this.cine.fy) * Math.min(1, dt * 6); }
       }
     }
     this.update(dt * this.slowmo);
@@ -1115,14 +1148,39 @@ export class Arcade {
       h.x += (h.tx - h.x) * glide; h.y += (h.ty - h.y) * glide;
       const dunk = sh.type === 'dunk';
       const reach = spriteHeight(h.p) + 4; // hand height above his feet
-      const peak = dunk ? Math.max(8, RIM_Z - reach + 6) : Math.max(5, RIM_Z - reach);
-      const rise = dunk ? 0.8 : 0.6;
+      const st = dunk ? this.style : '';
+      const peak = dunk ? Math.max(8, RIM_Z - reach + 6) + (st ? 9 : 0) : Math.max(5, RIM_Z - reach);
+      const rise = dunk ? (st ? 0.82 : 0.8) : 0.6;
       h.lift = peak * Math.sin(Math.min(1, k / rise) * Math.PI * 0.5);
       h.armsUp = 0.2;
       const handZ = h.lift + reach;
-      if (k < rise) { this.ball.x = h.x + 2; this.ball.y = h.y; this.ball.z = handZ; }
+      if (st) {
+        // after-images of the flight
+        this.trailT += dt;
+        if (this.trailT > 0.035) { this.trailT = 0; this.trail.push({ x: h.x, y: h.y, lift: h.lift, face: h.face }); if (this.trail.length > 6) this.trail.shift(); }
+      }
+      if (k < rise && st) {
+        const u = k / rise, side = h.x <= HOOP.x ? 1 : -1;
+        this.ball.y = h.y;
+        if (st === 'windmill') {
+          // the ball goes all the way round, one and a half turns, and ends up high
+          const a = u * Math.PI * 3;
+          this.ball.x = h.x + Math.sin(a) * 9 * side; this.ball.z = handZ - 6 - Math.cos(a) * 9;
+        } else if (st === 'tomahawk') {
+          // cocked way back behind the head
+          this.ball.x = h.x - 4 * side * Math.min(1, u * 2); this.ball.z = handZ + 2 + 6 * Math.sin(Math.min(1, u * 1.4) * Math.PI / 2);
+        } else if (st === 'legs') {
+          // down and through the legs in mid-air, then up
+          this.ball.x = h.x + 5 * Math.sin(u * Math.PI * 2); this.ball.z = Math.max(h.lift + 2, handZ - 20 * Math.sin(Math.min(1, u * 1.25) * Math.PI));
+        } else {
+          // a full 360 on the way up
+          h.face = Math.sin(u * Math.PI * 4) >= 0 ? 1 : -1;
+          this.ball.x = h.x + 2 * h.face; this.ball.z = handZ - 3;
+        }
+      } else if (k < rise) { this.ball.x = h.x + 2; this.ball.y = h.y; this.ball.z = handZ; }
       else {
-        const j = (k - rise) / (1 - rise);
+        // the slam itself comes down hard
+        const j0 = (k - rise) / (1 - rise), j = st ? j0 * j0 : j0;
         this.ball.x = h.x + 2 + (sh.x1 - h.x - 2) * j;
         this.ball.y = h.y + (sh.y1 - h.y) * j;
         this.ball.z = handZ + (RIM_Z + 1 - handZ) * j + (dunk ? 0 : Math.sin(j * Math.PI) * 5);
@@ -1485,6 +1543,7 @@ export class Arcade {
         for (let i = 1; i < n; i++) g.fillRect(Math.round(h.x + ((m.x - h.x) * i) / n), Math.round(h.y - 12 + ((m.y - h.y) * i) / n), 1, 1);
       }
       this.drawGuideFloor();
+      if (this.style && (this.phase === 'finish' || this.hang > 0)) this.drawDunkFx(s.offColors);
       let hoopDrawn = false;
       for (const e of ents) {
         if (!hoopDrawn && e.y >= HOOP.y - 3) { drawHoop(g, this.netKick, this.rimShake, this.time, this.rimGlow); hoopDrawn = true; }
@@ -1565,12 +1624,30 @@ export class Arcade {
     else this.out.drawImage(this.buf, 0, 0, cw, ch);
   }
 
+  /** Ghosts of the dunker's flight and speed lines around him. */
+  private drawDunkFx(colors: { primary: string; secondary: string }): void {
+    const g = this.g, h = this.off[this.handler];
+    if (!h) return;
+    this.trail.forEach((tr, i) => {
+      g.globalAlpha = 0.12 + 0.07 * i;
+      drawPlayer(g, { x: tr.x, y: tr.y, player: h.p, jersey: colors.primary, trim: colors.secondary, run: -1, face: tr.face, lift: tr.lift, pose: 'jump' });
+    });
+    g.globalAlpha = 1;
+    if (this.phase !== 'finish') return;
+    const cx = h.x, cy = h.y - h.lift - 12;
+    g.fillStyle = 'rgba(255,255,255,0.75)';
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + Math.floor(this.time * 12) * 0.37;
+      for (let r = 15; r < 26; r += 2) g.fillRect(Math.round(cx + Math.cos(a) * r), Math.round(cy + Math.sin(a) * r * 0.8), 1, 1);
+    }
+  }
+
   /** The slam cam: zoom in on the rim, tilt the floor away like a camera on a crane, and swing around. */
   private blitCine(cw: number, ch: number): void {
     const o = this.out, c = this.cine, T = c.t;
     const smooth = (v: number) => v * v * (3 - 2 * v);
     const e = smooth(clamp(Math.min(T / 0.3, (CINE_DUR - T) / 0.45), 0, 1));
-    const z = 1 + 1.3 * e;
+    const z = 1 + (c.ball ? 0.85 : 1.3) * e;
     const sw = W / z, sh = VIEW_H / z;
     const sx = clamp(c.fx - sw / 2, 0, W - sw), sy = clamp(c.fy - sh * 0.48, 0, VIEW_H - sh);
     const tilt = 0.34 * e;                              // the far (top) rows take in more width: depth
