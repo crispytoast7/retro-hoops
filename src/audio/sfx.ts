@@ -107,6 +107,8 @@ export const sfx = {
   coin: () => { tone('square', 988, 988, 0.06, 0.12); tone('square', 1319, 1319, 0.16, 0.12, 0.06); },
   cheer: (big = false) => { hiss(big ? 1.5 : 0.8, big ? 0.3 : 0.2, 700, 1300, 0.5); hiss(big ? 1.3 : 0.7, 0.1, 1700, 2300, 0.7, 0.06); },
   groan: () => hiss(0.7, 0.18, 420, 220, 0.7),
+  /** The slam cam swinging in. */
+  whoosh: () => { hiss(0.55, 0.16, 500, 2600, 0.6); tone('sine', 180, 720, 0.45, 0.07); },
   fanfare: () => { [523, 659, 784, 1047].forEach((f, i) => tone('square', f, f, 0.16, 0.14, i * 0.13)); tone('square', 1047, 1047, 0.5, 0.14, 0.55); },
 };
 

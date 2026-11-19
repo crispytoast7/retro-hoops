@@ -94,7 +94,9 @@ const PUTBACK_RANGE = 42;  // an offensive board this close to the rim can go st
 const PUTBACK_TIME = 0.9;   // seconds (real time) the chance stays open
 const AIM_HOLD = 0.22;     // the SHOOT button has to be held this long: a tap is not a shot
 const AMP_FLOOR = 9.5;     // the crosshair never swings less than this, so letting go blind is a bad bet for anyone
-const FT_HOLD = 0.3;      // a free throw has to be held this long: a tap does not shoot
+const FT_HOLD = 0.3;
+const CINE_DUR = 2.4;   // real seconds the slam cam runs
+const CINE_SLOW = 1.4;  // of which this long in deep slow motion      // a free throw has to be held this long: a tap does not shoot
 const R_SWISH = 3.0;      // reticle this close to the rim's centre: nothing but net
 const R_RIM = 7.2;        // inside this it may roll in
 const R_IRON = 11.5;      // inside this it hits iron; beyond is an airball
@@ -244,7 +246,9 @@ export class Arcade {
   private slowmo = 1;
   // input
   /** The finger on the shoot button, tracked apart from the one that moves the player. */
-  private btn = { down: false, id: -1 };
+  private btn = { down: false, id: -1, cancelled: false };
+  /** Slam cam: a slow, zoomed, swinging close-up of a great finish. */
+  private cine = { on: false, t: 0, fx: 0, fy: 0, label: '' };
   private ptr = { down: false, id: -1, x0: 0, y0: 0, x: 0, y: 0, t0: 0, mode: 'none' as 'none' | 'press' | 'drag' | 'mate' | 'aim', mate: -1 };
   private keys = new Set<string>();
   private usedKeys = false;
@@ -348,7 +352,7 @@ export class Arcade {
     if (!this.btn.down && (this.phase === 'live' || this.phase === 'charge') && Math.hypot(p.x - BTN.x, p.y - BTN.y) <= BTN.r + 3) {
       e.preventDefault();
       try { this.canvas.setPointerCapture(e.pointerId); } catch { /* not supported */ }
-      this.btn = { down: true, id: e.pointerId };
+      this.btn = { down: true, id: e.pointerId, cancelled: false };
       if (this.phase === 'live' && this.putback > 0) this.doPutback();
       else if (this.phase === 'live') this.startAim(true);
       return;
@@ -371,6 +375,12 @@ export class Arcade {
     }
   };
   private onMove = (e: PointerEvent) => {
+    if (this.btn.down && e.pointerId === this.btn.id) {
+      // slide off the button to call the shot off
+      const p = this.toLogical(e);
+      if (this.phase === 'charge' && this.aim.kb && !this.ftMode && Math.hypot(p.x - BTN.x, p.y - BTN.y) > BTN.r + 12) { this.btn.cancelled = true; this.cancelAim(); }
+      return;
+    }
     if (!this.ptr.down || e.pointerId !== this.ptr.id) return;
     const p = this.toLogical(e);
     this.ptr.x = p.x; this.ptr.y = p.y;
@@ -380,7 +390,7 @@ export class Arcade {
   private onUp = (e: PointerEvent) => {
     if (this.btn.down && e.pointerId === this.btn.id) {
       this.btn.down = false;
-      if (this.phase === 'charge' && this.aim.kb) this.releaseAim();
+      if (this.phase === 'charge' && this.aim.kb && !this.btn.cancelled) this.releaseAim();
       return;
     }
     if (!this.ptr.down || e.pointerId !== this.ptr.id) return;
@@ -402,6 +412,8 @@ export class Arcade {
     if (e.repeat) return;
     this.usedKeys = true;
     this.keys.add(k);
+    // aiming with Space: Escape or a direction key calls it off
+    if (this.phase === 'charge' && this.aim.kb && !this.ftMode && (k === 'escape' || ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k))) { this.keyCancelled = true; this.cancelAim(); return; }
     if (this.phase !== 'live') return;
     if (this.ftMode && k !== ' ') return;
     if (k === ' ' && this.putback > 0) this.doPutback();
@@ -417,7 +429,17 @@ export class Arcade {
   private onKeyUp = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase();
     this.keys.delete(k);
-    if (k === ' ' && this.phase === 'charge') this.releaseAim();
+    if (k === ' ' && this.phase === 'charge' && !this.keyCancelled) this.releaseAim();
+    if (k === ' ') this.keyCancelled = false;
+  }
+  private keyCancelled = false;
+  /** Call the shot off: he keeps the ball and you play on. */
+  private cancelAim(): void {
+    if (this.phase !== 'charge') return;
+    this.aim.on = false; this.aim.kind = 'none';
+    this.slowmo = 1;
+    this.phase = 'live';
+    this.popup('NO SHOT', '#c8c8d8', 1, 150);
   };
   private keyVec(): { x: number; y: number } {
     const K = this.keys;
@@ -783,6 +805,12 @@ export class Arcade {
     if (!made && !foul && near[0] && c1 > 0.5 && Math.random() < 0.15 + 0.3 * (near[0].d.p.ratings.def / 100)) blockBy = near[0].d.p.id;
     this.shot.text = '';
     this.launch(h, made, dunk ? 'dunk' : 'layup', 2, 2, blockBy, foul);
+    // the great ones get the slam cam: every putback and alley-oop that goes down, plenty of dunks, the odd layup
+    const putback = this.highlights[this.highlights.length - 1] === 'putback';
+    if (made && blockBy < 0 && (oop || (dunk && Math.random() < 0.45) || (!dunk && Math.random() < 0.08))) {
+      this.cine = { on: true, t: 0, fx: (h.x + HOOP.x) / 2, fy: TOP + (h.y + HOOP.y - RIM_Z) / 2, label: putback ? 'PUTBACK SLAM' : oop ? 'ALLEY-OOP' : dunk ? 'SLAM CAM' : 'SMOOTH' };
+      sfx.whoosh();
+    }
     // glide to the rim
     const dx = h.x - HOOP.x, dy = h.y - HOOP.y, d = Math.hypot(dx, dy) || 1;
     // take off toward a spot just in front of the rim
@@ -910,6 +938,16 @@ export class Arcade {
       this.putback = this.phase === 'live' ? this.putback - dt : 0;
       if (this.putback <= 0) { this.putback = 0; if (this.phase === 'live') this.slowmo = 1; }
       else this.slowmo = 0.3;
+    }
+    if (this.cine.on) {
+      this.cine.t += dt;
+      if (this.cine.t >= CINE_DUR) { this.cine.on = false; this.slowmo = 1; }
+      else {
+        this.slowmo = this.cine.t < CINE_SLOW ? 0.38 : 0.8;
+        // the camera follows the man in the air, then settles on the rim
+        const h = this.off[this.handler];
+        if (h) { const tx = (h.x + HOOP.x) / 2, ty = TOP + (h.y - h.lift + HOOP.y - RIM_Z) / 2; this.cine.fx += (tx - this.cine.fx) * Math.min(1, dt * 6); this.cine.fy += (ty - this.cine.fy) * Math.min(1, dt * 6); }
+      }
     }
     this.update(dt * this.slowmo);
     this.render();
@@ -1181,7 +1219,7 @@ export class Arcade {
         const m = this.off[i];
         t = { x: m.x + (HOOP.x - m.x) * 0.12, y: m.y + (HOOP.y - m.y) * 0.12 };
       }
-      const closing = (this.phase === 'charge' || this.phase === 'shot') && i === this.handler;
+      const closing = !this.ftMode && (this.phase === 'charge' || this.phase === 'shot') && i === this.handler;
       if (closing) { const m = this.off[i]; t = { x: m.x + (HOOP.x - m.x) * 0.07, y: m.y + (HOOP.y - m.y) * 0.07 }; if (Math.hypot(d.x - m.x, d.y - m.y) < 14) { d.armsUp = 0.2; if (this.phase === 'shot') d.lift = 6; } }
       d.slow = Math.max(0, d.slow - dt);
       // sliding with the ball is slower than sprinting, so a quicker handler can turn the corner
@@ -1523,7 +1561,41 @@ export class Arcade {
     const cw = Math.max(1, Math.round(c.clientWidth * dpr)), ch = Math.max(1, Math.round(c.clientHeight * dpr));
     if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
     this.out.imageSmoothingEnabled = false;
-    this.out.drawImage(this.buf, 0, 0, cw, ch);
+    if (this.cine.on) this.blitCine(cw, ch);
+    else this.out.drawImage(this.buf, 0, 0, cw, ch);
+  }
+
+  /** The slam cam: zoom in on the rim, tilt the floor away like a camera on a crane, and swing around. */
+  private blitCine(cw: number, ch: number): void {
+    const o = this.out, c = this.cine, T = c.t;
+    const smooth = (v: number) => v * v * (3 - 2 * v);
+    const e = smooth(clamp(Math.min(T / 0.3, (CINE_DUR - T) / 0.45), 0, 1));
+    const z = 1 + 1.3 * e;
+    const sw = W / z, sh = VIEW_H / z;
+    const sx = clamp(c.fx - sw / 2, 0, W - sw), sy = clamp(c.fy - sh * 0.48, 0, VIEW_H - sh);
+    const tilt = 0.34 * e;                              // the far (top) rows take in more width: depth
+    const swing = Math.sin(T * 2.3) * 0.2 * e;           // top and bottom slide against each other: an orbit
+    const N = 60;
+    o.fillStyle = '#0b0a14'; o.fillRect(0, 0, cw, ch);
+    for (let i = 0; i < N; i++) {
+      const v = i / N;
+      const srcW = Math.min(W, sw * (1 + tilt * (0.5 - v)));
+      const srcX = clamp(sx + (sw - srcW) / 2 + swing * sw * (0.5 - v), 0, W - srcW);
+      const dy = Math.floor(v * ch), dh = Math.floor((i + 1) / N * ch) - dy + 1;
+      o.drawImage(this.buf, srcX, sy + v * sh, srcW, sh / N, 0, dy, cw, dh);
+    }
+    // camera flashes in the crowd
+    if (Math.random() < 0.5) { o.fillStyle = 'rgba(255,255,255,0.85)'; const k = Math.max(2, Math.round(cw / W) * 2); o.fillRect(Math.random() * cw, Math.random() * ch * 0.18, k, k); }
+    // letterbox bars and the shot's name
+    const bar = Math.round(ch * 0.075 * e), k = Math.max(1, Math.round(cw / W));
+    o.fillStyle = '#000'; o.fillRect(0, 0, cw, bar); o.fillRect(0, ch - bar, cw, bar);
+    if (e > 0.6) {
+      // a blinking red recording light, then the shot's name
+      const lx = Math.round(cw * 0.04), ly = Math.round(bar / 2 - 2.5 * k);
+      if (Math.floor(T * 3) % 2) { o.fillStyle = '#ff3b3b'; o.fillRect(lx, ly, 5 * k, 5 * k); }
+      drawText(o, c.label, lx + 8 * k, ly, '#ffffff', { scale: k });
+      drawText(o, 'REPLAY', Math.round(cw * 0.96), ch - Math.round(bar / 2 + 2.5 * k), PAL.yellow, { scale: k, align: 'right' });
+    }
   }
 
   private drawShootButton(): void {
@@ -1537,6 +1609,7 @@ export class Arcade {
     const put = this.putback > 0 && !held;
     if (put && Math.floor(this.time * 10) % 2) disc(BTN.r - 2, 'rgba(255,210,60,0.95)');
     if (this.usedKeys && !held) drawText(g, 'SPACE', BTN.x + 1, BTN.y + 6, put ? PAL.ink : PAL.yellow, { align: 'center', outline: put ? undefined : PAL.ink });
+    if (held && !this.ftMode) drawText(g, this.usedKeys ? 'ESC: NO SHOT' : 'SLIDE OFF: NO SHOT', BTN.x + BTN.r - 1, BTN.y - BTN.r - 8, PAL.white, { align: 'right', outline: PAL.ink });
     drawText(g, held ? 'LET GO' : put ? 'PUT BACK' : 'SHOOT', BTN.x + 1, BTN.y - 2, held || put ? PAL.ink : PAL.white, { align: 'center', outline: held || put ? undefined : PAL.ink });
   }
 

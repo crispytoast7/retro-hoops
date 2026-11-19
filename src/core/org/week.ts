@@ -238,6 +238,13 @@ export const needsWeek = (save: Save): boolean => weekState(save).key !== keyOf(
 const moraleAll = (save: Save, v: number): void => { for (const id of save.teams[save.userTeamId].roster) { const p = save.players[id]; p.morale = clamp(p.morale + v, 0, 100); } };
 const RATING_NAME: Record<RatingKey, string> = { sht: 'Shooting', hnd: 'Handles', pas: 'Passing', spd: 'Speed', fin: 'Finishing', def: 'Defense', reb: 'Rebounding' };
 
+/** Let the week go by without a move. */
+export function skipPlan(save: Save): void {
+  const w = weekState(save);
+  if (w.key !== keyOf(save) || w.picked) return;
+  w.picked = 'skip'; w.result = 'You let the week go by.';
+}
+
 /** Carry out one of this week's plans. Returns what happened, or null if it cannot be done. */
 export function doPlan(save: Save, id: string, rng: Rng): string | null {
   const w = weekState(save);

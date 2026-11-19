@@ -12,7 +12,7 @@ import { choresList, doChores } from '../core/org/chores';
 import { pendingMoment } from '../core/org/moments';
 import { BigMomentHost } from './BigMoment';
 import { ClubView } from './ClubView';
-import { doPlan, edgeFor, ensureWeek, honorNow, intel, pressure, needsWeek, plansOpen, signSponsor, sponsorOf, sponsorOffers, sponsorOpen, sponsorProgress, weekState } from '../core/org/week';
+import { doPlan, skipPlan, edgeFor, ensureWeek, honorNow, intel, pressure, needsWeek, plansOpen, signSponsor, sponsorOf, sponsorOffers, sponsorOpen, sponsorProgress, weekState } from '../core/org/week';
 import { ovr } from '../core/ratings';
 import { teamRatings } from '../core/sim/engine';
 import type { Effect, Save } from '../core/types';
@@ -78,6 +78,7 @@ const PLAN_GROUP = { train: 'TRAIN', prep: 'PREPARE', club: 'CLUB' } as const;
 function WeekPlan({ save }: { save: Save }) {
   const w = weekState(save);
   if (!plansOpen(save) || needsWeek(save) || !w.hand.length) return null;
+  if (w.picked === 'skip') return null;
   if (w.picked) {
     const plan = w.hand.find(p => p.id === w.picked);
     return (
@@ -173,6 +174,10 @@ export function HubScreen(_p: { params: Record<string, any> }) {
   const edge = edgeFor(save);
   const lean = g ? pressure(save) : 0;
   const planWaiting = plansOpen(save) && !needsWeek(save) && weekState(save).hand.length > 0 && !weekState(save).picked;
+  // the weekly move is asked for on the way to the game, so nobody forgets it
+  const [ask, setAsk] = useState<null | 'play' | 'sim' | 'week'>(null);
+  const run = (what: 'play' | 'sim' | 'week') => { if (what === 'play' && g) nav('game', { gameId: g.id }); else if (what === 'sim') sim('simGame'); else simWeek(); };
+  const go = (what: 'play' | 'sim' | 'week') => { if (planWaiting) setAsk(what); else run(what); };
   const sponsor = sponsorOf(save);
   const openGames = save.phase !== 'offseason' && gamesInWeek(save, save.week).some(x => !x.played);
 
@@ -225,13 +230,13 @@ export function HubScreen(_p: { params: Record<string, any> }) {
             )}
             <div style={{ height: '10px' }} />
             <div class="row">
-              <Btn kind="primary big" class="grow" disabled={me.lineup.length < 5} onClick={() => nav('game', { gameId: g.id })}>Play</Btn>
-              <Btn onClick={() => sim('simGame')}>Sim</Btn>
+              <Btn kind="primary big" class="grow" disabled={me.lineup.length < 5} onClick={() => go('play')}>Play</Btn>
+              <Btn onClick={() => go('sim')}>Sim</Btn>
             </div>
             {planWaiting && <div class="gold center" style={{ marginTop: '6px', fontSize: '18px' }}>Make your move for the week first ▼</div>}
             {seriesText && <div class="gold center" style={{ marginTop: '8px' }}>{seriesText} · best of {c.seriesWins * 2 - 1}</div>}
             {save.phase === 'playoffs' && <><div style={{ height: '8px' }} /><Btn kind="small block" onClick={() => nav('bracket')}>View the bracket</Btn></>}
-            {(weekGames.length > 1 || c.seriesWins > 1) && <><div style={{ height: '8px' }} /><Btn kind="small block" onClick={simWeek}>{save.phase === 'playoffs' ? 'Sim the rest of the round' : 'Sim the rest of the week'}</Btn></>}
+            {(weekGames.length > 1 || c.seriesWins > 1) && <><div style={{ height: '8px' }} /><Btn kind="small block" onClick={() => go('week')}>{save.phase === 'playoffs' ? 'Sim the rest of the round' : 'Sim the rest of the week'}</Btn></>}
           </Panel>
         ) : (
           <Panel team title={save.phase === 'playoffs' ? 'PLAYOFFS' : 'BYE'}>
@@ -331,6 +336,23 @@ export function HubScreen(_p: { params: Record<string, any> }) {
       </div>
       {pendingMoment(save) ? null : <EventModal save={save} />}
       <BigMomentHost save={save} />
+      {ask && planWaiting && (
+        <Modal onClose={() => setAsk(null)}>
+          <h3>BEFORE THE GAME</h3>
+          <h2>YOUR MOVE THIS WEEK</h2>
+          <div class="dim" style={{ fontSize: '17px' }}>Pick one. The other two are gone after this week.</div>
+          <div class="col" style={{ gap: '6px' }}>
+            {weekState(save).hand.map(p => (
+              <Btn class="opt plan" silent onClick={() => { const r = act((s, rng) => doPlan(s, p.id, rng)); if (r) { sfx.select(); toast(r, true); } const what = ask; setAsk(null); run(what); }}>
+                <span class={`tag ${p.group === 'train' ? 'good' : p.group === 'prep' ? 'gold' : ''}`}>{PLAN_GROUP[p.group]}</span>
+                <span>{p.title}</span>
+                <span class="fx">{p.effect}</span>
+              </Btn>
+            ))}
+          </div>
+          <Btn onClick={() => { touch(s => skipPlan(s)); const what = ask; setAsk(null); run(what); }}>Skip this week</Btn>
+        </Modal>
+      )}
     </div>
   );
 }
