@@ -233,6 +233,12 @@ export interface SpriteOpts {
   lift: number;
   ring?: string;
   dim?: boolean;
+  /** Where his hands are (same coordinates as x, y): the arms reach there. One hand or two. */
+  hands?: { x: number; y: number }[];
+  /** With one hand given, what the other arm does. */
+  offArm?: 'down' | 'out';
+  /** Extra knee tuck in the air, in px. */
+  tuck?: number;
   dizzy?: number;
 }
 
@@ -266,7 +272,7 @@ export function drawPlayer(ctx: CanvasRenderingContext2D, o: SpriteOpts): void {
   const bob = frame === 1 || frame === 3 ? 1 : 0;
   const y = yb - lift;
   const crouch = pose === 'defend' ? 1 : 0;
-  const tuck = pose === 'jump' ? 2 : 0;
+  const tuck = pose === 'jump' ? 2 + (o.tuck ?? 0) : 0;
   // guards are compact, centers are long: 22, 24 and 27 px tall
   const legH = [5, 6, 8][tall] - crouch - tuck;
   const torsoH = [5, 6, 7][tall];
@@ -293,7 +299,22 @@ export function drawPlayer(ctx: CanvasRenderingContext2D, o: SpriteOpts): void {
   // arms
   const armLen = 6;
   const sh = torsoTop;
-  if (pose === 'shoot' || pose === 'jump') {
+  if (o.hands && o.hands.length) {
+    // arms that reach for a point: the ball in his hands, the rim he is hanging on
+    const arm = (sx: number, tx: number, ty: number) => {
+      let dx = tx - x - sx, dy = ty - (sh + 1);
+      const d = Math.hypot(dx, dy) || 1, L = Math.min(10, d);
+      dx /= d; dy /= d;
+      for (let t = 0; t <= L; t++) R(Math.round(sx + dx * t) - 1, Math.round(sh + 1 + dy * t) - 1, 2, 2, skin);
+    };
+    const hs = o.hands.slice().sort((a, b) => a.x - b.x);
+    if (hs.length >= 2) { arm(-5, hs[0].x, hs[0].y); arm(5, hs[hs.length - 1].x, hs[hs.length - 1].y); }
+    else {
+      const right = hs[0].x >= x, other = right ? -5 : 5;
+      arm(right ? 5 : -5, hs[0].x, hs[0].y);
+      if (o.offArm === 'out') arm(other, x + other * 3, sh - 1); else arm(other, x + other, sh + 8);
+    }
+  } else if (pose === 'shoot' || pose === 'jump') {
     const reach = pose === 'jump' ? 8 : 7;
     R(-6, sh - reach + 2, 2, reach, skin); R(4, sh - reach + 2 - (pose === 'jump' ? 1 : 0), 2, reach + (pose === 'jump' ? 1 : 0), skin);
     R(-6, sh, 2, 2, skinD); R(4, sh, 2, 2, skinD);

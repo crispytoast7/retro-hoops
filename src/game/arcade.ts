@@ -90,7 +90,7 @@ const MATE_CONE = 0.92;   // cos 23deg: a pull lined up with a teammate is the s
 const LEAD_REACH = 26;    // a pass to a spot needs a teammate who will be this close to it
 const AIM_QUICK = 0.18;   // a flick off your player this fast is a move, not a shot
 const PUTBACK_RANGE = 42;  // an offensive board this close to the rim can go straight back up
-const PUTBACK_TIME = 0.9;   // seconds (real time) the chance stays open
+const PUTBACK_TIME = 0.5;   // seconds (real time) the chance stays open
 const AIM_HOLD = 0.22;     // the SHOOT button has to be held this long: a tap is not a shot
 const AMP_FLOOR = 9.5;     // the crosshair never swings less than this, so letting go blind is a bad bet for anyone
 const FT_HOLD = 0.3;
@@ -133,7 +133,7 @@ const SETS: SlotName[][] = [
 ];
 /** A leg of an off-ball route. */
 interface Leg { x: number; y: number; speed: number; hold?: number; screen?: boolean }
-const STYLE_CALL = { windmill: 'WINDMILL!', tomahawk: 'TOMAHAWK!', spin: '360 SLAM!', legs: 'BETWEEN THE LEGS!' } as const;
+const STYLE_CALL = { twohand: 'TWO-HAND JAM!', onehand: 'ONE-HAND SLAM!', reverse: 'REVERSE SLAM!', windmill: 'WINDMILL!', spin: '360 SLAM!', legs: 'BETWEEN THE LEGS!' } as const;
 const CALLS = {
   move: ['ANKLES!', 'SHOOK!', 'CROSSED UP!', 'SEE YA!'],
   swish: ['SWISH!', 'SPLASH!', 'NOTHING BUT NET!', 'WET!'],
@@ -251,11 +251,18 @@ export class Arcade {
   private cine = { on: false, t: 0, fx: 0, fy: 0, label: '', ball: false };
   /** When this possession last left a defender on the floor (game seconds). */
   private ankleT = -99;
+  /** Slam cams so far this game (one Arcade per game), and moments to wait before the next. */
+  private cams = 0;
+  private camCool = 0;
+  private camOk(): boolean { return !this.practice && this.cams < 3 && this.camCool <= 0; }
+  private camUsed(): void { this.cams++; this.camCool = 3; }
   /** A slam-cam dunk gets a signature move. */
-  private style: '' | 'windmill' | 'tomahawk' | 'spin' | 'legs' = '';
+  private style: '' | 'twohand' | 'onehand' | 'reverse' | 'windmill' | 'spin' | 'legs' = '';
   /** Where the dunker has just been, for the after-images. */
   private trail: { x: number; y: number; lift: number; face: number }[] = [];
   private trailT = 0;
+  /** How the dunker's body looks this frame: where his hands are, back to the camera, knees tucked. */
+  private dunkPose: { hands: { x: number; y: number }[]; up: boolean; offArm?: 'down' | 'out'; tuck: number } | null = null;
   /** Hit stop: real seconds the action holds still on the slam. */
   private freeze = 0;
   private ptr = { down: false, id: -1, x0: 0, y0: 0, x: 0, y: 0, t0: 0, mode: 'none' as 'none' | 'press' | 'drag' | 'mate' | 'aim', mate: -1 };
@@ -313,7 +320,8 @@ export class Arcade {
     this.doubled = false;
     this.aim.on = false;
     this.reached = false; this.lastQuality = -1; this.hang = 0;
-    this.passes = 0; this.moves = 0; this.fakes = 0; this.fakeCd = 0; this.ankleT = -99; this.style = ''; this.trail = []; this.freeze = 0;
+    this.camCool--;
+    this.passes = 0; this.moves = 0; this.fakes = 0; this.fakeCd = 0; this.ankleT = -99; this.style = ''; this.trail = []; this.freeze = 0; this.dunkPose = null;
     const mk = (p: Player, slot: number, off: boolean): Ent => ({
       p, slot, off, x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, stun: 0, slow: 0, run: -1, face: 0,
       armsUp: 0, lift: 0, home: 'TOP', route: [], leg: 0, holdT: 0, screen: 0, wait: 0, jitter: Math.random() * 6,
@@ -735,7 +743,8 @@ export class Arcade {
     if (by && c > 0.6 && blockBy < 0 && Math.random() < 0.05) foul = true;
     this.launch(h, made, three ? 'three' : 'mid', three ? 3 : 2, q, blockBy, foul, a.wx, a.wy);
     // crossed him up and buried it: now and then that gets the slam cam too, following the ball
-    if (made && blockBy < 0 && this.time - this.ankleT < 3 && Math.random() < (three ? 0.45 : 0.3)) {
+    if (made && blockBy < 0 && this.time - this.ankleT < 3 && this.camOk() && Math.random() < (three ? 0.2 : 0.12)) {
+      this.camUsed();
       this.cine = { on: true, t: 0, fx: (h.x + HOOP.x) / 2, fy: TOP + (h.y + HOOP.y - RIM_Z) / 2, label: three ? 'COLD BLOODED' : 'ANKLES BROKEN', ball: true };
       sfx.whoosh();
     }
@@ -808,10 +817,12 @@ export class Arcade {
     const c1 = cv(near[0]), c2 = cv(near[1]);
     const open = near.length === 0 || near[0].dist > 13;
     const dunk = oop ? h.p.ratings.fin >= 55 : h.p.ratings.fin >= 68 && (open || (h.p.ratings.fin >= 86 && c1 < 0.6));
+    // an alley-oop is a catch and a finish in one motion: harder than a dunk off the dribble
+    const alley = oop && this.highlights[this.highlights.length - 1] === 'oop';
     let p = dunk
-      ? (open ? 0.96 : 0.6 + 0.3 * fin - 0.3 * c1)
+      ? (open ? (alley ? 0.85 : 0.96) : (alley ? 0.48 : 0.6) + 0.3 * fin - (alley ? 0.38 : 0.3) * c1)
       : 0.6 + 0.38 * fin - 0.3 * c1 - 0.12 * c2;
-    p = clamp(p + this.diff.make + 0.04 * this.pk.rim + (oop ? 0.08 : 0), 0.08, 0.97);
+    p = clamp(p + this.diff.make + 0.04 * this.pk.rim + (oop && !alley ? 0.08 : 0), 0.08, 0.97);
     const made = Math.random() < p;
     const foul = !open && Math.random() < 0.09 + 0.1 * c1;
     let blockBy = -1;
@@ -820,11 +831,17 @@ export class Arcade {
     this.launch(h, made, dunk ? 'dunk' : 'layup', 2, 2, blockBy, foul);
     // the great ones get the slam cam: every putback and alley-oop that goes down, plenty of dunks, the odd layup
     const putback = this.highlights[this.highlights.length - 1] === 'putback';
-    if (made && blockBy < 0 && (oop || (dunk && Math.random() < 0.45) || (!dunk && Math.random() < 0.08))) {
+    const roll = Math.random();
+    if (made && blockBy < 0 && this.camOk() && (putback ? roll < 0.55 : oop ? roll < 0.6 : dunk ? roll < 0.16 : roll < 0.03)) {
+      this.camUsed();
       this.cine = { on: true, t: 0, fx: (h.x + HOOP.x) / 2, fy: TOP + (h.y + HOOP.y - RIM_Z) / 2, label: putback ? 'PUTBACK SLAM' : oop ? 'ALLEY-OOP' : dunk ? 'SLAM CAM' : 'SMOOTH', ball: false };
       if (dunk) {
         // a dunk on camera is never an ordinary dunk: a bigger jump, longer in the air, and a move
-        this.style = pick(['windmill', 'tomahawk', 'spin', 'legs'] as const);
+        // mostly the dunks you see every night; now and then something special
+        const moves = ['twohand', 'onehand', 'reverse', 'windmill', 'spin', 'legs'] as const;
+        let roll = Math.random() * 100, i = 0;
+        for (const w of [34, 26, 18, 10, 7, 5]) { roll -= w; if (roll < 0) break; i++; }
+        this.style = moves[Math.min(i, moves.length - 1)];
         this.shot.dur *= 1.45;
         this.trail = []; this.trailT = 0;
       }
@@ -965,12 +982,12 @@ export class Arcade {
     if (this.putback > 0) {
       this.putback = this.phase === 'live' ? this.putback - dt : 0;
       if (this.putback <= 0) { this.putback = 0; if (this.phase === 'live') this.slowmo = 1; }
-      else this.slowmo = 0.3;
+      else this.slowmo = 0.55;
     }
     if (this.freeze > 0) { this.freeze -= dt; this.render(); this.raf = requestAnimationFrame(this.frame); return; }
     if (this.cine.on) {
       this.cine.t += dt;
-      if (this.cine.t >= CINE_DUR) { this.cine.on = false; this.slowmo = 1; this.style = ''; this.trail = []; }
+      if (this.cine.t >= CINE_DUR) { this.cine.on = false; this.slowmo = 1; this.style = ''; this.trail = []; this.dunkPose = null; }
       else {
         this.slowmo = this.cine.t < CINE_SLOW ? 0.38 : 0.8;
         // the camera follows the man in the air, then settles on the rim
@@ -1111,7 +1128,7 @@ export class Arcade {
       if (this.ball.x < SIDE_L - 2 || this.ball.x > SIDE_R + 2 || this.ball.y < BASE_Y - 2) { this.turnover('oob', null); return; }
       if (k >= 1) {
         const to = this.off[ps.to];
-        if (Math.hypot(to.x - ps.x1, to.y - ps.y1) > 14) { // nobody got to it
+        if (Math.hypot(to.x - ps.x1, to.y - ps.y1) > (this.lob ? 11 : 14)) { // nobody got to it (a lob has to be on the money)
           this.turnover('oob', null, 'BAD PASS'); return;
         }
         this.assist = { id: from.p.id, t: this.time };
@@ -1162,9 +1179,16 @@ export class Arcade {
           // the ball goes all the way round, one and a half turns, and ends up high
           const a = u * Math.PI * 3;
           this.ball.x = h.x + Math.sin(a) * 9 * side; this.ball.z = handZ - 6 - Math.cos(a) * 9;
-        } else if (st === 'tomahawk') {
-          // cocked way back behind the head
-          this.ball.x = h.x - 4 * side * Math.min(1, u * 2); this.ball.z = handZ + 2 + 6 * Math.sin(Math.min(1, u * 1.4) * Math.PI / 2);
+        } else if (st === 'twohand') {
+          // both hands, ball straight up over the head
+          this.ball.x = h.x; this.ball.z = handZ + 1 + 3 * Math.min(1, u * 1.5);
+        } else if (st === 'onehand') {
+          // palmed out to the side, then up to the rim
+          this.ball.x = h.x + (5 - 3 * u) * side; this.ball.z = handZ - 4 + 6 * u;
+        } else if (st === 'reverse') {
+          // under the rim and back over his head, finishing facing the crowd
+          if (u > 0.55) h.face = -side as -1 | 1;
+          this.ball.x = h.x + (u > 0.55 ? -3 : 2) * side; this.ball.z = handZ + 1;
         } else if (st === 'legs') {
           // down and through the legs in mid-air, then up
           this.ball.x = h.x + 5 * Math.sin(u * Math.PI * 2); this.ball.z = Math.max(h.lift + 2, handZ - 20 * Math.sin(Math.min(1, u * 1.25) * Math.PI));
@@ -1173,10 +1197,25 @@ export class Arcade {
           h.face = Math.sin(u * Math.PI * 4) >= 0 ? 1 : -1;
           this.ball.x = h.x + 2 * h.face; this.ball.z = handZ - 3;
         }
+        // the body sells the move: where the hands go, which way he faces, how he tucks
+        const bx = this.ball.x, by = this.ball.y - this.ball.z - 4;
+        const two = [{ x: bx - 2, y: by }, { x: bx + 2, y: by }];
+        if (st === 'twohand') this.dunkPose = { hands: two, up: false, tuck: 0 };
+        else if (st === 'onehand') this.dunkPose = { hands: [{ x: bx, y: by }], up: false, offArm: 'down', tuck: 0 };
+        else if (st === 'reverse') this.dunkPose = { hands: two, up: u > 0.55, tuck: 1 };
+        else if (st === 'windmill') this.dunkPose = { hands: [{ x: bx, y: by }], up: false, offArm: 'out', tuck: 1 };
+        else if (st === 'legs') this.dunkPose = { hands: two, up: false, tuck: Math.round(4 * Math.sin(Math.min(1, u * 1.25) * Math.PI)) };
+        else {
+          // a 360 shows him front, side, back, side, front
+          const q = Math.floor(u * 4) % 4;
+          h.face = q === 1 ? 1 : q === 3 ? -1 : 0;
+          this.dunkPose = { hands: two, up: q === 2, tuck: 1 };
+        }
       } else if (k < rise) { this.ball.x = h.x + 2; this.ball.y = h.y; this.ball.z = handZ; }
       else {
-        // the slam itself comes down hard
+        // the slam itself comes down hard, hands going with the ball
         const j0 = (k - rise) / (1 - rise), j = st ? j0 * j0 : j0;
+        if (st && this.dunkPose) { const bx = this.ball.x, by = this.ball.y - this.ball.z - 4; this.dunkPose.hands = st === 'onehand' || st === 'windmill' ? [{ x: bx, y: by }] : [{ x: bx - 2, y: by }, { x: bx + 2, y: by }]; }
         this.ball.x = h.x + 2 + (sh.x1 - h.x - 2) * j;
         this.ball.y = h.y + (sh.y1 - h.y) * j;
         this.ball.z = handZ + (RIM_Z + 1 - handZ) * j + (dunk ? 0 : Math.sin(j * Math.PI) * 5);
@@ -1549,6 +1588,7 @@ export class Arcade {
           run: e.run, face: e.face, lift: e.lift, pose: this.poseOf(e, isH), up: e.off ? e.vy < 14 : e.vy < -14,
           ring: isH && this.phase !== 'pass' && this.phase !== 'idle' ? PAL.yellow : this.ptr.mode === 'mate' && e.off && this.off[this.ptr.mate] === e ? PAL.white : undefined,
           dizzy: e.stun > 0 ? this.time : 0,
+          ...(isH && this.style && this.dunkPose && (this.phase === 'finish' || this.hang > 0) ? this.posed() : {}),
         });
       }
       if (!hoopDrawn) drawHoop(g, this.netKick, this.rimShake, this.time, this.rimGlow);
@@ -1618,6 +1658,16 @@ export class Arcade {
     this.out.imageSmoothingEnabled = false;
     if (this.cine.on) this.blitCine(cw, ch);
     else this.out.drawImage(this.buf, 0, 0, cw, ch);
+  }
+
+  /** The dunker's body for this frame: the move in the air, then both hands on the rim. */
+  private posed(): { hands: { x: number; y: number }[]; offArm?: 'down' | 'out'; tuck: number; up: boolean; pose: Pose } {
+    const p = this.dunkPose!;
+    if (this.phase !== 'finish') {
+      const ry = HOOP.y - RIM_Z + 1;
+      return { hands: this.style === 'onehand' || this.style === 'windmill' ? [{ x: HOOP.x, y: ry }] : [{ x: HOOP.x - 3, y: ry }, { x: HOOP.x + 3, y: ry }], offArm: 'down', tuck: 0, up: p.up, pose: 'jump' };
+    }
+    return { hands: p.hands, offArm: p.offArm, tuck: p.tuck, up: p.up, pose: 'jump' };
   }
 
   /** Ghosts of the dunker's flight and speed lines around him. */

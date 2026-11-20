@@ -48,7 +48,7 @@ basketball,gm,manager,coach,retro,pixel,arcade,sports,franchise,draft,dunk,offli
 > ON THE COURT
 > • Play about a dozen key moments a game: fast breaks, pick-and-rolls, post-ups, the last shot
 > • Hold SHOOT and let go when the crosshair is on the rim. Pump fake, cross him up, throw the lob
-> • Putbacks, alley-oops and the slam cam: windmills, tomahawks, 360s
+> • Putbacks, alley-oops and the slam cam: reverse jams, windmills, 360s
 > • Score in your moments and your team goes on a run. Miss, and they do
 >
 > IN THE FRONT OFFICE
