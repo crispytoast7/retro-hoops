@@ -2,9 +2,10 @@
 
 /** Players who sometimes turn up: now and then on a roster in a new league, now and then in a draft class.
  *  Unlike everyone else they have a set position and a set (small) size. Height in inches, weight in pounds. */
-export const FEATURED: { name: string; pos: 'PG' | 'SG'; ht: number; wt: number }[] = [
+export const FEATURED: { name: string; pos: 'PG' | 'SG' | 'SF' | 'PF' | 'C'; ht: number; wt: number }[] = [
   { name: 'Jason Weng', pos: 'PG', ht: 60, wt: 120 },
-  { name: 'Jonah Tractenberg', pos: 'SG', ht: 64, wt: 135 },
+  // a small-ball center
+  { name: 'Jonah Tractenberg', pos: 'C', ht: 64, wt: 135 },
 ];
 export const FEATURED_NAMES: string[] = FEATURED.map(f => f.name);
 
