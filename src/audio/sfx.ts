@@ -87,6 +87,8 @@ function hiss(dur: number, vol: number, f0: number, f1: number, q = 1, delay = 0
   s.stop(t + dur + 0.02);
 }
 
+import { buzz } from '../state/native';
+
 export const sfx = {
   bounce: () => tone('sine', 140, 60, 0.08, 0.32),
   pass: () => hiss(0.12, 0.25, 900, 2400, 1.5),
@@ -133,4 +135,11 @@ export function setCrowd(level: number): void {
 export function stopCrowd(): void {
   try { crowdSrc?.stop(); } catch { /* already stopped */ }
   crowdSrc = null; crowdGain = null;
+}
+
+// big plays are felt as well as heard (iPhone app only)
+const FEEL: Partial<Record<keyof typeof sfx, Parameters<typeof buzz>[0]>> = { dunk: 'heavy', swish: 'light', perfect: 'success', steal: 'medium', block: 'medium' };
+for (const k of Object.keys(FEEL) as (keyof typeof sfx)[]) {
+  const play = sfx[k] as (...a: unknown[]) => void;
+  (sfx as Record<string, unknown>)[k] = (...a: unknown[]) => { play(...a); buzz(FEEL[k]!); };
 }

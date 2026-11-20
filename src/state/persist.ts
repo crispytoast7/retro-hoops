@@ -2,6 +2,7 @@
 import { SAVE_VERSION } from '../core/constants';
 import type { Save } from '../core/types';
 import { FACILITY_KEYS } from '../core/types';
+import { fileGet, fileSet } from './native';
 
 const DB = 'retro-hoops', STORE = 'kv', KEY = 'save', LS_KEY = 'retro-hoops-save';
 
@@ -52,14 +53,16 @@ export async function loadStored(): Promise<Save | null> {
   let a: Save | null = null, b: Save | null = null;
   try { a = parse(await idbGet()); } catch { /* IndexedDB unavailable */ }
   try { b = parse(localStorage.getItem(LS_KEY)); } catch { /* storage blocked */ }
-  if (a && b) return a.savedAt >= b.savedAt ? a : b;
-  return a ?? b;
+  // in the iPhone app, a third copy lives in the app's own files: the newest of the three wins
+  const c = parse(await fileGet());
+  return [a, b, c].filter((x): x is Save => !!x).sort((x, y) => y.savedAt - x.savedAt)[0] ?? null;
 }
 export async function store(save: Save | null): Promise<boolean> {
   const text = save ? JSON.stringify(save) : null;
   let ok = false;
   try { await idbSet(text); ok = true; } catch { /* fall through to localStorage */ }
   try { if (text === null) localStorage.removeItem(LS_KEY); else localStorage.setItem(LS_KEY, text); ok = true; } catch { /* quota or blocked */ }
+  if (await fileSet(text)) ok = true;
   return ok;
 }
 export function askPersistent(): void {

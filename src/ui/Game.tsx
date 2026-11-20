@@ -312,7 +312,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
           )}
         </div>
         <div class="lines">
-          {playing ? <div class="dim">{DESKTOP ? 'WASD/arrows: move · Space: hold to shoot, tap to fake · 1-4: pass · Shift: crossover' : 'Drag: move · Hold SHOOT, let go on the rim · Tap SHOOT: fake · Tap a teammate: pass'}</div> : lines.slice(-3).map(l => <div class={l.cls}>{l.text}</div>)}
+          {playing ? <div class="dim">{DESKTOP ? 'WASD/arrows: move · Space: hold to shoot, tap to fake · 1-4: pass · Shift: crossover' : 'Drag: move · Hold SHOOT: shoot · Tap a man: pass'}</div> : lines.slice(-3).map(l => <div class={l.cls}>{l.text}</div>)}
         </div>
       </div>
     </div>

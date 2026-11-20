@@ -1,4 +1,5 @@
 // The current save in memory, with change notification and auto-save.
+import { setHaptics } from './native';
 import { useEffect, useState } from 'preact/hooks';
 import { newLeague, NewGameOpts } from '../core/gen/league';
 import { chooseTeam } from '../core/offseason/offseason';
@@ -54,7 +55,7 @@ export function touch(fn?: (save: Save) => void): void {
 
 export async function boot(): Promise<boolean> {
   save = await loadStored();
-  if (save) { setSound(save.settings.sound); setMusic(save.settings.music !== false); }
+  if (save) { setSound(save.settings.sound); setMusic(save.settings.music !== false); setHaptics(save.settings.haptics !== false); }
   return save !== null;
 }
 export function startLeague(opts: NewGameOpts): Save {
@@ -78,7 +79,7 @@ export function importSave(text: string): string | null {
   try { parsed = migrate(JSON.parse(text)); } catch { /* not JSON */ }
   if (!parsed) return 'That file is not a Retro Hoops save.';
   save = parsed;
-  setSound(save.settings.sound); setMusic(save.settings.music !== false);
+  setSound(save.settings.sound); setMusic(save.settings.music !== false); setHaptics(save.settings.haptics !== false);
   notify();
   void flush();
   return null;
