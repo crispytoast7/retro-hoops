@@ -9,7 +9,7 @@ import type {
   Calendar, CoachCareer, Facility, FacilityKey, Player, Pos, RatingKey, Ratings, Save, Settings, StaffMember, Team,
 } from '../types';
 import { FACILITY_KEYS, POSITIONS, RATING_KEYS, TRAITS } from '../types';
-import { FIRST_NAMES, LAST_NAMES, OWNER_NAMES } from '../../data/names';
+import { FEATURED_NAMES, FIRST_NAMES, LAST_NAMES, OWNER_NAMES } from '../../data/names';
 import { CLUBS, COLLEGES, DEV_TEAMS } from '../../data/origins';
 import { TEAM_TEMPLATES } from '../../data/teams';
 
@@ -84,6 +84,16 @@ function facility(level: number, rng: Rng): Facility {
   return { level, condition: rng.int(70, 100) };
 }
 
+/** Give the featured names to some of `ids` if nobody in the league has them yet. No rng, so leagues stay as they were. */
+export function placeFeatured(save: Save, ids: number[], salt: number): void {
+  const taken = new Set(Object.values(save.players).map(p => p.name));
+  const todo = FEATURED_NAMES.filter(n => !taken.has(n));
+  todo.forEach((name, i) => {
+    const id = ids[(salt + i * 7) % ids.length];
+    if (id !== undefined && !FEATURED_NAMES.includes(save.players[id].name)) save.players[id].name = name;
+  });
+}
+
 export function genProspects(save: Save, rng: Rng): number[] {
   const ids: number[] = [];
   for (let i = 0; i < PROSPECTS; i++) {
@@ -100,6 +110,8 @@ export function genProspects(save: Save, rng: Rng): number[] {
     save.players[p.id] = p;
     ids.push(p.id);
   }
+  // first-round talent: picks 3 to 12
+  placeFeatured(save, ids.slice(2, 12), save.year);
   return ids;
 }
 
@@ -187,6 +199,8 @@ export function newLeague(opts: NewGameOpts): Save {
     for (const pid of team.roster) { const p = save.players[pid]; while (used.has(p.num)) p.num = rng.int(0, 55); used.add(p.num); }
     save.teams.push(team);
   });
+  // a starter or sixth man on two different clubs
+  placeFeatured(save, save.teams.flatMap(t => t.roster.slice(0, 6)), opts.seed % 97);
   genFreeAgents(save, rng, 24);
   save.staffPool = genStaffPool(save, rng);
   save.draftClass = genProspects(save, rng);

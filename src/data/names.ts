@@ -1,5 +1,8 @@
 // Original name pools for Retro Hoops. Random combinations only; any match to a real person is coincidence.
 
+/** Players who are always in the league: on a roster in a new league, or in the next draft class of an older save. */
+export const FEATURED_NAMES: string[] = ['Jason Weng', 'Jonah Tractenberg'];
+
 export const FIRST_NAMES: string[] = [
   'Aaron', 'Abel', 'Abdul', 'Adrian', 'Aiden', 'Akira', 'Alaric', 'Albert', 'Alejandro', 'Alexei',
   'Alfonso', 'Ali', 'Amadou', 'Amir', 'Anders', 'Andre', 'Andrei', 'Angelo', 'Anton', 'Arjun',
