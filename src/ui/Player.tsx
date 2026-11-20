@@ -1,4 +1,5 @@
 import { ROSTER_MIN } from '../core/constants';
+import { sizeOf } from '../core/body';
 import { marketSalary } from '../core/gm/value';
 import { autoSpend } from '../core/org/chores';
 import { isUnlocked } from '../core/org/progress';
@@ -70,6 +71,7 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
           <Sprite player={p} team={team} scale={3} />
           <div class="col grow" style={{ gap: '4px' }}>
             <div class="row wrap"><span class="tag pos">{p.pos}</span><span>#{p.num}</span><span class="dim">Age {p.age}</span></div>
+            <div class="dim">{sizeOf(p)}</div>
             <div class="row">{prospect ? <span class="dim">Unscouted prospect</span> : <Stars v={ovr(p)} big />}{!prospect && isStar(p) && <span class="tag gold">STAR</span>}</div>
             <div class="dim nowrap">{team ? fullName(team) : p.retired ? 'Retired' : prospect || save.draftClass.includes(p.id) ? 'Draft prospect' : 'Free agent'}</div>
             {mine && formOf(p) !== 0 && <div class={formOf(p) > 0 ? 'accent' : ''} style={formOf(p) < 0 ? { color: '#7fc4ff' } : undefined}>{formOf(p) > 0 ? '▲'.repeat(formOf(p)) : '▼'.repeat(-formOf(p))} {FORM_NAME[formOf(p)]}: playing {Math.abs(formOf(p)) * FORM_RATING} points {formOf(p) > 0 ? 'above' : 'below'} his ratings</div>}

@@ -9,7 +9,7 @@ import type {
   Calendar, CoachCareer, Facility, FacilityKey, Player, Pos, RatingKey, Ratings, Save, Settings, StaffMember, Team,
 } from '../types';
 import { FACILITY_KEYS, POSITIONS, RATING_KEYS, TRAITS } from '../types';
-import { FEATURED_NAMES, FIRST_NAMES, LAST_NAMES, OWNER_NAMES } from '../../data/names';
+import { FEATURED, FEATURED_NAMES, FIRST_NAMES, LAST_NAMES, OWNER_NAMES } from '../../data/names';
 import { CLUBS, COLLEGES, DEV_TEAMS } from '../../data/origins';
 import { TEAM_TEMPLATES } from '../../data/teams';
 
@@ -84,17 +84,35 @@ function facility(level: number, rng: Rng): Facility {
   return { level, condition: rng.int(70, 100) };
 }
 
-/** Give the featured names to some of `ids` if nobody in the league has them yet. No rng, so leagues stay as they were. */
-export function placeFeatured(save: Save, ids: number[], salt: number): void {
+/** Chance a featured name is on a roster when a league is made, and in each draft class while he is not in the league. */
+export const FEATURED_START = 0.25;
+export const FEATURED_DRAFT = 0.1;
+
+/** A steady number in [0, 1) from a salt and a name: no rng, so leagues and tests stay as they were. */
+function chance(salt: number, name: string): number {
+  // FNV-1a over "salt:name", then a murmur3 finish so neighbouring salts land far apart
+  const key = `${salt}:${name}`;
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+/** Maybe turn one of `ids` (at the right position) into a featured player, if nobody in the league is him yet. */
+export function placeFeatured(save: Save, ids: number[], salt: number, odds: number): void {
   const taken = new Set(Object.values(save.players).map(p => p.name));
-  const todo = FEATURED_NAMES.filter(n => !taken.has(n));
-  todo.forEach((name, i) => {
-    const id = ids[(salt + i * 7) % ids.length];
-    if (id !== undefined && !FEATURED_NAMES.includes(save.players[id].name)) save.players[id].name = name;
-  });
+  for (const f of FEATURED) {
+    if (taken.has(f.name) || chance(salt, f.name) >= odds) continue;
+    const fits = ids.filter(id => save.players[id].pos === f.pos && !FEATURED_NAMES.includes(save.players[id].name));
+    if (!fits.length) continue;
+    const p = save.players[fits[Math.floor(chance(salt + 1, f.name) * fits.length)]];
+    p.name = f.name;
+    p.look.height = 0;
+  }
 }
 
 export function genProspects(save: Save, rng: Rng): number[] {
+  const salt = rng.state;
   const ids: number[] = [];
   for (let i = 0; i < PROSPECTS; i++) {
     const pos = POSITIONS[i % 5];
@@ -111,7 +129,7 @@ export function genProspects(save: Save, rng: Rng): number[] {
     ids.push(p.id);
   }
   // first-round talent: picks 3 to 12
-  placeFeatured(save, ids.slice(2, 12), save.year);
+  placeFeatured(save, ids.slice(2, 12), salt, FEATURED_DRAFT);
   return ids;
 }
 
@@ -199,8 +217,8 @@ export function newLeague(opts: NewGameOpts): Save {
     for (const pid of team.roster) { const p = save.players[pid]; while (used.has(p.num)) p.num = rng.int(0, 55); used.add(p.num); }
     save.teams.push(team);
   });
-  // a starter or sixth man on two different clubs
-  placeFeatured(save, save.teams.flatMap(t => t.roster.slice(0, 6)), opts.seed % 97);
+  // now and then, a starter or sixth man somewhere
+  placeFeatured(save, save.teams.flatMap(t => t.roster.slice(0, 6)), opts.seed, FEATURED_START);
   genFreeAgents(save, rng, 24);
   save.staffPool = genStaffPool(save, rng);
   save.draftClass = genProspects(save, rng);

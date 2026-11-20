@@ -3,6 +3,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { sfx } from '../audio/sfx';
 import { isStar, pointsOf, atCeiling } from '../core/org/xp';
+import { heightOf } from '../core/body';
 import { FORM_NAME, formOf } from '../core/org/week';
 import { ovr, stars } from '../core/ratings';
 import type { Player, Save, Team } from '../core/types';
@@ -146,7 +147,7 @@ export function PlayerRow(p: { save: Save; player: Player; onClick?: () => void;
       <span class="tag pos">{pl.pos}</span>
       <div class="grow">
         <div class="nowrap">{pl.scouted !== false && isStar(pl) && <span class="gold" title="Star player">★ </span>}{pl.name}{pl.teamId === p.save.userTeamId && pointsOf(pl) > 0 && !atCeiling(pl) && <span class="badge" style={{ background: 'var(--gold)', color: '#1a0d04' }}>LEVEL UP</span>}{pl.injury && <span class="badge">{pl.injury.desc === 'suspended' ? 'SUS' : 'INJ'} {pl.injury.weeks}W</span>}{p.save.captainId === pl.id && <span class="tag gold" style={{ marginLeft: '4px' }}>C</span>}</div>
-        <div class="row dim" style={{ gap: '6px', fontSize: '17px' }}><Stars v={ovr(pl)} /><span>Age {pl.age}</span>{pl.teamId === p.save.userTeamId && <FormTag player={pl} />}{p.note}</div>
+        <div class="row dim" style={{ gap: '2px 6px', fontSize: '17px', flexWrap: 'wrap' }}><Stars v={ovr(pl)} /><span class="nowrap">{heightOf(pl)}</span><span class="nowrap">Age {pl.age}</span>{pl.teamId === p.save.userTeamId && <FormTag player={pl} />}{p.note}</div>
       </div>
       {p.right}
     </div>

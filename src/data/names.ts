@@ -1,7 +1,12 @@
 // Original name pools for Retro Hoops. Random combinations only; any match to a real person is coincidence.
 
-/** Players who are always in the league: on a roster in a new league, or in the next draft class of an older save. */
-export const FEATURED_NAMES: string[] = ['Jason Weng', 'Jonah Tractenberg'];
+/** Players who sometimes turn up: now and then on a roster in a new league, now and then in a draft class.
+ *  Unlike everyone else they have a set position and a set (small) size. Height in inches, weight in pounds. */
+export const FEATURED: { name: string; pos: 'PG' | 'SG'; ht: number; wt: number }[] = [
+  { name: 'Jason Weng', pos: 'PG', ht: 60, wt: 120 },
+  { name: 'Jonah Tractenberg', pos: 'SG', ht: 64, wt: 135 },
+];
+export const FEATURED_NAMES: string[] = FEATURED.map(f => f.name);
 
 export const FIRST_NAMES: string[] = [
   'Aaron', 'Abel', 'Abdul', 'Adrian', 'Aiden', 'Akira', 'Alaric', 'Albert', 'Alejandro', 'Alexei',

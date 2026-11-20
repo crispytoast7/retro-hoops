@@ -1,4 +1,5 @@
 // Pieces shared by the Trades, Scouting and Offseason screens.
+import { heightOf } from '../core/body';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { DEAD_CAP_RATE, HARD_LIMIT, ROSTER_MIN, SALARY_CAP } from '../core/constants';
@@ -60,7 +61,7 @@ export function PlayerLine(p: { save: Save; player: Player; onClick?: () => void
           {pl.injury && <span class="badge">{pl.injury.desc === 'suspended' ? 'SUS' : 'INJ'} {pl.injury.weeks}W</span>}
           {p.note}
         </div>
-        <div class="row dim ox-sub"><Stars v={ovr(pl)} /><span>Age {pl.age}</span>{p.sub}</div>
+        <div class="row dim ox-sub"><Stars v={ovr(pl)} /><span class="nowrap">{heightOf(pl)}</span><span class="nowrap">Age {pl.age}</span>{p.sub}</div>
       </div>
       {p.right}
     </div>
@@ -108,7 +109,8 @@ export function ProspectRow(p: { save: Save; player: Player; onClick?: () => voi
             : !p.noScout && <Stop><Btn onClick={() => scout(pl.id)}>{p.save.scoutPoints > 0 ? 'Scout' : 'Scout ◉1'}</Btn></Stop>}
         </div>
         <div class="row dim ox-sub">
-          <span>Age {pl.age}</span>
+          <span class="nowrap">{heightOf(pl)}</span>
+          <span class="nowrap">Age {pl.age}</span>
           <span class="row" style={{ gap: '4px' }}>{v.known ? 'Now' : 'Est.'} <Stars v={v.est} /></span>
           {v.known && <span class="row" style={{ gap: '4px' }}>Ceiling <Stars v={pl.potential} /></span>}
         </div>
