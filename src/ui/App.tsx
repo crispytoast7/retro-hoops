@@ -1,8 +1,9 @@
-import { useEffect } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { kickMusic, setTrack } from '../audio/music';
 import { unlockAudio } from '../audio/sfx';
 import { markTip, prog } from '../core/org/progress';
-import { hasSave, touch, useSave } from '../state/store';
+import { applyUpdate, onUpdate, updateWaiting } from '../state/pwa';
+import { flush, hasSave, touch, useSave } from '../state/store';
 import { ConfirmHost, ToastHost } from './kit';
 import { route, useRoute } from './router';
 import { BracketScreen } from './Bracket';
@@ -85,8 +86,22 @@ export function App() {
   return (
     <>
       {needsSave && hasSave() ? <WithSave key={r.name + JSON.stringify(r.params)} C={C} params={r.params} route={r.name} /> : <div class="app"><C key={r.name} params={r.params} /></div>}
+      {r.name !== 'title' && r.name !== 'game' && r.name !== 'practice' && <UpdateBar />}
       <ToastHost />
       <ConfirmHost />
     </>
+  );
+}
+
+/** A new version is ready: offer it on any menu screen (the title screen has its own button). Never shown in a game. */
+function UpdateBar() {
+  const [upd, setUpd] = useState(updateWaiting());
+  useEffect(() => onUpdate(() => setUpd(true)), []);
+  if (!upd) return null;
+  return (
+    <div class="updatebar">
+      <span class="grow">A new version of Retro Hoops is ready.</span>
+      <button class="btn small good" onClick={() => { void flush().then(applyUpdate); }}>Update</button>
+    </div>
   );
 }
