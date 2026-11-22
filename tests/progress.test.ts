@@ -4,7 +4,7 @@ import { chooseTeam } from '../src/core/offseason/offseason';
 import {
   adaptChallenge, challenge,
   COURTS, MAX_LEVEL, PERKS, TROPHIES, buyPerk, checkTrophies, coachLevel, courtStyle, gamesToUnlock, isUnlocked,
-  levelOf, markTip, nextTip, perk, perkPoints, prog, resignDiscount, xpFor,
+  levelOf, markTip, nextTip, perk, perkPoints, prog, resignDiscount, tutorialNeeded, xpFor,
 } from '../src/core/org/progress';
 import { Rng } from '../src/core/rng';
 import { CALENDARS } from '../src/core/season/calendar';
@@ -47,14 +47,22 @@ describe('coach progression', () => {
     expect(isUnlocked(save, 'roster')).toBe(true);
     expect(isUnlocked(save, 'trades')).toBe(false);
     expect(gamesToUnlock(save, 'trades')).toBe(5);
-    expect(nextTip(save)!.id).toBe('welcome');
+    // a brand-new coach does the controls tutorial before anything is explained
+    expect(tutorialNeeded(save)).toBe(true);
+    expect(nextTip(save)).toBeNull();
+    markTip(save, 'practice_done');
+    expect(tutorialNeeded(save)).toBe(false);
+    const welcome = nextTip(save)!;
+    expect(welcome.id).toBe('welcome');
+    // nothing is a wall of text: short lines, a few of them
+    expect(welcome.text.every(t => t.length <= 90)).toBe(true);
     markTip(save, 'welcome');
     expect(nextTip(save)).toBeNull();
     const seen: string[] = [];
     for (let i = 0; i < 9; i++) {
       save.pendingEvent = null;
       advance(save, rng, 'simGame');
-      for (let t = nextTip(save); t; t = nextTip(save)) { seen.push(t.id); markTip(save, t.id); }
+      for (let t = nextTip(save); t; t = nextTip(save)) { seen.push(t.id); expect(t.text.length).toBeLessThanOrEqual(4); expect(t.text.every(x => x.length <= 90)).toBe(true); markTip(save, t.id); }
     }
     expect(isUnlocked(save, 'trades')).toBe(true);
     expect(seen).toEqual(['week', 'u_stats', 'u_coach', 'u_facilities', 'u_staff', 'u_finances', 'u_trades', 'u_scouting', 'u_history']);

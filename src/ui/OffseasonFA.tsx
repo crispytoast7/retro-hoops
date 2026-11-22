@@ -1,3 +1,4 @@
+import { TAP } from '../state/device';
 import { useState } from 'preact/hooks';
 import { FA_DAYS, HARD_LIMIT, MAX_FA_YEARS, MIN_DEAL_YEARS, MIN_SALARY, ROSTER_MAX, SALARY_CAP } from '../core/constants';
 import { interestLevel, isOwnFreeAgent } from '../core/gm/freeAgency';
@@ -84,7 +85,7 @@ export function FreeAgencyStep({ save }: { save: Save }) {
         <div class="dim" style={{ fontSize: '18px', marginTop: '6px' }}>
           {over
             ? 'The market has closed for the summer. Continue to training camp. Anyone still unsigned can be signed during the season.'
-            : 'Tap a player to make an offer. Each day, every free agent takes the best offer he likes enough. They are picky early and take the best real offer on the last day.'}
+            : `${TAP} a player to make an offer. Each day, every free agent takes the best offer he likes enough. They are picky early and take the best real offer on the last day.`}
         </div>
       </Panel>
 
@@ -101,7 +102,7 @@ export function FreeAgencyStep({ save }: { save: Save }) {
       )}
 
       <Panel title={`YOUR OFFERS (${pending.length})`}>
-        {pending.length === 0 ? <div class="dim">No offers out. {over ? '' : 'Tap a free agent below to make one.'}</div> : (
+        {pending.length === 0 ? <div class="dim">No offers out. {over ? '' : `${TAP} a free agent below to make one.`}</div> : (
           <div class="list">
             {pending.map(({ p, o }) => {
               const lvl = interestLevel(save, p, { ...o, teamId: me.id });

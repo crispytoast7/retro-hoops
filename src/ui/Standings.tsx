@@ -1,3 +1,4 @@
+import { TAP } from '../state/device';
 import { useState } from 'preact/hooks';
 import { standings } from '../core/season/schedule';
 import type { Team } from '../core/types';
@@ -45,7 +46,7 @@ export function StandingsScreen(_p: { params: Record<string, any> }) {
       </Panel>
       {table(0)}
       {table(1)}
-      <div class="dim">Top 4 in each conference make the playoffs. Tap a team to see its roster.</div>
+      <div class="dim">Top 4 in each conference make the playoffs. {TAP} a team to see its roster.</div>
       {open && (
         <Modal onClose={() => setOpen(null)}>
           <h2>{fullName(open)}</h2>

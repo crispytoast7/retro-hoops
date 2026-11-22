@@ -359,3 +359,15 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 20px; }
 /* new-version banner, above the bottom bar on every menu screen */
 .updatebar { position: fixed; left: 8px; right: 8px; top: calc(8px + env(safe-area-inset-top)); z-index: 45; display: flex; align-items: center; gap: 10px;
   background: var(--edge); border: 3px solid var(--good, #5bd96b); padding: 6px 8px 6px 12px; font-size: 18px; box-shadow: 0 4px 0 rgba(0,0,0,.35); animation: fade .15s steps(3); }
+
+/* tutorial cards: one short sentence, big */
+.tutcard { max-width: 320px; font-size: 23px; line-height: 1.25; text-align: center; display: flex; flex-direction: column; gap: 8px; padding: 14px 14px; }
+.tutcard .tuthint { font-size: 17px; }
+.tutcard .tutline { font-size: 20px; text-align: left; }
+.tutstep { font-family: var(--head); font-size: 8px; color: var(--ink); opacity: .75; letter-spacing: 1px; }
+
+/* one-line-at-a-time explainers */
+.tippage { font-size: 24px; line-height: 1.3; min-height: 96px; display: flex; align-items: center; animation: fade .15s steps(3); }
+.tipdots { display: flex; gap: 6px; justify-content: center; }
+.tipdots span { width: 8px; height: 8px; background: var(--line); }
+.tipdots span.on { background: var(--gold); }

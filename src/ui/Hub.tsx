@@ -1,8 +1,9 @@
+import { pcText } from '../state/device';
 import { useEffect, useState } from 'preact/hooks';
 import { SALARY_CAP } from '../core/constants';
 import { capStatus, payroll } from '../core/org/finance';
 import { EventOutcome, currentEvent, eventText, resolveEvent, teamMorale } from '../core/org/people';
-import { Feature, checklist, gamesToUnlock, isUnlocked, perkPoints, rankName, xpBar } from '../core/org/progress';
+import { Feature, checklist, gamesToUnlock, isUnlocked, perkPoints, rankName, tutorialNeeded, xpBar } from '../core/org/progress';
 import { cal, ROUND_NAMES } from '../core/season/calendar';
 import { advance } from '../core/season/flow';
 import { gamesInWeek, userGame, userGamesInWeek } from '../core/season/schedule';
@@ -135,6 +136,8 @@ export function HubScreen(_p: { params: Record<string, any> }) {
     shownMoment = m.id;
     nav(m.kind === 'champion' ? 'champion' : 'bracket', { moment: m });
   });
+  // a new coach who has not finished the controls tutorial goes back to it (he may have closed the game half way)
+  useEffect(() => { if (tutorialNeeded(save)) replace('practice'); }, []);
   // deal this week's plans the first time the hub shows a new week
   useEffect(() => { if (needsWeek(save)) touch(s => { ensureWeek(s); }); });
   const g = save.phase !== 'offseason' ? userGame(save) : undefined;
@@ -263,7 +266,7 @@ export function HubScreen(_p: { params: Record<string, any> }) {
               {todo.slice(0, 3).map((st, i) => (
                 <div class={`item ${st.go ? 'tap' : ''}`} onClick={() => { if (st.go) nav(st.go); }}>
                   <span class="tag gold" style={{ minWidth: '22px', textAlign: 'center' }}>{i === 0 ? 'NEXT' : '·'}</span>
-                  <div class="grow"><div>{st.text}</div>{i === 0 && <div class="dim" style={{ fontSize: '17px' }}>{st.why}</div>}</div>
+                  <div class="grow"><div>{st.text}</div>{i === 0 && <div class="dim" style={{ fontSize: '17px' }}>{pcText(st.why)}</div>}</div>
                   {st.go && <span class="dim">&gt;</span>}
                 </div>
               ))}

@@ -1,3 +1,4 @@
+import { TAP } from '../state/device';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { NUM_TEAMS, ROSTER_MAX } from '../core/constants';
 import { rookieContract } from '../core/gm/draft';
@@ -126,7 +127,7 @@ export function DraftStep({ save }: { save: Save }) {
         <>
           <div class="ox-clock">YOU ARE ON THE CLOCK: ROUND {slot.round}, PICK {slot.pick}</div>
           <div class="row">
-            <span class="grow dim" style={{ fontSize: '18px' }}>Tap a prospect to draft him. Rookie deal: {dealText(rookieContract(slot.round, slot.pick).salary, rookieContract(slot.round, slot.pick).years)}.</span>
+            <span class="grow dim" style={{ fontSize: '18px' }}>{TAP} a prospect to draft him. Rookie deal: {dealText(rookieContract(slot.round, slot.pick).salary, rookieContract(slot.round, slot.pick).years)}.</span>
             <Btn onClick={() => { void pass(); }}>Pass</Btn>
           </div>
           {full && (

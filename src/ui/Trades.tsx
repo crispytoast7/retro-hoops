@@ -1,3 +1,4 @@
+import { TAP } from '../state/device';
 import { useMemo, useRef, useState } from 'preact/hooks';
 import { MIN_SALARY, ROSTER_MAX, SALARY_CAP } from '../core/constants';
 import { instantSigning } from '../core/gm/freeAgency';
@@ -164,7 +165,7 @@ function ShopTab({ save }: { save: Save }) {
       <>
         <div class="panel"><span>{win.text}</span></div>
         <Panel title="WHO DO YOU WANT TO SHOP?">
-          <div class="dim" style={{ fontSize: '18px', marginBottom: '4px' }}>Tap a player. Up to three teams will tell you what they would give for him.</div>
+          <div class="dim" style={{ fontSize: '18px', marginBottom: '4px' }}>{TAP} a player. Up to three teams will tell you what they would give for him.</div>
           <div class="list">
             {players.map(pl => (
               <PlayerLine save={save} player={pl} onClick={() => setSel(pl.id)}
@@ -336,7 +337,7 @@ function ProposeTab({ save }: { save: Save }) {
           </Panel>
         </div>
       )}
-      {them && <div class="dim" style={{ fontSize: '17px' }}>Tap players and picks to add them to the deal. Tap a name to see the player.</div>}
+      {them && <div class="dim" style={{ fontSize: '17px' }}>{TAP} players and picks to add them to the deal. {TAP} a name to see the player.</div>}
       {footer && <div class="ox-sticky">{footer}</div>}
     </>
   );

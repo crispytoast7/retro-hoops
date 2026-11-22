@@ -6,7 +6,7 @@ import { STAR_OVR } from '../core/org/xp';
 import { ovr } from '../core/ratings';
 import { POSITIONS } from '../core/types';
 import { sfx } from '../audio/sfx';
-import { drawText } from './font';
+import { drawText, textWidth } from './font';
 import {
   BASE_Y, H, HOOP, PAL, RIM_Z, SIDE_L, SIDE_R, TOP, VIEW_H, W, drawBall, drawCrowd, drawHoop, drawPlayer, isThree, makeCourt, spriteHeight,
 } from './render';
@@ -26,6 +26,8 @@ export interface ArcadeSetup {
   practice?: boolean;
   /** Tutorial aids drawn on the court. */
   guide?: Guide;
+  /** Playing on a computer: label teammates 1-4 and show key names from the first moment. */
+  keys?: boolean;
   scenario?: Scenario;
   /** Consecutive makes this game by player id: hot hands aim steadier and draw a double team. */
   hot?: Record<number, number>;
@@ -52,7 +54,9 @@ export interface Guide {
   /** End the possession as soon as a pass is caught. */
   endOnCatch?: boolean;
   /** Animated finger showing the gesture. */
-  demo?: 'hold' | 'drag' | 'tap' | 'flick' | 'faketap';
+  demo?: 'hold' | 'drag' | 'tap' | 'flick' | 'faketap' | 'pull' | 'slide';
+  /** End the possession as soon as a shot is called off (for the no-shot drill). */
+  endOnCancel?: boolean;
   /** Practice only: his defender stands right on him (for the pump-fake drill). */
   tight?: boolean;
 }
@@ -65,6 +69,12 @@ export interface ArcadeResult {
   moves: number;
   /** Reached the tutorial target spot. */
   reached: boolean;
+  /** Passes thrown by pulling back off the ball-handler. */
+  pulls: number;
+  /** Shots called off by sliding off the button (or Escape). */
+  cancels: number;
+  /** Crossovers that left a defender standing. */
+  beats: number;
   /** Field goals in this moment, in order: who shot and whether it went in. */
   shots: { by: number; made: boolean }[];
   /** Timing of the last jump shot: 3 perfect, 2 good, 1 early/late, 0 way off, -1 none taken. */
@@ -199,6 +209,9 @@ export class Arcade {
   private practice = false;
   private guide: Guide | null = null;
   private reached = false;
+  private pulls = 0;
+  private cancels = 0;
+  private beats = 0;
   private lastQuality = -1;
   private hang = 0;
   private lastPhase: Phase = 'idle';
@@ -314,6 +327,7 @@ export class Arcade {
     this.crowd = setup.poss.crowd;
     this.pk = { shooting: 0, handles: 0, passing: 0, rim: 0, ...setup.perks };
     this.practice = !!setup.practice;
+    if (setup.keys) this.usedKeys = true;
     this.guide = setup.guide ?? null;
     this.hot = setup.hot ?? {};
     this.chal = this.practice ? 1 : clamp(setup.challenge ?? 1, 0.5, 2.6);
@@ -321,7 +335,7 @@ export class Arcade {
     this.aim.on = false;
     this.reached = false; this.lastQuality = -1; this.hang = 0;
     this.camCool--;
-    this.passes = 0; this.moves = 0; this.fakes = 0; this.fakeCd = 0; this.ankleT = -99; this.style = ''; this.trail = []; this.freeze = 0; this.dunkPose = null;
+    this.passes = 0; this.moves = 0; this.pulls = 0; this.cancels = 0; this.beats = 0; this.fakes = 0; this.fakeCd = 0; this.ankleT = -99; this.style = ''; this.trail = []; this.freeze = 0; this.dunkPose = null;
     const mk = (p: Player, slot: number, off: boolean): Ent => ({
       p, slot, off, x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, stun: 0, slow: 0, run: -1, face: 0,
       armsUp: 0, lift: 0, home: 'TOP', route: [], leg: 0, holdT: 0, screen: 0, wait: 0, jitter: Math.random() * 6,
@@ -352,7 +366,7 @@ export class Arcade {
     this.ptr.down = false; this.ptr.mode = 'none';
     this.mv = { x: 0, y: 0 };
     this.phase = 'live';
-    this.setupScenario(this.practice ? 'halfcourt' : setup.scenario ?? 'halfcourt');
+    this.setupScenario(this.practice && setup.scenario !== 'freethrows' ? 'halfcourt' : setup.scenario ?? 'halfcourt');
     if (setup.poss.lastShot) this.popup('LAST SHOT!', PAL.yellow, 2);
     else if (setup.poss.clutch) this.popup('CLUTCH TIME', PAL.yellow, 2);
     return new Promise(res => { this.resolve = res; });
@@ -456,6 +470,8 @@ export class Arcade {
     this.aim.on = false; this.aim.kind = 'none';
     this.slowmo = 1;
     this.phase = 'live';
+    this.cancels++;
+    if (this.guide?.endOnCancel) { this.popup('NO SHOT. GOOD!', PAL.green, 2); sfx.good(); this.end(0.9); return; }
     this.popup('NO SHOT', '#c8c8d8', 1, 150);
   };
   private keyVec(): { x: number; y: number } {
@@ -565,7 +581,8 @@ export class Arcade {
     const on = this.nearestDef(h.x, h.y);
     if (on.e && on.d < 24) {
       const p = clamp(0.3 + 0.6 * hnd - 0.28 * (on.e.p.ratings.def / 100) + this.diff.move + 0.06 * this.pk.handles + (this.practice ? 0.5 : 0), 0.1, 0.95);
-      if (Math.random() < p) {
+      if (this.practice || Math.random() < p) {
+        this.beats++;
         on.e.stun = 0.5 + 0.5 * hnd;
         const away = (dx * (HOOP.x - h.x) + dy * (HOOP.y - h.y)) / (Math.hypot(HOOP.x - h.x, HOOP.y - h.y) || 1) < -0.45;
         this.popup(away ? 'STEP BACK!' : pick(CALLS.move), PAL.yellow, 2);
@@ -612,7 +629,8 @@ export class Arcade {
     if (!on.e || on.d > 26) return; // nobody near enough to fool
     // shooters sell it, good defenders stay down, and the same trick works less each time
     const p = clamp(0.58 + 0.4 * (h.p.ratings.sht / 100) - 0.4 * (on.e.p.ratings.def / 100) - (this.practice ? 0 : 0.22 * (this.fakes - 1)) + this.diff.move + (this.practice ? 0.4 : 0), 0.06, 0.85) / Math.sqrt(this.chal);
-    if (Math.random() < p) {
+    // in a drill the lesson always lands: he bites every time
+    if (this.practice || Math.random() < p) {
       on.e.stun = 0.75; on.e.lift = 9; on.e.armsUp = 0.5;
       this.popup('SENT FLYING!', PAL.green, 2); sfx.good();
       this.highlights.push('fake'); this.crowd = Math.min(100, this.crowd + 3);
@@ -671,6 +689,7 @@ export class Arcade {
           const atMate = this.off.reduce((best, m, i) => (i === this.handler ? best : Math.max(best, lined(m.x, m.y))), -1);
           if (atHoop < SHOT_CONE && atMate < MATE_CONE) {
             a.on = false; this.slowmo = 1; this.phase = 'live'; this.ptr.mode = 'drag';
+            if (this.guide?.demo === 'pull') this.popup('PULL THE OTHER WAY', PAL.yellow, 1, 150);
             return;
           }
           a.armed = true;
@@ -722,6 +741,7 @@ export class Arcade {
     }
     if (a.kind === 'shot') { this.shootAimed(); return; }
     this.phase = 'live';
+    this.pulls++;
     if (a.kind === 'pass') this.startPass(a.mate);
     else this.startLead(a.tx, a.ty);
   }
@@ -823,8 +843,9 @@ export class Arcade {
       ? (open ? (alley ? 0.85 : 0.96) : (alley ? 0.48 : 0.6) + 0.3 * fin - (alley ? 0.38 : 0.3) * c1)
       : 0.6 + 0.38 * fin - 0.3 * c1 - 0.12 * c2;
     p = clamp(p + this.diff.make + 0.04 * this.pk.rim + (oop && !alley ? 0.08 : 0), 0.08, 0.97);
-    const made = Math.random() < p;
-    const foul = !open && Math.random() < 0.09 + 0.1 * c1;
+    // practice is for learning the motion: a finish at the rim always goes down, and nobody fouls
+    const made = this.practice || Math.random() < p;
+    const foul = !this.practice && !open && Math.random() < 0.09 + 0.1 * c1;
     let blockBy = -1;
     if (!made && !foul && near[0] && c1 > 0.5 && Math.random() < 0.15 + 0.3 * (near[0].d.p.ratings.def / 100)) blockBy = near[0].d.p.id;
     this.shot.text = '';
@@ -1028,7 +1049,7 @@ export class Arcade {
         this.slowmo = 1;
         const seconds = clamp(Math.round(this.startClock - this.clock), 2, Math.max(2, Math.round(this.startClock)));
         const r = this.resolve; this.resolve = null;
-        r?.({ outcome: { events: this.events, seconds }, highlights: this.highlights, points: this.points, passes: this.passes, moves: this.moves, reached: this.reached, quality: this.lastQuality,
+        r?.({ outcome: { events: this.events, seconds }, highlights: this.highlights, points: this.points, passes: this.passes, moves: this.moves, reached: this.reached, pulls: this.pulls, cancels: this.cancels, beats: this.beats, quality: this.lastQuality,
           shots: this.events.filter(e => e.t === 'shot').map(e => ({ by: (e as { by: number }).by, made: (e as { made: boolean }).made })) });
       }
       return;
@@ -1777,9 +1798,11 @@ export class Arcade {
     const h = this.off[this.handler];
     if (gd.mate !== undefined && this.off[gd.mate] && gd.mate !== this.handler) {
       const m = this.off[gd.mate];
-      drawText(g, 'TAP HIM', m.x, m.y - spriteHeight(m.p) - 18, PAL.yellow, { align: 'center', outline: PAL.ink });
+      const num = this.off.map((_, i) => i).filter(i => i !== this.handler).indexOf(gd.mate) + 1;
+      drawText(g, gd.demo === 'pull' ? 'PASS TO HIM' : this.usedKeys ? `PRESS ${num}` : 'TAP HIM', m.x, m.y - spriteHeight(m.p) - 18, PAL.yellow, { align: 'center', outline: PAL.ink });
     }
     if (!gd.demo || this.ptr.down) return;
+    if (this.usedKeys && gd.demo !== 'pull') { this.drawKeyGuide(gd); return; }
     const t = this.time % 1.6;
     let fx = 0, fy = 0, pressed = true, label = '';
     if (gd.demo === 'hold') {
@@ -1792,6 +1815,22 @@ export class Arcade {
       pressed = t % 0.8 < 0.18;
       fx = BTN.x + 4; fy = BTN.y - 6 - (pressed ? 0 : 6);
       drawText(g, 'TAP, DO NOT HOLD', BTN.x - 14, BTN.y - BTN.r - 10, PAL.yellow, { align: 'center', outline: PAL.ink });
+    } else if (gd.demo === 'slide') {
+      // hold the button, then slide off it before letting go
+      const k = clamp((t - 0.6) / 0.5, 0, 1);
+      pressed = t < 1.3;
+      fx = BTN.x + 4 - 34 * k; fy = BTN.y - 6 - 14 * k - (pressed ? 0 : 6);
+      drawText(g, k <= 0 ? 'HOLD' : pressed ? 'SLIDE OFF' : 'LET GO', BTN.x - 8, BTN.y - BTN.r - 10, PAL.yellow, { align: 'center', outline: PAL.ink });
+    } else if (gd.demo === 'pull') {
+      // start on your own player and pull straight away from the teammate, exactly as far as the pass needs
+      const m = this.off[gd.mate ?? 1] ?? h;
+      const dx = h.x - m.x, dy = h.y - m.y, d = Math.hypot(dx, dy) || 1;
+      const len = d / AIM_GAIN + 2, k = clamp((t - 0.25) / 0.7, 0, 1);
+      const sx = h.x, sy = h.y - 12;
+      fx = sx + (dx / d) * len * k; fy = sy + (dy / d) * len * k; label = k <= 0 ? (this.usedKeys ? 'PRESS HERE' : 'TOUCH HIM') : k < 1 ? (this.usedKeys ? 'DRAG BACK' : 'PULL BACK') : 'LET GO';
+      pressed = t < 1.3;
+      g.fillStyle = 'rgba(255,255,255,0.8)';
+      for (let i = 0; i < 8; i++) { const kk = (i / 8) * k; g.fillRect(Math.round(sx + (dx / d) * len * kk), Math.round(sy + (dy / d) * len * kk), 1, 1); }
     } else if (gd.demo === 'drag') {
       const tx = gd.target?.x ?? HOOP.x, ty = gd.target?.y ?? HOOP.y;
       const dx = tx - h.x, dy = ty - h.y, d = Math.hypot(dx, dy) || 1;
@@ -1818,11 +1857,39 @@ export class Arcade {
     if (label) drawText(g, label, X, Y + 13, PAL.white, { align: 'center', outline: PAL.ink });
   }
 
+  /** A key on the keyboard, lit while the demo "presses" it. */
+  private keycap(label: string, x: number, y: number, lit: boolean): void {
+    const g = this.g, w = Math.max(11, textWidth(label) + 6);
+    g.fillStyle = PAL.ink; g.fillRect(Math.round(x - w / 2) - 1, y - 1, w + 2, 12);
+    g.fillStyle = lit ? PAL.yellow : '#d8d4e8'; g.fillRect(Math.round(x - w / 2), y, w, lit ? 10 : 9);
+    if (!lit) { g.fillStyle = '#8a86a8'; g.fillRect(Math.round(x - w / 2), y + 9, w, 1); }
+    drawText(g, label, x, y + (lit ? 3 : 2), PAL.ink, { align: 'center' });
+  }
+  /** The tutorial demo for a computer: the keys to press, instead of a finger. */
+  private drawKeyGuide(gd: Guide): void {
+    const g = this.g, h = this.off[this.handler];
+    const t = this.time % 1.6, label = (s: string, x: number, y: number) => drawText(g, s, x, y, PAL.yellow, { align: 'center', outline: PAL.ink });
+    const bx = BTN.x - 6, by = BTN.y - BTN.r - 24;
+    if (gd.demo === 'hold') { const on = t < 1.25; this.keycap('SPACE', bx, by, on); label(on ? 'HOLD' : 'LET GO', bx, by - 9); }
+    else if (gd.demo === 'faketap') { const on = t % 0.8 < 0.18; this.keycap('SPACE', bx, by, on); label('TAP, DO NOT HOLD', bx - 12, by - 9); }
+    else if (gd.demo === 'slide') { const esc = t > 0.7 && t < 1.2; this.keycap('SPACE', bx, by, t < 1.3); this.keycap('ESC', bx - 34, by, esc); label(t <= 0.7 ? 'HOLD SPACE' : 'THEN PRESS ESC', bx - 14, by - 9); }
+    else if (gd.demo === 'drag' || gd.demo === 'flick') {
+      // the WASD cluster, with the keys that point the right way lit
+      const tx = gd.demo === 'flick' ? h.x + 40 : gd.target?.x ?? HOOP.x, ty = gd.demo === 'flick' ? h.y : gd.target?.y ?? HOOP.y;
+      const dx = tx - h.x, dy = ty - h.y, on = t < 1.2;
+      const cx = clamp(h.x + 44, 30, W - 30), cy = Math.min(H - 34, h.y + 10);
+      this.keycap('W', cx, cy, on && dy < -8); this.keycap('A', cx - 13, cy + 13, on && dx < -8); this.keycap('S', cx, cy + 13, on && dy > 8); this.keycap('D', cx + 13, cy + 13, on && dx > 8);
+      if (gd.demo === 'flick') { const sh = t > 0.5 && t < 1; this.keycap('SHIFT', cx - 40, cy + 13, sh); label(sh ? 'PRESS SHIFT' : 'HOLD A OR D', cx - 14, cy + 28); }
+      else label('OR ARROWS', cx, cy + 28);
+    }
+    // 'tap' needs no demo: the teammate already says PRESS and his number
+  }
+
   /** The aim: a dotted arc from the player to where the ball will come down, and a reticle there. */
   private drawAim(): void {
     const g = this.g, a = this.aim, h = this.off[this.handler];
     const { c } = this.contestAt(h);
-    if (!this.ftMode) {
+    if (!this.ftMode && (a.kb || a.kind === 'shot')) {
       if (c > 0.3) drawText(g, 'CONTESTED', h.x, h.y + 6, PAL.red, { align: 'center', outline: PAL.ink });
       else if (c < 0.08) drawText(g, 'OPEN', h.x, h.y + 6, PAL.green, { align: 'center', outline: PAL.ink });
     }
@@ -1830,6 +1897,7 @@ export class Arcade {
       // touching him but not pulled yet: show which way to drag
       g.fillStyle = 'rgba(255,255,255,0.7)';
       for (let i = 0; i < 12; i++) g.fillRect(Math.round(h.x + Math.cos((i / 12) * 6.283) * 11), Math.round(h.y - 10 + Math.sin((i / 12) * 6.283) * 11), 1, 1);
+      if (this.guide?.demo === 'pull') drawText(g, a.armed ? 'PULL FARTHER' : 'PULL AWAY FROM HIM', h.x, h.y + 8, PAL.yellow, { align: 'center', outline: PAL.ink });
       return;
     }
     const shot = a.kind === 'shot';

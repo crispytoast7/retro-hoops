@@ -4,6 +4,7 @@ import { setMusic } from '../audio/music';
 import { setSound, sfx } from '../audio/sfx';
 import { PRIVACY, PRIVACY_UPDATED } from '../data/privacy';
 import { exportSave, getSave, hasSave, importSave, resetSave, touch, useSave } from '../state/store';
+import { DESKTOP } from '../state/device';
 import { isNative, setHaptics, shareFile } from '../state/native';
 import { Btn, Modal, Panel, Screen, Tabs, confirmDialog, toast } from './kit';
 import { nav, reset } from './router';
@@ -35,6 +36,29 @@ function SaveSettings() {
     </>
   );
 }
+
+const HOW_TOUCH: [string, string][] = [
+  ['Move', 'drag on the court. Keep dragging at the rim to lay it in or dunk.'],
+  ['Shoot', 'hold SHOOT. Let go when the crosshair is on the rim. Green is a swish.'],
+  ['No shot', 'slide your finger off SHOOT, then let go.'],
+  ['Pump fake', 'tap SHOOT. A defender who jumps leaves you open.'],
+  ['Pass', 'tap a teammate.'],
+  ['Pull pass', 'touch your player, pull back away from where you want it, let go. At the rim it is a lob.'],
+  ['Crossover', 'a quick flick on the court. Flick away from the basket for a step-back.'],
+  ['Putback', 'rebound near the rim and the button says PUT BACK. Press it.'],
+  ['Free throws', 'hold SHOOT, let go on the rim. A tap does nothing.'],
+];
+const HOW_PC: [string, string][] = [
+  ['Move', 'WASD or the arrow keys. Keep going at the rim to lay it in or dunk.'],
+  ['Shoot', 'hold Space. Let go when the crosshair is on the rim. Green is a swish.'],
+  ['No shot', 'press Escape while holding Space.'],
+  ['Pump fake', 'tap Space. A defender who jumps leaves you open.'],
+  ['Pass', 'press 1 to 4, or click a teammate.'],
+  ['Pull pass', 'press on your player with the mouse, drag away from where you want it, let go. At the rim it is a lob.'],
+  ['Crossover', 'Shift while moving. Away from the basket it is a step-back.'],
+  ['Putback', 'rebound near the rim and the button says PUT BACK. Press Space.'],
+  ['Free throws', 'hold Space, let go on the rim. A tap does nothing.'],
+];
 
 export function SettingsScreen(_p: { params: Record<string, any> }) {
   const file = useRef<HTMLInputElement>(null);
@@ -112,15 +136,8 @@ export function SettingsScreen(_p: { params: Record<string, any> }) {
       <Panel title="HOW TO PLAY">
         {has && getSave().schedule.length > 0 && <><Btn class="block" kind="primary" onClick={() => nav('practice')}>Practice the controls</Btn><div style={{ height: '8px' }} /></>}
         <div class="list" style={{ fontSize: '19px' }}>
-          <div class="item"><b class="gold">Move:</b> drag on the court (not on your player). Keep dragging at the rim to lay it in or dunk.</div>
-          <div class="item"><b class="gold">Shoot:</b> hold the SHOOT button. A crosshair swings around the rim: let go when it is on the rim. Gold is good, green is a swish.</div>
-          <div class="item"><b class="gold">Change your mind:</b> while holding SHOOT, slide your finger off the button and let go. No shot.</div>
-          <div class="item"><b class="gold">Pump fake:</b> tap SHOOT. A defender who bites leaves his feet and you are open.</div>
-          <div class="item"><b class="gold">Pass:</b> tap a teammate. To lead him or throw a lob, touch your player and pull back away from where you want the ball to go, then let go.</div>
-          <div class="item"><b class="gold">Crossover:</b> a quick flick on the court. Flick away from the basket for a step-back.</div>
-          <div class="item"><b class="gold">Putback:</b> grab an offensive rebound near the rim and the button flashes PUT BACK. Press it.</div>
-          <div class="item"><b class="gold">Free throws:</b> hold SHOOT and let go on the rim. A quick tap does nothing.</div>
-          <div class="item dim">Keyboard: WASD or arrows move, hold Space to shoot (tap it to fake, Escape to call it off), 1-4 pass, Shift for a crossover. Menus: Enter and Escape.</div>
+          {(DESKTOP ? HOW_PC : HOW_TOUCH).map(([h, t]) => <div class="item"><span><b class="gold">{h}:</b> {t}</span></div>)}
+          <div class="item dim">{DESKTOP ? 'Mouse: drag on the court to move, hold the SHOOT button, click a teammate. Menus: Enter and Escape.' : 'On a computer the game uses the keyboard and mouse instead.'}</div>
         </div>
       </Panel>
     </Screen>

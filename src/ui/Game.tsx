@@ -1,7 +1,8 @@
+import { DESKTOP } from '../state/device';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { cal, ROUND_NAMES } from '../core/season/calendar';
 import { Objective, offerObjectives } from '../core/org/objectives';
-import { MomentStats, adaptChallenge, challenge, coachTips, courtStyle, perk } from '../core/org/progress';
+import { MomentStats, adaptChallenge, careerGames, challenge, coachTips, courtStyle, perk, tutorialNeeded } from '../core/org/progress';
 import { edgeFor, intel, pressure, withForm, withPressure } from '../core/org/week';
 import { Rng } from '../core/rng';
 import { finishUserGame, startLiveGame, PostGame } from '../core/season/flow';
@@ -16,9 +17,7 @@ import { replace } from './router';
 
 const fmtClock = (s: number): string => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, '0')}`;
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
-const HINT_KEY = 'retro-hoops-hints-seen';
 /** A mouse (and so, most likely, a keyboard) rather than a touch screen. */
-const DESKTOP = typeof matchMedia !== 'undefined' && matchMedia('(hover: hover) and (pointer: fine)').matches;
 
 /** Choose the situation for the next key moment: varied, never the same twice running. */
 type Adjust = 'rim' | 'shoot' | 'lock';
@@ -87,6 +86,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
 
   useEffect(() => {
     if (g.played) { replace('hub'); return; }
+    if (tutorialNeeded(save)) { replace('practice'); return; } // the controls tutorial comes first
     const c = ctl.current;
     const arcade = new Arcade(canvas.current!, {
       paint: home.colors.primary, accent: home.colors.secondary, banners: home.titles.length,
@@ -142,7 +142,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
             offColors: me.colors, defColors: (iAmHome ? away : home).colors,
             ocStars: me.staff.oc?.stars ?? 0, difficulty: save.settings.difficulty,
             perks: { shooting: perk(save, 'shooting') + (adjust === 'shoot' ? 2 : 0) + (edge?.kind === 'shoot' ? 1 : 0), handles: perk(save, 'handles'), passing: perk(save, 'passing'), rim: perk(save, 'rim') + (adjust === 'rim' ? 2 : 0) },
-            scenario: sc, hot: { ...hot }, challenge: challenge(save),
+            scenario: sc, hot: { ...hot }, challenge: challenge(save), keys: DESKTOP,
           });
           if (c.cancel) break;
           setPlaying(false);
@@ -186,14 +186,14 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
       const post = act((s, rng) => { adaptChallenge(s, scored, moments); return finishUserGame(s, s.schedule.find(x => x.id === g.id)!, result, highlights, rng, c.objective); });
       setScore(sc => ({ ...sc, home: result.homeScore, away: result.awayScore }));
       sfx.buzzer(); if (post.won) { sfx.cheer(true); sfx.fanfare(); } else sfx.groan();
-      tipsRef.current = coachTips(stats, save.settings.difficulty, challenge(getSave()));
+      tipsRef.current = coachTips(stats, save.settings.difficulty, challenge(getSave()), DESKTOP);
       setOverlay({ kind: 'final', post });
     };
     void run();
     return () => { c.cancel = true; arcade.destroy(); stopCrowd(); };
   }, []);
 
-  const start = () => { try { localStorage.setItem(HINT_KEY, '1'); } catch { /* fine */ } setOverlay(null); ctl.current.started?.(); };
+  const start = () => { setOverlay(null); ctl.current.started?.(); };
   // mouse and keyboard: every prompt in the game answers to a key
   const overlayNow = useRef(overlay);
   overlayNow.current = overlay;
@@ -204,7 +204,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
       if (!o) return;
       if (o.kind === 'intro') {
         if (go) { e.preventDefault(); start(); }
-        else if (k >= '1' && k <= '3' && offers[+k - 1]) { ctl.current.objective = offers[+k - 1]; start(); }
+        else if (careerGames(save) > 0 && k >= '1' && k <= '3' && offers[+k - 1]) { ctl.current.objective = offers[+k - 1]; start(); }
       } else if (o.kind === 'ball') {
         if (go) { e.preventDefault(); ctl.current.go?.(); }
         else if (k === 't') ctl.current.callTimeout?.();
@@ -216,8 +216,8 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  let seen = false;
-  try { seen = !!localStorage.getItem(HINT_KEY); } catch { /* fine */ }
+  // the very first game is just the game: no challenge to pick. The one-line reminder stays for two games.
+  const first = careerGames(save) === 0, early = careerGames(save) < 2;
   const q = score.q > 4 ? `OT${score.q - 4 > 1 ? score.q - 4 : ''}` : `Q${score.q}`;
   const myScore = iAmHome ? score.home : score.away, oppScore = iAmHome ? score.away : score.home;
 
@@ -236,20 +236,25 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
             <div class="bigcall">{away.name.toUpperCase()}<br />AT<br />{home.name.toUpperCase()}</div>
             {info.rival && <div class="head gold">RIVALRY GAME</div>}
             {edge && <div class="good" style={{ maxWidth: '330px' }}>EDGE · {edge.label}</div>}
-            <div class="panel" style={{ maxWidth: '330px', fontSize: '19px', textAlign: 'left' }}>
-              <div class="dim">You play the key moments. Score, and your team goes on a run. Waste one, and the other side does.</div>
-              {DESKTOP && <div style={{ marginTop: '6px' }}><span class="gold">Keyboard:</span> WASD or arrows move · hold <span class="gold">Space</span> to shoot, tap it to fake · <span class="gold">1-4</span> pass · <span class="gold">Shift</span> crossover. Or play with the mouse: drag to move, hold SHOOT.</div>}
-              {!seen && !DESKTOP && <div style={{ marginTop: '6px' }}><span class="gold">Drag</span> the court to move. <span class="gold">Hold SHOOT</span> and let go when the crosshair is on the rim. <span class="gold">Tap a teammate</span> to pass. <span class="gold">Flick</span> for a move.</div>}
-            </div>
-            <div class="panel col" style={{ maxWidth: '330px', gap: '6px', textAlign: 'left' }}>
-              <div class="head gold">PICK A CHALLENGE</div>
-              {offers.map((o, i) => (
-                <Btn class="opt" onClick={() => { ctl.current.objective = o; start(); }} silent>
-                  <span>{DESKTOP ? `${i + 1}. ` : ''}{o.text}</span><span class="fx gold">{o.reward}</span>
-                </Btn>
-              ))}
-            </div>
-            <div class="row"><Btn onClick={start}>No challenge: tip off{DESKTOP ? ' (Space)' : ''}</Btn>{!seen && <Btn onClick={() => replace('practice')}>Practice first</Btn>}</div>
+            {early && (
+              <div class="panel tutcard" style={{ fontSize: '20px' }}>
+                <div>You play the big moments. Score, and your team goes on a run.</div>
+                {DESKTOP && <div class="dim tuthint">WASD move · hold Space to shoot · 1-4 pass · Shift crossover</div>}
+              </div>
+            )}
+            {first ? <Btn kind="primary big" onClick={start}>Tip off{DESKTOP ? ' (Space)' : ''}</Btn> : (
+              <>
+                <div class="panel col" style={{ maxWidth: '330px', gap: '6px', textAlign: 'left' }}>
+                  <div class="head gold">PICK A CHALLENGE</div>
+                  {offers.map((o, i) => (
+                    <Btn class="opt" onClick={() => { ctl.current.objective = o; start(); }} silent>
+                      <span>{DESKTOP ? `${i + 1}. ` : ''}{o.text}</span><span class="fx gold">{o.reward}</span>
+                    </Btn>
+                  ))}
+                </div>
+                <div class="row"><Btn onClick={start}>No challenge: tip off{DESKTOP ? ' (Space)' : ''}</Btn></div>
+              </>
+            )}
           </div>
         )}
         {overlay?.kind === 'ball' && (

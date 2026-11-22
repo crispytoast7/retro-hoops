@@ -1,3 +1,4 @@
+import { TAP } from '../state/device';
 import { useState } from 'preact/hooks';
 import { autoLineup } from '../core/lineup';
 import { ovr, overallOf } from '../core/ratings';
@@ -36,7 +37,7 @@ export function LineupScreen(_p: { params: Record<string, any> }) {
         <div><div class="head dim">DEFENSE</div><Stars n={teamStarCount(r.def)} /></div>
         <div><div class="head dim">OVERALL</div><Stars n={teamStarCount(r.ovr)} /></div>
       </div>
-      <div class="dim" style={{ fontSize: '17px' }}>Tap two players to swap them. Players out of position play a little worse.</div>
+      <div class="dim" style={{ fontSize: '17px' }}>{TAP} two players to swap them. Players out of position play a little worse.</div>
       <Panel title="STARTERS" team>
         <div class="list">
           {POSITIONS.map((slot, i) => {

@@ -1,3 +1,4 @@
+import { tap } from '../state/device';
 import { ROSTER_MIN } from '../core/constants';
 import { sizeOf } from '../core/body';
 import { marketSalary } from '../core/gm/value';
@@ -85,7 +86,7 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
         <div class="panel levelbar">
           <div class="grow">
             <div class="head gold">LEVEL UP</div>
-            <div>{spending ? `${pts} point${pts === 1 ? '' : 's'} to spend: tap + on a rating, or Auto to let your assistant pick.` : 'Nothing to spend on him.'}{waiting.length > 0 ? ` ${waiting.length} more player${waiting.length === 1 ? '' : 's'} waiting.` : ''}</div>
+            <div>{spending ? `${pts} point${pts === 1 ? '' : 's'} to spend: ${tap} + on a rating, or Auto to let your assistant pick.` : 'Nothing to spend on him.'}{waiting.length > 0 ? ` ${waiting.length} more player${waiting.length === 1 ? '' : 's'} waiting.` : ''}</div>
           </div>
           <div class="col" style={{ gap: '6px', alignItems: 'stretch' }}>
             {spending && <Btn kind="small primary" onClick={() => { const ks = act(s => autoSpend(s, p.id)); sfx.coin(); toast(ks.length ? `${RATING_NAMES[ks[0]]}${ks.length > 1 ? ` and ${ks.length - 1} more` : ''} up` : 'Nothing to spend.', true); }}>Auto</Btn>}
@@ -109,7 +110,7 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
               <Meter label={`LEVEL ${levelOfPlayer(p)}`} value={(xpOfPlayer(p) / xpNeed(levelOfPlayer(p))) * 100} color="var(--gold)" text={`${xpOfPlayer(p)}/${xpNeed(levelOfPlayer(p))} XP`} />
               <div class={pts > 0 && !capped ? 'gold' : 'dim'} style={{ fontSize: '18px', marginTop: '6px' }}>
                 {capped ? 'He has reached his ceiling. Further level-ups pay you a credit each.'
-                  : pts > 0 ? `${pts} level-up point${pts === 1 ? '' : 's'} to spend: tap + on a rating (+${POINT_GAIN} points, about half a star).`
+                  : pts > 0 ? `${pts} level-up point${pts === 1 ? '' : 's'} to spend: ${tap} + on a rating (+${POINT_GAIN} points, about half a star).`
                     : 'He earns XP by playing. Each level-up lets you raise one rating.'}
               </div>
             </div>

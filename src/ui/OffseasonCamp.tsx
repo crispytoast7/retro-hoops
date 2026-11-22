@@ -1,3 +1,4 @@
+import { TAP, tap } from '../state/device';
 import { useState } from 'preact/hooks';
 import { ROSTER_MAX, ROSTER_MIN } from '../core/constants';
 import { CAMP_DRILLS, CAMP_SHOTS, campDrillsLeft, startCampDrill } from '../core/offseason/offseason';
@@ -46,7 +47,7 @@ export function CampStep({ save }: { save: Save }) {
           <div><h3>ROSTER</h3><div class={`head ${n > ROSTER_MAX || n < ROSTER_MIN ? 'bad' : ''}`}>{n}/{ROSTER_MAX}</div></div>
           <div><h3>PAYROLL</h3><div class={`head ${STATUS_CLASS[capStatus(save, me)]}`}>{money(payroll(save, me))}</div></div>
         </div>
-        <div style={{ marginTop: '6px' }}>Rating upgrades cost <b class="good">25% less</b> during camp. Tap a player to train him.</div>
+        <div style={{ marginTop: '6px' }}>Rating upgrades cost <b class="good">25% less</b> during camp. {TAP} a player to train him.</div>
         {off.campSpent > 0 && <div class="dim" style={{ fontSize: '18px' }}>Spent at camp so far: ◉ {off.campSpent}</div>}
       </Panel>
 
@@ -57,7 +58,7 @@ export function CampStep({ save }: { save: Save }) {
       </Panel>
 
       {n > ROSTER_MAX && (
-        <div class="panel ox-warn"><div class="bad">Your roster has {n} players. The limit is {ROSTER_MAX}: release {n - ROSTER_MAX} before the season starts (tap a player, then Release).</div></div>
+        <div class="panel ox-warn"><div class="bad">Your roster has {n} players. The limit is {ROSTER_MAX}: release {n - ROSTER_MAX} before the season starts ({tap} a player, then Release).</div></div>
       )}
       {n < ROSTER_MIN && (
         <div class="panel ox-warn"><div class="gold">Only {n} players. If you start like this the league adds minimum-salary free agents to reach {ROSTER_MIN}.</div>

@@ -1,3 +1,4 @@
+import { TAP } from '../state/device';
 import { useState } from 'preact/hooks';
 import { ROSTER_MAX, SALARY_CAP } from '../core/constants';
 import { capStatus, payroll } from '../core/org/finance';
@@ -34,7 +35,7 @@ export function RosterScreen(_p: { params: Record<string, any> }) {
           ))}
         </div>
       </Panel>
-      <div class="dim" style={{ fontSize: '17px' }}>Tap a player for ratings, stats, upgrades and contract options.</div>
+      <div class="dim" style={{ fontSize: '17px' }}>{TAP} a player for ratings, stats, upgrades and contract options.</div>
     </Screen>
   );
 }

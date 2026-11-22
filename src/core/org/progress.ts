@@ -39,46 +39,49 @@ export const isUnlocked = (save: Save, f: Feature): boolean =>
 export const gamesToUnlock = (save: Save, f: Feature): number => Math.max(0, UNLOCK_AT[f] - careerGames(save));
 
 // ---- explainers ----------------------------------------------------------------------
-export interface Tip { id: string; title: string; text: string[]; go?: string; goLabel?: string }
+/** `pages`: show one line at a time with a Next button, so nothing is a wall of text. */
+export interface Tip { id: string; title: string; text: string[]; go?: string; goLabel?: string; pages?: boolean }
 const FEATURE_TIPS: Record<Feature, Tip | null> = {
   roster: null, lineup: null, schedule: null, standings: null,
-  stats: { id: 'u_stats', title: 'Stats & News unlocked', text: ['Every game produces a full box score.', 'Stats shows your players, the league leaders and every team. News follows the league: results, injuries, trades.'], go: 'stats', goLabel: 'Open Stats' },
+  stats: { id: 'u_stats', title: 'Stats & News unlocked', text: ['Box scores, league leaders and what is happening around the league.'], go: 'stats', goLabel: 'Open Stats' },
   news: null,
-  coach: { id: 'u_coach', title: 'Coach profile unlocked', text: ['You earn coach XP from every game, more for wins and for highlight plays you make yourself.', 'Each level gives a perk point. Perks change how you play and how you run the club.', 'Trophies pay credits and unlock new court styles.'], go: 'coach', goLabel: 'Open Coach' },
-  facilities: { id: 'u_facilities', title: 'Facilities unlocked', text: ['Credits (the gold coin, top right) come from wins, home crowds and highlight plays.', 'Spend them on six buildings: Arena, Training Center, Medical Center, Scouting Office, Team Store and Trophy Room. Each one shows up in the picture of your club.', 'Upgrades arrive the next week. Buildings wear down: the TO DO list on the hub has a one-tap Maintain button.'], go: 'facilities', goLabel: 'Open Facilities' },
-  staff: { id: 'u_staff', title: 'Staff unlocked', text: ['Hire an Offensive Coordinator (helps the possessions you play) and a Defensive Coordinator (helps the simulated defense).', 'Better coordinators cost more credits and want a coach with a reputation. Win, and they will come.', 'From now on, things will also happen in the locker room. Your choices matter.'], go: 'staff', goLabel: 'Open Staff' },
-  finances: { id: 'u_finances', title: 'Finances unlocked', text: ['Every player has a contract: salary and years.', 'Finances shows your payroll against the salary cap. Signing a free agent needs room under the cap; you can go over it only to keep your own players, and never past the hard limit.', 'Players in their final year leave next summer unless you re-sign them.'], go: 'finances', goLabel: 'Open Finances' },
-  trades: { id: 'u_trades', title: 'Trades & Free Agents unlocked', text: ['Shop any of your players and see up to three real offers, or build your own deal in Propose. Each GM weighs age, contract and what his team needs.', 'Other teams will call you with offers, too.', 'Unsigned players are in the free-agent pool. The trade deadline falls a little past mid-season.'], go: 'trades', goLabel: 'Open Trades' },
-  scouting: { id: 'u_scouting', title: 'Scouting unlocked', text: ['Next summer\'s draft class is already out there.', 'Unscouted prospects show rough rating ranges. A scouting report reveals the true ratings and the ceiling.', 'A better Scouting Office gives more reports each season.'], go: 'scouting', goLabel: 'Open Scouting' },
-  history: { id: 'u_history', title: 'History unlocked', text: ['Champions, awards, your franchise record book, the Hall of Fame and your own coaching career are all kept here.'], go: 'history', goLabel: 'Open History' },
+  coach: { id: 'u_coach', title: 'Coach profile unlocked', text: ['Games earn you coach XP. Every level gives a perk point.', 'Trophies pay credits and unlock court styles.'], go: 'coach', goLabel: 'Open Coach' },
+  facilities: { id: 'u_facilities', title: 'Facilities unlocked', text: ['Spend credits (the gold coin) on six buildings.', 'They wear down. The TO DO list has a one-tap Maintain button.'], go: 'facilities', goLabel: 'Open Facilities' },
+  staff: { id: 'u_staff', title: 'Staff unlocked', text: ['Hire two coordinators: offense steadies your shot, defense helps the simulated half.', 'Locker-room moments start now. Your choices matter.'], go: 'staff', goLabel: 'Open Staff' },
+  finances: { id: 'u_finances', title: 'Finances unlocked', text: ['Your payroll has to fit under the salary cap.', 'Players in their last year leave next summer unless you re-sign them.'], go: 'finances', goLabel: 'Open Finances' },
+  trades: { id: 'u_trades', title: 'Trades & Free Agents unlocked', text: ['Shop a player to see real offers, or propose your own deal.', 'Free agents can be signed any time you have cap room.'], go: 'trades', goLabel: 'Open Trades' },
+  scouting: { id: 'u_scouting', title: 'Scouting unlocked', text: ['Next summer\'s draft class is out there.', 'A scouting report shows a prospect\'s true ratings and his ceiling.'], go: 'scouting', goLabel: 'Open Scouting' },
+  history: { id: 'u_history', title: 'History unlocked', text: ['Champions, awards, records and the Hall of Fame.'], go: 'history', goLabel: 'Open History' },
 };
 const STEP_TIPS: Record<string, Tip> = {
-  awards: { id: 'o_awards', title: 'The offseason', text: ['The season is over. The offseason has six steps: awards, retirements, contracts, the draft, free agency and training camp.', 'First, the review: champions, awards and what the owner made of your year.'] },
-  retirements: { id: 'o_retirements', title: 'Retirements', text: ['Everyone is a year older. Young players with room to grow improve; veterans past 30 start to fade.', 'Some old hands call it a career. The greats go to the Hall of Fame.'] },
-  contracts: { id: 'o_contracts', title: 'Contracts', text: ['Players whose deals ran out are listed here with what they want.', 'You may go over the salary cap to re-sign your own players, but never past the hard limit. Anyone you do not re-sign leaves for free agency when you continue.', 'Unhappy players may refuse to come back at any price.'] },
-  draft: { id: 'o_draft', title: 'The draft', text: ['Two rounds. The worst teams enter a lottery for the top three picks; the rest go in reverse order of record.', 'When you are on the clock, tap a prospect to draft him. Scouted prospects show true ratings and their ceiling.', 'Rookies sign fixed, cheap contracts. That is how good teams stay good.'] },
-  freeAgency: { id: 'o_freeAgency', title: 'Free agency', text: ['Five days. Offer a salary and years; each player weighs money, your record, your facilities and your reputation.', 'You need room under the salary cap to sign someone. Over the cap, you can only offer minimum deals.', 'Other teams are bidding too. The best players sign on day one.'] },
-  camp: { id: 'o_camp', title: 'Training camp', text: ['Last stop before the new season. Rating upgrades are 25% cheaper during camp.', 'Check your roster size and lineup, then start the season.'] },
+  awards: { id: 'o_awards', title: 'The offseason', text: ['Six steps: awards, retirements, contracts, the draft, free agency, training camp.', 'First: how your season went.'] },
+  retirements: { id: 'o_retirements', title: 'Retirements', text: ['Everyone is a year older. The young improve, players past 30 fade.', 'Some retire. The greats go to the Hall of Fame.'] },
+  contracts: { id: 'o_contracts', title: 'Contracts', text: ['Re-sign the players you want to keep. The rest leave when you continue.', 'You may pass the salary cap for your own players, never the hard limit.'] },
+  draft: { id: 'o_draft', title: 'The draft', text: ['The worst teams pick first. On the clock? Tap a prospect.', 'Rookies are cheap. Scouted ones show their true ratings.'] },
+  freeAgency: { id: 'o_freeAgency', title: 'Free agency', text: ['Five days. Offer a salary and years.', 'You need cap room, and the best players sign on day one.'] },
+  camp: { id: 'o_camp', title: 'Training camp', text: ['Rating upgrades are 25% cheaper in camp.', 'Check your lineup, then start the season.'] },
 };
 const WELCOME: Tip = {
-  id: 'welcome', title: 'Welcome, Coach',
-  text: ['You have been handed the worst team in the league. You are the head coach and the general manager. The owner knows it is a rebuild: he will not fire you in your first season, and the worst teams get the best chance at the first pick in the draft.',
-    'Each game you play about a dozen key moments by hand: fast breaks, pick-and-rolls, post-ups, free throws, the last shot. Score and your team goes on a run; waste one and the other side does.',
-    'The club opens up as you go: facilities, staff, trades and more unlock over your first few games.',
-    'Start with Practice: seven short drills teach every control. Then play your first game. The court is forgiving at first and gets harder as you get better.'],
-  go: 'practice', goLabel: 'Go to Practice',
+  id: 'welcome', title: 'Welcome, Coach', pages: true,
+  text: ['This is the worst team in the league. Your job: build a champion.',
+    'You play the big moments of every game yourself. Score, and your team goes on a run.',
+    'The owner is patient. You cannot be fired this season.',
+    'More of the club opens up as you play. Now press PLAY for your first game.'],
 };
 const WEEK_TIP: Tip = {
-  id: 'week', title: 'Your week',
-  text: ['Before every game you get one move, and three to pick from: make a player better for good, buy an edge for this game, or look after the club.',
-    'The three change every week. What you pass on is gone.',
-    'You will be asked for it when you press Play, so you cannot miss it.',
-    'Your players also run hot and cold. A big night heats a player up and he plays above his ratings; a bad one cools him off. Check the lineup before you tip off.',
-    'Chores (maintenance, level-ups, injured starters) wait in the TO DO list with one-tap buttons. Turn on the Assistant GM and they get done for you every week.'],
+  id: 'week', title: 'Your week', pages: true,
+  text: ['Before every game you get one move. Pick one of three.',
+    'You are asked when you press Play, so you cannot miss it.',
+    'Players run hot and cold. A hot player plays above his ratings.',
+    'Chores wait in the TO DO list. One tap does them all.'],
 };
+/** A brand-new coach has to finish the controls tutorial before anything else. */
+export const tutorialNeeded = (save: Save): boolean =>
+  save.coach.seasons === 0 && careerGames(save) === 0 && !save.fired && save.schedule.length > 0 && !prog(save).seen.includes('practice_done');
 /** The next explainer the player should see, or null. Purely derived from the save. */
 export function nextTip(save: Save): Tip | null {
   const seen = prog(save).seen;
+  if (tutorialNeeded(save)) return null; // the tutorial comes first
   if (!seen.includes('welcome')) return WELCOME;
   if (save.phase === 'offseason' && save.offseason) {
     const t = STEP_TIPS[save.offseason.step];
@@ -119,15 +122,19 @@ export function startChallenge(save: Save): void { (prog(save) as Progress & { d
 // ---- coach's tips after a rough game ------------------------------------------------------
 export interface MomentStats { moments: number; scored: number; turnovers: number; wayOff: number; shotClock: number; fakes: number; passes: number }
 /** Up to two concrete pointers for someone who struggled in the moments he played. Empty when he did fine. */
-export function coachTips(st: MomentStats, difficulty: string, challengeNow: number): string[] {
+export function coachTips(st: MomentStats, difficulty: string, challengeNow: number, desktop = false): string[] {
   if (st.moments < 4 || st.scored / st.moments >= 0.4) return [];
+  // the same advice, in the words of the device he is playing on
+  const w = desktop
+    ? { shoot: 'Hold SPACE', pass: 'press the number of an open teammate (green)', cross: 'press SHIFT while moving sideways', passTo: 'Press the number of a teammate shown in green', fake: 'tap SPACE', drive: 'Run at the basket' }
+    : { shoot: 'Hold SHOOT', pass: 'tap an open teammate (the green label)', cross: 'flick sideways', passTo: 'Tap a teammate with a green label', fake: 'tap SHOOT', drive: 'Drag toward the basket' };
   const tips: [number, string][] = [];
-  if (st.wayOff >= 2) tips.push([st.wayOff * 2, 'Your shots are leaving early. Hold SHOOT, watch the crosshair swing, and let go only when it is over the rim. Gold is good, green is a swish.']);
-  if (st.turnovers >= 2) tips.push([st.turnovers * 2.2, 'You are losing the ball. Do not dribble into a defender: tap an open teammate (the green label) before he reaches you, or flick sideways to get past.']);
-  if (st.shotClock >= 1) tips.push([st.shotClock * 3, 'The shot clock is beating you. If nothing is open after a few seconds, pass to a teammate and shoot from there.']);
-  if (st.passes === 0) tips.push([2, 'You never passed. Tap a teammate with a green label: the man who catches it gets a moment before his defender arrives.']);
-  if (st.fakes === 0 && st.wayOff + st.turnovers >= 2) tips.push([1.5, 'Try a pump fake: tap SHOOT with a defender on you. If he jumps, you are open.']);
-  tips.push([1, 'Closer is easier. Drag toward the basket and keep going: near the rim he lays it in or dunks by himself.']);
+  if (st.wayOff >= 2) tips.push([st.wayOff * 2, `Your shots are leaving early. ${w.shoot}, watch the crosshair swing, and let go only when it is over the rim.`]);
+  if (st.turnovers >= 2) tips.push([st.turnovers * 2.2, `You are losing the ball. Do not dribble into a defender: ${w.pass} before he reaches you, or ${w.cross} to get past.`]);
+  if (st.shotClock >= 1) tips.push([st.shotClock * 3, 'The shot clock is beating you. Nothing open after a few seconds? Pass, and shoot from there.']);
+  if (st.passes === 0) tips.push([2, `You never passed. ${w.passTo}: he gets a moment before his defender arrives.`]);
+  if (st.fakes === 0 && st.wayOff + st.turnovers >= 2) tips.push([1.5, `Try a pump fake: ${w.fake} with a defender on you. If he jumps, you are open.`]);
+  tips.push([1, `Closer is easier. ${w.drive} and keep going: near the rim he scores by himself.`]);
   const out = tips.sort((a, b) => b[0] - a[0]).slice(0, 2).map(t => t[1]);
   if (difficulty !== 'easy' && challengeNow <= CHALLENGE_MIN + 0.05) out.push('Still tough? Settings has a Rookie difficulty with a steadier crosshair and slower defenders.');
   return out;
@@ -144,7 +151,7 @@ export function checklist(save: Save): Step[] {
   const p = prog(save), c = p.counters, seen = (id: string) => p.seen.includes(id);
   const games = careerGames(save);
   const all: (Step & { when: boolean })[] = [
-    { id: 'practice', text: 'Learn the controls in Practice', why: 'Seven short drills: move, shoot, fake, pass, drive, crossover.', go: 'practice', done: seen('practice_done'), when: true },
+    { id: 'practice', text: 'Learn the controls', why: 'Nine quick drills: move, shoot, fake, pass, drive, crossover, free throws.', go: 'practice', done: seen('practice_done'), when: true },
     { id: 'roster', text: 'Meet your players', why: 'Tap anyone for his star ratings. Stars decide who should shoot, handle and finish.', go: 'roster', done: seen('v_roster'), when: true },
     { id: 'lineup', text: 'Check your starting five', why: 'Your best five should start. Tap two players to swap them.', go: 'lineup', done: seen('v_lineup'), when: true },
     { id: 'game1', text: 'Play your first game', why: 'Press PLAY above. You take the key moments; what you do in them swings the rest of the game.', go: '', done: games >= 1, when: true },

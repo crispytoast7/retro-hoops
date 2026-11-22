@@ -4,7 +4,9 @@ import { ovr } from '../core/ratings';
 import { teamRatings } from '../core/sim/engine';
 import { CALENDARS } from '../core/season/calendar';
 import type { Difficulty, Save } from '../core/types';
-import { pickTeam, startLeague } from '../state/store';
+import { markTip } from '../core/org/progress';
+import { tutorialDone } from '../state/device';
+import { pickTeam, startLeague, touch } from '../state/store';
 import { Btn, Panel, Screen, Sprite, Stars, fullName, teamStarCount } from './kit';
 import { reset } from './router';
 
@@ -82,7 +84,7 @@ export function NewGameScreen(_p: { params: Record<string, any> }) {
           ))}
         </div>
       </Panel>
-      <Btn kind="primary big" onClick={() => { pickTeam(t.id); reset('hub'); }}>Take the job</Btn>
+      <Btn kind="primary big" onClick={() => { pickTeam(t.id); if (tutorialDone()) touch(sv => markTip(sv, 'practice_done')); reset(tutorialDone() ? 'hub' : 'practice'); }}>Take the job</Btn>
     </Screen>
   );
 }

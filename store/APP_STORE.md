@@ -89,9 +89,9 @@ For later updates, raise the version in Xcode (General → Version, e.g. 1.0.1) 
 ## 6. Notes for the reviewer (App Review Information → Notes)
 
 > Retro Hoops is a single-player basketball game that runs entirely on the device: no login, no
-> server, no network needed. To try it: New Game → Start my career → Take the job → Play. Settings →
-> Practice the controls teaches the on-court controls in seven short drills. Hold the SHOOT button
-> (bottom right) and release when the crosshair is over the rim.
+> server, no network needed. To try it: New Game → Start my career → Take the job. A short tutorial
+> (nine drills, about two minutes) teaches the on-court controls, then press Play. Hold the SHOOT
+> button (bottom right) and release when the crosshair is over the rim.
 
 No demo account is needed (leave "Sign-in required" unchecked).
 
