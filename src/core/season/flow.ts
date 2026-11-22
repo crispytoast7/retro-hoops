@@ -215,27 +215,41 @@ function startPlayoffs(save: Save, rng: Rng): void {
   save.tradeOffer = null;
 }
 const seedOf = (save: Save, t: Team): number => standings(save, t.conf).indexOf(t);
-/** After a playoff game day: update series, schedule the next game of any series still alive. */
-function afterPlayoffDay(save: Save, day: number, rng: Rng): void {
-  for (const s of save.playoffs!.series) {
-    if (s.winnerId !== undefined) continue;
+/** A series has a played game that has not been counted toward it yet. */
+const uncounted = (save: Save, s: PlayoffSeries): boolean => {
+  if (s.winnerId !== undefined || s.highW + s.lowW >= s.games.length) return false;
+  return !!save.schedule.find(x => x.id === s.gameId)?.played;
+};
+/** True when a playoff result is waiting to be counted (a game played by hand, on a day with no other games). */
+export const playoffsUnsettled = (save: Save): boolean => save.phase === 'playoffs' && !!save.playoffs?.series.some(s => uncounted(save, s));
+/**
+ * Count every played playoff game toward its series, then decide the series or schedule its next game.
+ * Safe to call at any time and any number of times: a game is only ever counted once. (It does not go by
+ * the day, because a game the user plays by hand is finished before the day is closed, and in the
+ * Championship it is the only game there is.)
+ */
+export function settlePlayoffs(save: Save, rng: Rng): void {
+  if (save.phase !== 'playoffs' || !save.playoffs) return;
+  for (const s of save.playoffs.series) {
+    if (!uncounted(save, s)) continue;
     const need = seriesNeed(save, s.round);
-    const g = save.schedule.find(x => x.id === s.gameId);
-    if (!g || !g.played || g.day !== day) continue;
+    const g = save.schedule.find(x => x.id === s.gameId)!;
     const winner = (g.homeScore ?? 0) > (g.awayScore ?? 0) ? g.homeId : g.awayId;
     if (winner === s.highId) s.highW++; else s.lowW++;
     if (s.highW >= need || s.lowW >= need) {
       s.winnerId = s.highW >= need ? s.highId : s.lowId;
       const loser = s.winnerId === s.highId ? s.lowId : s.highId;
       if (s.round < 3) pushNews(save, 'league', headline(rng, 'eliminated', { team: save.teams[loser].name }), loser === save.userTeamId);
-    } else nextSeriesGame(save, s, day + 1);
+    } else nextSeriesGame(save, s, g.day + 1);
   }
 }
 /** All series of the round are decided: build the next round, or crown the champion. */
-function advancePlayoffs(save: Save, rng: Rng): void {
+function advancePlayoffs(save: Save, rng: Rng): boolean {
   const po = save.playoffs!;
   const round = playoffRound(save) as 1 | 2 | 3;
   const done = po.series.filter(x => x.round === round);
+  // never move on from a round that still has a series alive
+  if (!done.length || done.some(x => x.winnerId === undefined)) return false;
   const day = lastDay(save) + 1;
   if (round === 1) {
     for (const conf of [0, 1]) {
@@ -253,6 +267,7 @@ function advancePlayoffs(save: Save, rng: Rng): void {
     const champ = save.teams[f.winnerId!], other = save.teams[f.winnerId === f.highId ? f.lowId : f.highId];
     pushNews(save, 'league', headline(rng, 'champion', { team: `${champ.city} ${champ.name}`, opp: other.name }), champ.id === save.userTeamId);
   }
+  return true;
 }
 const cmpRecord = (a: Team, b: Team): number => b.record.w - a.record.w || (b.record.pf - b.record.pa) - (a.record.pf - a.record.pa);
 
@@ -282,9 +297,10 @@ function closeWeek(save: Save, rng: Rng): void {
       if (isUnlocked(save, 'staff')) rollEvent(save, rng);
     }
   } else if (save.phase === 'playoffs') {
-    advancePlayoffs(save, rng);
-    if (save.playoffs!.championId !== undefined) { beginOffseason(save, rng); seasonProgress(save); }
-    else save.week++;
+    if (advancePlayoffs(save, rng)) {
+      if (save.playoffs!.championId !== undefined) { beginOffseason(save, rng); seasonProgress(save); }
+      else save.week++;
+    }
   }
   if (wasRegular) {
     // the assistant GM does the chores, if you let him
@@ -322,6 +338,8 @@ export function advance(save: Save, rng: Rng, mode: 'afterUser' | 'simGame' | 's
   const week = save.week, phase = save.phase;
   for (let guard = 0; guard < 400; guard++) {
     if (save.fired || save.week !== week || save.phase !== phase) break;
+    // a playoff game he has just played by hand is counted before anything else is decided
+    settlePlayoffs(save, rng);
     const open = gamesInWeek(save, save.week).filter(g => !g.played);
     if (!open.length) { closeWeek(save, rng); break; }
     const day = open.reduce((m, g) => Math.min(m, g.day), Infinity);
@@ -330,7 +348,7 @@ export function advance(save: Save, rng: Rng, mode: 'afterUser' | 'simGame' | 's
     if (ug && userSims <= 0) break; // his game: wait for him to play or sim it
     for (const g of today) { const post = simGame(save, g, rng); if (post) posts.push(post); }
     if (ug) userSims--;
-    if (save.phase === 'playoffs') afterPlayoffDay(save, day, rng);
+    settlePlayoffs(save, rng);
   }
   return posts;
 }

@@ -7,7 +7,7 @@ import { capStatus, payroll } from '../core/org/finance';
 import { EventOutcome, currentEvent, eventText, resolveEvent, teamMorale } from '../core/org/people';
 import { Feature, checklist, gamesToUnlock, isUnlocked, perkPoints, rankName, tutorialNeeded, xpBar } from '../core/org/progress';
 import { cal, ROUND_NAMES, seriesNeed } from '../core/season/calendar';
-import { advance } from '../core/season/flow';
+import { advance, playoffsUnsettled, settlePlayoffs } from '../core/season/flow';
 import { gamesInWeek, userGame, userGamesInWeek } from '../core/season/schedule';
 import { playoffMoment } from '../core/season/bracket';
 import { readyToLevel } from '../core/org/xp';
@@ -140,6 +140,9 @@ export function HubScreen(_p: { params: Record<string, any> }) {
   });
   // a new coach who has not finished the controls tutorial goes back to it (he may have closed the game half way)
   useEffect(() => { if (tutorialNeeded(save)) replace('practice'); }, []);
+  // a playoff game that was played but never counted toward its series (a bug in older versions left the
+  // Championship stuck this way) is counted now, which brings up the next game of the series
+  useEffect(() => { if (playoffsUnsettled(save)) act((st, rng) => settlePlayoffs(st, rng)); });
   // deal this week's plans the first time the hub shows a new week
   useEffect(() => { if (needsWeek(save)) touch(s => { ensureWeek(s); }); });
   const g = save.phase !== 'offseason' ? userGame(save) : undefined;
