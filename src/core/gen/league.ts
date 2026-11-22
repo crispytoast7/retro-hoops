@@ -3,6 +3,7 @@ import { HARD_LIMIT, MAX_SALARY, MIN_SALARY, NUM_TEAMS, PROSPECTS, SAVE_VERSION 
 import { marketSalary } from '../gm/value';
 import { autoLineup } from '../lineup';
 import { payroll } from '../org/finance';
+import { refreshBadges } from '../badges';
 import { clamp, emptyStats, overallOf, round1 } from '../ratings';
 import { Rng } from '../rng';
 import type {
@@ -222,6 +223,7 @@ export function newLeague(opts: NewGameOpts): Save {
   genFreeAgents(save, rng, 24);
   save.staffPool = genStaffPool(save, rng);
   save.draftClass = genProspects(save, rng);
+  refreshBadges(save); // no rng: badges come from who the players already are
   save.rng = rng.state;
   return save;
 }

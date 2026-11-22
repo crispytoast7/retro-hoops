@@ -2,6 +2,7 @@
 // rebounds. Reads player ratings, returns a list of PlayEvents for the sim to score.
 import type { Difficulty, Player } from '../core/types';
 import type { PlayEvent, ShotType, UserPossessionOutcome, UserPossessionSetup } from '../core/sim/api';
+import { BADGES, badgeOf, hasBadge } from '../core/badges';
 import { STAR_OVR } from '../core/org/xp';
 import { ovr } from '../core/ratings';
 import { POSITIONS } from '../core/types';
@@ -28,11 +29,23 @@ export interface ArcadeSetup {
   guide?: Guide;
   /** Playing on a computer: label teammates 1-4 and show key names from the first moment. */
   keys?: boolean;
+  /** All-Star weekend: one player alone on the floor, one attempt. `offense[0]` is the contestant. */
+  contest?: Contest;
   scenario?: Scenario;
   /** Consecutive makes this game by player id: hot hands aim steadier and draw a double team. */
   hot?: Record<number, number>;
   /** Adaptive difficulty, 1 = baseline. Higher: wilder crosshair, quicker hands, faster closeouts. */
   challenge?: number;
+}
+export type DunkStyle = 'twohand' | 'onehand' | 'reverse' | 'windmill' | 'spin' | 'legs';
+export interface Contest {
+  kind: 'three' | 'dunk';
+  /** Where he stands. */
+  x: number; y: number;
+  /** Three-point contest: the last ball of a rack is worth two. */
+  money?: boolean;
+  /** Dunk contest: the dunk he is going for, and how much harder it makes the timing (1 = a plain jam). */
+  style?: DunkStyle; amp?: number;
 }
 /** The situation a key moment starts from. */
 export type Scenario = 'halfcourt' | 'fastbreak' | 'pnr' | 'post' | 'iso' | 'open' | 'lateclock' | 'freethrows';
@@ -57,6 +70,8 @@ export interface Guide {
   demo?: 'hold' | 'drag' | 'tap' | 'flick' | 'faketap' | 'pull' | 'slide';
   /** End the possession as soon as a shot is called off (for the no-shot drill). */
   endOnCancel?: boolean;
+  /** Practice normally has no shot clock. This drill runs one, starting from this many seconds. */
+  clock?: number;
   /** Practice only: his defender stands right on him (for the pump-fake drill). */
   tight?: boolean;
 }
@@ -199,6 +214,10 @@ export class Arcade {
   private clock = 0;
   private startClock = 0;
   private shotClock = 24;
+  /** The next whole second (5, 4, 3...) that gets a warning tick. */
+  private tickAt = 5;
+  /** A clock is running in this possession: the shot clock, or the last seconds of a period (in practice only for its own drill). */
+  private get clockOn(): boolean { return !this.ftMode && !this.contest && (!this.practice || this.guide?.clock !== undefined); }
   private periodEnds = false;
   private events: PlayEvent[] = [];
   private highlights: string[] = [];
@@ -270,7 +289,10 @@ export class Arcade {
   private camOk(): boolean { return !this.practice && this.cams < 3 && this.camCool <= 0; }
   private camUsed(): void { this.cams++; this.camCool = 3; }
   /** A slam-cam dunk gets a signature move. */
-  private style: '' | 'twohand' | 'onehand' | 'reverse' | 'windmill' | 'spin' | 'legs' = '';
+  private style: '' | DunkStyle = '';
+  private contest: Contest | null = null;
+  /** Real seconds this contest attempt has been waiting for him to shoot. */
+  private contestT = 0;
   /** Where the dunker has just been, for the after-images. */
   private trail: { x: number; y: number; lift: number; face: number }[] = [];
   private trailT = 0;
@@ -327,6 +349,7 @@ export class Arcade {
     this.crowd = setup.poss.crowd;
     this.pk = { shooting: 0, handles: 0, passing: 0, rim: 0, ...setup.perks };
     this.practice = !!setup.practice;
+    this.contest = setup.contest ?? null;
     if (setup.keys) this.usedKeys = true;
     this.guide = setup.guide ?? null;
     this.hot = setup.hot ?? {};
@@ -356,7 +379,8 @@ export class Arcade {
     this.clock = setup.poss.clock;
     this.startClock = this.clock;
     this.periodEnds = !this.practice && (setup.poss.lastShot || this.clock <= 24);
-    this.shotClock = Math.min(24, this.clock);
+    this.shotClock = this.guide?.clock ?? Math.min(24, this.clock);
+    this.tickAt = 5;
     this.events = []; this.highlights = []; this.points = 0;
     this.dropping = false;
     this.popups = []; this.assist = null; this.dribbleT = 0;
@@ -367,6 +391,16 @@ export class Arcade {
     this.mv = { x: 0, y: 0 };
     this.phase = 'live';
     this.setupScenario(this.practice && setup.scenario !== 'freethrows' ? 'halfcourt' : setup.scenario ?? 'halfcourt');
+    if (this.contest) {
+      // alone on the floor: everyone else is kept out of sight and out of the play
+      const c = this.contest;
+      this.ft = { left: 0, made: 0 }; this.handler = 0; this.periodEnds = false; this.contestT = 0;
+      [...this.off.slice(1), ...this.def].forEach(e => { e.x = -999; e.y = -999; e.tx = -999; e.ty = -999; e.vx = 0; e.vy = 0; e.route = []; });
+      const me = this.off[0];
+      me.x = c.x; me.y = c.y; me.tx = c.x; me.ty = c.y; me.vx = 0; me.vy = 0; me.route = [];
+      this.lag = { x: c.x, y: c.y }; this.ball = { x: c.x, y: c.y, z: 8 };
+      if (c.money) this.popup('MONEY BALL: WORTH 2', PAL.yellow, 1, 150);
+    }
     if (setup.poss.lastShot) this.popup('LAST SHOT!', PAL.yellow, 2);
     else if (setup.poss.clutch) this.popup('CLUTCH TIME', PAL.yellow, 2);
     return new Promise(res => { this.resolve = res; });
@@ -394,8 +428,10 @@ export class Arcade {
     Object.assign(this.ptr, { down: true, id: e.pointerId, x0: p.x, y0: p.y, x: p.x, y: p.y, t0: this.time, mode: 'press', mate: -1 });
     if (this.phase === 'live') {
       const hh = this.off[this.handler];
-      // a touch that starts on your player is an aim: pull back to throw a pass
-      if (this.ftMode || Math.hypot(p.x - hh.x, p.y - (hh.y - 12)) < AIM_TOUCH) { this.ptr.mode = 'aim'; this.startAim(false); return; }
+      // at the line, a press anywhere on the court also aims the free throw. (There is no pull-back pass any more:
+      // a touch on your own player is just the start of a dribble.)
+      if (this.ftMode) { this.ptr.mode = 'aim'; this.startAim(false); return; }
+      void hh;
       let best = -1, bd = MATE_PICK_R;
       this.off.forEach((m, i) => {
         if (i === this.handler) return;
@@ -507,7 +543,7 @@ export class Arcade {
       if (d.stun > 0) continue;
       const dist = Math.hypot(d.x - e.x, d.y - e.y);
       if (dist > 28) continue;
-      const v = clamp(1 - (dist - 7) / 19, 0, 1) * (0.55 + 0.45 * d.p.ratings.def / 100);
+      const v = Math.min(1, clamp(1 - (dist - 7) / 19, 0, 1) * (0.55 + 0.45 * d.p.ratings.def / 100) * (hasBadge(d.p, 'lockdown') ? 1.2 : 1));
       if (v > c) { c = v; by = d; }
     }
     return { c, by };
@@ -572,7 +608,7 @@ export class Arcade {
 
   // ---- actions ----------------------------------------------------------------------
   private startDash(dx: number, dy: number): void {
-    if (this.dash.cd > 0 || this.phase !== 'live') return;
+    if (this.dash.cd > 0 || this.phase !== 'live' || this.contest) return;
     const h = this.off[this.handler];
     const hnd = h.p.ratings.hnd / 100;
     this.dash = { t: 0.2, cd: 0.85, x: dx, y: dy };
@@ -580,10 +616,12 @@ export class Arcade {
     sfx.move();
     const on = this.nearestDef(h.x, h.y);
     if (on.e && on.d < 24) {
-      const p = clamp(0.3 + 0.6 * hnd - 0.28 * (on.e.p.ratings.def / 100) + this.diff.move + 0.06 * this.pk.handles + (this.practice ? 0.5 : 0), 0.1, 0.95);
+      // an Ankle Breaker's move nearly always works; a Lockdown defender is hard to shake
+      const breaker = hasBadge(h.p, 'handles'), locked = hasBadge(on.e.p, 'lockdown');
+      const p = clamp(0.3 + 0.6 * hnd - 0.28 * (on.e.p.ratings.def / 100) + this.diff.move + 0.06 * this.pk.handles + (this.practice ? 0.5 : 0) + (breaker ? 0.3 : 0) - (locked ? 0.22 : 0), 0.1, breaker ? 0.98 : 0.95);
       if (this.practice || Math.random() < p) {
         this.beats++;
-        on.e.stun = 0.5 + 0.5 * hnd;
+        on.e.stun = 0.5 + 0.5 * hnd + (breaker ? 0.35 : 0);
         const away = (dx * (HOOP.x - h.x) + dy * (HOOP.y - h.y)) / (Math.hypot(HOOP.x - h.x, HOOP.y - h.y) || 1) < -0.45;
         this.popup(away ? 'STEP BACK!' : pick(CALLS.move), PAL.yellow, 2);
         this.highlights.push('ankles');
@@ -598,10 +636,10 @@ export class Arcade {
   }
 
   private startPass(to: number): void {
-    if (this.phase !== 'live' || to === undefined || to < 0 || to === this.handler) return;
+    if (this.phase !== 'live' || this.contest || to === undefined || to < 0 || to === this.handler) return;
     const from = this.off[this.handler], tgt = this.off[to];
     const pas = from.p.ratings.pas / 100;
-    const spd = (105 + 115 * pas) * (1 + 0.03 * this.s.ocStars) * (1 + 0.08 * this.pk.passing);
+    const spd = (105 + 115 * pas) * (1 + 0.03 * this.s.ocStars) * (1 + 0.08 * this.pk.passing) * (hasBadge(from.p, 'dimer') ? 1.22 : 1);
     this.passes++;
     this.afterPass(from);
     // a pass to a man cutting at the rim is a lob
@@ -628,7 +666,7 @@ export class Arcade {
     const on = this.nearestDef(h.x, h.y);
     if (!on.e || on.d > 26) return; // nobody near enough to fool
     // shooters sell it, good defenders stay down, and the same trick works less each time
-    const p = clamp(0.58 + 0.4 * (h.p.ratings.sht / 100) - 0.4 * (on.e.p.ratings.def / 100) - (this.practice ? 0 : 0.22 * (this.fakes - 1)) + this.diff.move + (this.practice ? 0.4 : 0), 0.06, 0.85) / Math.sqrt(this.chal);
+    const p = clamp(0.58 + 0.4 * (h.p.ratings.sht / 100) - 0.4 * (on.e.p.ratings.def / 100) - (this.practice ? 0 : 0.22 * (this.fakes - 1)) + this.diff.move + (this.practice ? 0.4 : 0) - (hasBadge(on.e.p, 'lockdown') ? 0.25 : 0), 0.06, 0.85) / Math.sqrt(this.chal);
     // in a drill the lesson always lands: he bites every time
     if (this.practice || Math.random() < p) {
       on.e.stun = 0.75; on.e.lift = 9; on.e.armsUp = 0.5;
@@ -658,7 +696,13 @@ export class Arcade {
     const sht = h.p.ratings.sht / 100;
     const k = Math.pow(this.chal, 0.9), kw = 1 + 0.3 * (this.chal - 1);
     // wide enough that letting go without looking misses more often than not, slow enough to time
-    if (this.ftMode) return { amp: Math.max(AMP_FLOOR, 11 * (1.45 - 0.85 * sht)) * this.diff.aim * k, w: (3.4 + 2.6 * (1 - sht)) * kw };
+    if (this.contest?.kind === 'dunk') {
+      const fin = h.p.ratings.fin / 100;
+      return { amp: AMP_FLOOR * 1.05 * (this.contest.amp ?? 1) * (1.55 - 0.7 * fin) * this.diff.aim, w: 4.4 + 1.6 * ((this.contest.amp ?? 1) - 1) };
+    }
+    // a Sniper's crosshair swings a fifth less, from anywhere
+    const sn = hasBadge(h.p, 'sniper') ? 0.8 : 1;
+    if (this.ftMode) return { amp: Math.max(AMP_FLOOR, 11 * (1.45 - 0.85 * sht)) * this.diff.aim * k * sn, w: (3.4 + 2.6 * (1 - sht)) * kw };
     const dist = Math.hypot(h.x - HOOP.x, h.y - HOOP.y);
     const distK = dist > 135 ? 2 : isThree(h.x, h.y) ? 1.25 : dist < 45 ? 0.8 : 1;
     const { c } = this.contestAt(h);
@@ -666,7 +710,7 @@ export class Arcade {
     // ratings, perks and a hot hand tighten the swing, but only down to the floor; past that they slow it
     const ease = (1 - 0.07 * this.pk.shooting) * (1 - 0.03 * this.s.ocStars) * (heat >= 3 ? 0.7 : heat === 2 ? 0.85 : 1);
     const raw = 10.5 * distK * (1.45 - 0.9 * sht) * (1 + c) * ease;
-    const amp = Math.max(AMP_FLOOR, raw) * this.diff.aim * k * (this.practice ? 0.6 : 1);
+    const amp = Math.max(AMP_FLOOR, raw) * this.diff.aim * k * (this.practice ? 0.6 : 1) * sn;
     const slow = raw < AMP_FLOOR ? 0.75 + 0.25 * (raw / AMP_FLOOR) : 1;
     return { amp, w: (4 + 4.5 * (1 - sht)) * (1 + 0.35 * c) * kw * slow };
   }
@@ -751,6 +795,7 @@ export class Arcade {
     const d = Math.hypot(a.wx, a.wy);
     const q = d <= R_SWISH ? 3 : d <= R_RIM ? 2 : d <= R_IRON ? 1 : 0;
     this.lastQuality = q;
+    if (this.contest?.kind === 'dunk') { this.contestDunk(q); return; }
     let made = q === 3 || (q === 2 && Math.random() < 1 - 0.8 * ((d - R_SWISH) / (R_RIM - R_SWISH)));
     if (q === 3) { sfx.perfect(); this.highlights.push('perfect'); }
     this.popup(['WAY OFF', 'OFF THE MARK', 'ON THE RIM', 'DEAD CENTRE!'][q], [PAL.red, '#ffa04d', PAL.white, PAL.green][q], 1, h.y - 46);
@@ -769,12 +814,29 @@ export class Arcade {
       sfx.whoosh();
     }
   }
+  /** Dunk contest: a well-timed take-off throws down the dunk he chose, on the slam cam. A bad one clangs off the rim. */
+  private contestDunk(q: number): void {
+    const h = this.off[this.handler], c = this.contest!;
+    const made = q >= 2;
+    this.popup(['NO LIFT', 'OFF BALANCE', 'CLEAN TAKE-OFF', 'PERFECT TAKE-OFF!'][q], [PAL.red, '#ffa04d', PAL.white, PAL.green][q], 1, h.y - 46);
+    if (q === 3) sfx.perfect();
+    this.shot.text = '';
+    this.launch(h, made, 'dunk', 2, q, -1, false);
+    this.style = c.style ?? 'twohand';
+    this.shot.dur *= 1.45;
+    this.trail = []; this.trailT = 0;
+    this.cine = { on: true, t: 0, fx: (h.x + HOOP.x) / 2, fy: TOP + (h.y + HOOP.y - RIM_Z) / 2, label: 'DUNK CONTEST', ball: false };
+    sfx.whoosh();
+    const dx = h.x - HOOP.x, dy = h.y - HOOP.y, d = Math.hypot(dx, dy) || 1;
+    h.tx = HOOP.x + (dx / d) * 5; h.ty = Math.max(HOOP.y + 3, HOOP.y + (dy / d) * 6 + 3);
+    this.phase = 'finish';
+  }
   /** A pass thrown to a spot: the nearest teammate runs onto it. */
   private startLead(x: number, y: number): void {
     if (this.phase !== 'live') return;
     const from = this.off[this.handler];
     const pas = from.p.ratings.pas / 100;
-    const spd = (105 + 115 * pas) * (1 + 0.03 * this.s.ocStars) * (1 + 0.08 * this.pk.passing);
+    const spd = (105 + 115 * pas) * (1 + 0.03 * this.s.ocStars) * (1 + 0.08 * this.pk.passing) * (hasBadge(from.p, 'dimer') ? 1.22 : 1);
     const dur = Math.max(0.12, Math.hypot(x - from.x, y - from.y) / spd);
     let to = -1, bd = 1e9;
     this.off.forEach((m, i) => {
@@ -836,13 +898,15 @@ export class Arcade {
     const cv = (o?: { d: Ent; dist: number }) => (o ? (1 - o.dist / 17) * (0.4 + 0.6 * o.d.p.ratings.def / 100) + 0.15 : 0);
     const c1 = cv(near[0]), c2 = cv(near[1]);
     const open = near.length === 0 || near[0].dist > 13;
-    const dunk = oop ? h.p.ratings.fin >= 55 : h.p.ratings.fin >= 68 && (open || (h.p.ratings.fin >= 86 && c1 < 0.6));
+    // a Posterizer dunks through contact, and it goes down more often
+    const poster = hasBadge(h.p, 'posterizer');
+    const dunk = oop ? h.p.ratings.fin >= 55 : poster ? c1 < 0.85 : h.p.ratings.fin >= 68 && (open || (h.p.ratings.fin >= 86 && c1 < 0.6));
     // an alley-oop is a catch and a finish in one motion: harder than a dunk off the dribble
     const alley = oop && this.highlights[this.highlights.length - 1] === 'oop';
     let p = dunk
       ? (open ? (alley ? 0.85 : 0.96) : (alley ? 0.48 : 0.6) + 0.3 * fin - (alley ? 0.38 : 0.3) * c1)
       : 0.6 + 0.38 * fin - 0.3 * c1 - 0.12 * c2;
-    p = clamp(p + this.diff.make + 0.04 * this.pk.rim + (oop && !alley ? 0.08 : 0), 0.08, 0.97);
+    p = clamp(p + this.diff.make + 0.04 * this.pk.rim + (oop && !alley ? 0.08 : 0) + (poster ? 0.1 : 0), 0.08, 0.97);
     // practice is for learning the motion: a finish at the rim always goes down, and nobody fouls
     const made = this.practice || Math.random() < p;
     const foul = !this.practice && !open && Math.random() < 0.09 + 0.1 * c1;
@@ -853,9 +917,9 @@ export class Arcade {
     // the great ones get the slam cam: every putback and alley-oop that goes down, plenty of dunks, the odd layup
     const putback = this.highlights[this.highlights.length - 1] === 'putback';
     const roll = Math.random();
-    if (made && blockBy < 0 && this.camOk() && (putback ? roll < 0.55 : oop ? roll < 0.6 : dunk ? roll < 0.16 : roll < 0.03)) {
+    if (made && blockBy < 0 && this.camOk() && (putback ? roll < 0.55 : oop ? roll < 0.6 : dunk ? roll < (poster ? 0.45 : 0.16) : roll < 0.03)) {
       this.camUsed();
-      this.cine = { on: true, t: 0, fx: (h.x + HOOP.x) / 2, fy: TOP + (h.y + HOOP.y - RIM_Z) / 2, label: putback ? 'PUTBACK SLAM' : oop ? 'ALLEY-OOP' : dunk ? 'SLAM CAM' : 'SMOOTH', ball: false };
+      this.cine = { on: true, t: 0, fx: (h.x + HOOP.x) / 2, fy: TOP + (h.y + HOOP.y - RIM_Z) / 2, label: putback ? 'PUTBACK SLAM' : oop ? 'ALLEY-OOP' : dunk ? (poster && !open ? 'POSTERIZED' : 'SLAM CAM') : 'SMOOTH', ball: false };
       if (dunk) {
         // a dunk on camera is never an ordinary dunk: a bigger jump, longer in the air, and a move
         // mostly the dunks you see every night; now and then something special
@@ -928,7 +992,7 @@ export class Arcade {
       // make it unmistakable: rim flashes, sparks fly, and the points pop up at the basket
       this.rimGlow = 0.5;
       for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; this.sparks.push({ x: HOOP.x, y: HOOP.y - RIM_Z + 2, vx: Math.cos(a) * (18 + Math.random() * 14), vy: Math.sin(a) * 10 - 14, t: 0 }); }
-      this.popups.push({ text: `+${sh.pts}`, color: PAL.green, t: 0, scale: 2, y: HOOP.y - RIM_Z + 42 });
+      if (this.contest?.kind !== 'dunk') this.popups.push({ text: this.contest ? (this.contest.money ? '+2' : '+1') : `+${sh.pts}`, color: PAL.green, t: 0, scale: 2, y: HOOP.y - RIM_Z + 42 });
       if (sh.type === 'dunk') { this.rimShake = 1; this.hang = 0.45; }
       if (sh.type === 'dunk' && this.style) {
         // the signature slam: the rim bends, the arena flashes, everything freezes for a beat
@@ -960,7 +1024,7 @@ export class Arcade {
         this.popup('AND-ONE!', PAL.green, 2, 150); sfx.whistle(); this.highlights.push('andone');
         this.freeThrows(h, 1);
       }
-      this.end(buzzer ? 2.2 : 1.3);
+      this.end(this.contest?.kind === 'three' ? 0.8 : buzzer ? 2.2 : 1.3);
       return;
     }
     // miss
@@ -977,6 +1041,7 @@ export class Arcade {
     else if (sh.text === 'glass') { this.popup(pick(CALLS.glass), PAL.red, 2, 120); sfx.rim(); this.rimShake = 0.7; }
     else { this.popup(pick(CALLS.miss), '#c8c8d8', 2, 120); sfx.rim(); this.rimShake = 0.5; }
     if (this.periodEnds && this.clock <= 0) { sfx.buzzer(); this.end(1.3); return; }
+    if (this.contest) { this.end(0.8); return; }
     // rebound
     const a = Math.PI * (0.12 + Math.random() * 0.76);
     const r = 14 + Math.random() * 30;
@@ -985,7 +1050,7 @@ export class Arcade {
     for (const e of all) {
       const d = Math.hypot(e.x - x1, e.y - y1);
       const rb = e.p.ratings.reb / 100;
-      ws.push(rb * rb * (1 / (1 + (d / 24) ** 2)) * (e.off ? 1 : 2.1) * (e.stun > 0 ? 0.3 : 1) + 0.002);
+      ws.push(rb * rb * (1 / (1 + (d / 24) ** 2)) * (e.off ? 1 : 2.1) * (e.stun > 0 ? 0.3 : 1) * (hasBadge(e.p, 'glass') ? 1.9 : 1) + 0.002);
     }
     let roll = Math.random() * ws.reduce((s, v) => s + v, 0), wi = 0;
     for (; wi < ws.length - 1; wi++) { roll -= ws[wi]; if (roll < 0) break; }
@@ -1057,8 +1122,17 @@ export class Arcade {
     // clocks
     const live = this.phase === 'live' || this.phase === 'pass' || this.phase === 'charge';
     if (!this.practice && !this.ftMode) this.clock = Math.max(0, this.clock - dt * TIME_SCALE);
-    if (live && !this.practice && !this.ftMode) this.shotClock = Math.max(0, this.shotClock - dt * TIME_SCALE);
+    if (live && !this.ftMode && !this.contest && (!this.practice || this.guide?.clock !== undefined)) {
+      this.shotClock = Math.max(0, this.shotClock - dt * TIME_SCALE);
+      // the last five seconds are counted out loud
+      if (this.clockOn && this.shotClock <= this.tickAt && this.shotClock > 0) { this.tickAt = Math.ceil(this.shotClock) - 1; sfx.tick(this.shotClock <= 3); }
+    }
     this.onClock?.(this.clock, this.periodEnds ? -1 : this.shotClock);
+    // a contest keeps moving: wait too long on a ball and it is gone
+    if (this.contest && (this.phase === 'live' || this.phase === 'charge')) {
+      this.contestT += this.realDt;
+      if (this.contestT > (this.contest.kind === 'three' ? 7 : 14)) { this.aim.on = false; this.slowmo = 1; this.popup('TOO SLOW!', PAL.red, 2); sfx.buzzer(); this.end(0.7); return; }
+    }
     this.grace = Math.max(0, this.grace - dt);
     this.dash.cd = Math.max(0, this.dash.cd - dt);
     this.fakeCd = Math.max(0, this.fakeCd - dt);
@@ -1079,7 +1153,7 @@ export class Arcade {
         const dx = this.ptr.x - this.ptr.x0, dy = this.ptr.y - this.ptr.y0, d = Math.hypot(dx, dy);
         if (d > 2) { const m = Math.min(1, d / STICK_MAX); mx = (dx / d) * m; my = (dy / d) * m; }
       } else { const k = this.keyVec(); mx = k.x; my = k.y; }
-      if (this.ftMode) { mx = 0; my = 0; }
+      if (this.ftMode || this.contest) { mx = 0; my = 0; }
       this.mv = { x: mx, y: my };
       let sp = this.speed(h) * (0.8 + 0.2 * h.p.ratings.hnd / 100);
       if (h.slow > 0) sp *= 0.45;
@@ -1141,7 +1215,7 @@ export class Arcade {
           if (this.lob && Math.hypot(d.x - ps.x1, d.y - ps.y1) > 16) continue; // a lob goes over everyone but the man at the rim
           if (Math.hypot(d.x - this.ball.x, d.y - 4 - this.ball.y) < 6.5) {
             ps.checked.add(d.p.id);
-            const p = clamp(0.32 + 0.5 * (d.p.ratings.def / 100) - 0.5 * (from.p.ratings.pas / 100) + (this.diff.steal - 1) * 0.2 - 0.05 * this.pk.passing, 0.06, 0.8);
+            const p = clamp(0.32 + 0.5 * (d.p.ratings.def / 100) - 0.5 * (from.p.ratings.pas / 100) + (this.diff.steal - 1) * 0.2 - 0.05 * this.pk.passing, 0.06, 0.8) * (hasBadge(from.p, 'dimer') ? 0.4 : 1);
             if (Math.random() < p) { this.ball.x = d.x; this.ball.y = d.y; this.turnover('intercept', d); return; }
           }
         }
@@ -1165,7 +1239,7 @@ export class Arcade {
         }
         this.lob = false;
         if (this.guide?.endOnCatch) { this.popup('GOOD PASS!', PAL.green, 2); sfx.good(); this.phase = 'live'; this.end(0.9); return; }
-        this.def[ps.to].slow = 0.45; // the closeout arrives a beat late: catch-and-shoot is worth it
+        this.def[ps.to].slow = hasBadge(from.p, 'dimer') ? 0.8 : 0.45; // the closeout arrives a beat late: catch-and-shoot is worth it
         this.dribbleT = 0;
         this.grace = 0.35;
         this.lag = { x: to.x, y: to.y };
@@ -1275,7 +1349,7 @@ export class Arcade {
           this.handler = this.off.indexOf(w);
           w.route = []; w.screen = 0;
           for (const e of this.off) if (e !== w) { e.route = []; e.screen = 0; e.home = this.openSlot(e.slot >= 3 ? INSIDE : PERIMETER, e); }
-          this.shotClock = Math.min(Math.max(this.shotClock, 14), this.clock);
+          this.shotClock = Math.min(Math.max(this.shotClock, 14), this.clock); this.tickAt = 5;
           this.assist = null; this.grace = 0.5; this.dribbleT = 0;
           this.lag = { x: w.x, y: w.y };
           this.ptr.mode = this.ptr.down ? 'drag' : 'none'; this.ptr.x0 = this.ptr.x; this.ptr.y0 = this.ptr.y;
@@ -1304,8 +1378,9 @@ export class Arcade {
     const lagK = 1 - Math.exp(-dt / Math.max(0.05, this.diff.lag * (1.25 - 0.5 * this.def[this.handler].p.ratings.def / 100)));
     this.lag.x += (h.x - this.lag.x) * lagK; this.lag.y += (h.y - this.lag.y) * lagK;
     const rebounding = this.phase === 'rebound';
-    if (!over && (this.phase === 'live' || this.phase === 'charge' || this.phase === 'pass')) this.directOffense(dt);
+    if (!over && !this.contest && (this.phase === 'live' || this.phase === 'charge' || this.phase === 'pass')) this.directOffense(dt);
     this.off.forEach((e, i) => {
+      if (this.contest && i !== this.handler) return;
       e.stun = Math.max(0, e.stun - dt); e.slow = Math.max(0, e.slow - dt);
       e.armsUp = Math.max(0, e.armsUp - dt);
       if (this.phase !== 'finish' && !(this.hang > 0 && i === this.handler)) e.lift = Math.max(0, e.lift - dt * 30);
@@ -1322,7 +1397,7 @@ export class Arcade {
       if (Math.abs(e.vx) > 4) e.face = e.vx > 0 ? 1 : -1;
       else if (sp < 4) e.face = 0;
     });
-    this.def.forEach((d, i) => {
+    if (!this.contest) this.def.forEach((d, i) => {
       d.armsUp = Math.max(0, d.armsUp - dt);
       d.lift = Math.max(0, d.lift - dt * 22);
       if (d.stun > 0) { d.stun -= dt; d.vx = 0; d.vy = 0; d.run = -1; return; }
@@ -1629,6 +1704,12 @@ export class Arcade {
         g.fillStyle = PAL.ink; g.fillRect(sx - 3, sy - 1, 7, 3); g.fillRect(sx - 1, sy - 3, 3, 7);
         g.fillStyle = PAL.yellow; g.fillRect(sx - 2, sy, 5, 1); g.fillRect(sx, sy - 2, 1, 5); g.fillRect(sx - 1, sy - 1, 3, 3);
       }
+      // badges: the man with the ball shows his, and a Lockdown defender is worth knowing about
+      if (live && !this.ftMode) {
+        const hb = this.off[this.handler], b = badgeOf(hb.p);
+        if (b && this.phase === 'live') drawText(g, BADGES[b].court, hb.x, hb.y + 7, PAL.yellow, { align: 'center', outline: PAL.ink });
+        for (const d of this.def) if (hasBadge(d.p, 'lockdown')) drawText(g, 'LOCKDOWN', d.x, d.y + 5, PAL.red, { align: 'center', outline: PAL.ink });
+      }
       // labels
       if (live) {
         let n = 0;
@@ -1653,12 +1734,20 @@ export class Arcade {
         g.fillStyle = 'rgba(255,255,255,0.7)';
         g.fillRect(Math.round(x0 + (dx / d) * m) - 1, Math.round(y0 + (dy / d) * m) - 1, 3, 3);
       }
-      // shot clock
-      if (this.phase !== 'over' && this.phase !== 'idle' && !this.periodEnds && !this.practice) {
-        const sc = Math.ceil(this.shotClock);
-        // above the baseline, clear of anyone standing in the corner
-        g.fillStyle = PAL.ink; g.fillRect(W - 23, BASE_Y - 21, 19, 14);
-        drawText(g, String(sc).padStart(2, '0'), W - 21, BASE_Y - 19, sc <= 5 ? PAL.red : PAL.yellow, { scale: 2 });
+      // shot clock: on top of the backboard, where the eyes go to aim
+      if (this.phase !== 'over' && this.phase !== 'idle' && this.clockOn) {
+        const sc = Math.ceil(this.shotClock), low = sc <= 5, flash = low && Math.floor(this.time * 6) % 2 === 0;
+        const bx = HOOP.x - 13, by = HOOP.y - RIM_Z - 37;
+        g.fillStyle = PAL.ink; g.fillRect(bx - 1, by - 1, 28, 18);
+        g.fillStyle = low ? (flash ? PAL.red : '#5a1420') : '#3a3660'; g.fillRect(bx, by, 26, 16);
+        g.fillStyle = PAL.ink; g.fillRect(bx + 2, by + 2, 22, 12);
+        drawText(g, String(sc).padStart(2, '0'), HOOP.x, by + 3, low ? PAL.red : PAL.yellow, { scale: 2, align: 'center' });
+        // and in the last five seconds, counted down over the man with the ball
+        if (low && this.shotClock > 0) {
+          const hh = this.off[this.handler];
+          drawText(g, String(sc), hh.x, hh.y - spriteHeight(hh.p) - 30, flash ? PAL.red : PAL.white, { scale: 3, align: 'center', outline: PAL.ink });
+        }
+        if (this.guide?.clock !== undefined && !low && Math.floor(this.time * 3) % 2 === 0) drawText(g, 'SHOT CLOCK', HOOP.x + 44, by + 6, PAL.yellow, { align: 'center', outline: PAL.ink });
       }
     }
     if (!this.off.length) drawHoop(g, this.netKick, 0, this.time);
@@ -1752,6 +1841,13 @@ export class Arcade {
     disc(BTN.r - 2, held ? 'rgba(255,170,90,0.95)' : 'rgba(255,138,60,0.72)');
     const put = this.putback > 0 && !held;
     if (put && Math.floor(this.time * 10) % 2) disc(BTN.r - 2, 'rgba(255,210,60,0.95)');
+    // the shot clock again, as a ring that drains around the button under your thumb
+    if (this.clockOn) {
+      const full = this.guide?.clock ?? 24, frac = clamp(this.shotClock / full, 0, 1), low = this.shotClock <= 5;
+      const n = 56, lit = Math.ceil(n * frac);
+      g.fillStyle = low ? (Math.floor(this.time * 6) % 2 ? PAL.red : PAL.white) : PAL.yellow;
+      for (let i = 0; i < lit; i++) { const a = -Math.PI / 2 - (i / n) * Math.PI * 2; g.fillRect(Math.round(BTN.x + Math.cos(a) * (BTN.r + 2)), Math.round(BTN.y + Math.sin(a) * (BTN.r + 2)), 2, 2); }
+    }
     if (this.usedKeys && !held) drawText(g, 'SPACE', BTN.x + 1, BTN.y + 6, put ? PAL.ink : PAL.yellow, { align: 'center', outline: put ? undefined : PAL.ink });
     if (held && !this.ftMode) drawText(g, this.usedKeys ? 'ESC: NO SHOT' : 'SLIDE OFF: NO SHOT', BTN.x + BTN.r - 1, BTN.y - BTN.r - 8, PAL.white, { align: 'right', outline: PAL.ink });
     drawText(g, held ? 'LET GO' : put ? 'PUT BACK' : 'SHOOT', BTN.x + 1, BTN.y - 2, held || put ? PAL.ink : PAL.white, { align: 'center', outline: held || put ? undefined : PAL.ink });

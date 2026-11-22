@@ -151,7 +151,7 @@ export function checklist(save: Save): Step[] {
   const p = prog(save), c = p.counters, seen = (id: string) => p.seen.includes(id);
   const games = careerGames(save);
   const all: (Step & { when: boolean })[] = [
-    { id: 'practice', text: 'Learn the controls', why: 'Nine quick drills: move, shoot, fake, pass, drive, crossover, free throws.', go: 'practice', done: seen('practice_done'), when: true },
+    { id: 'practice', text: 'Learn the controls', why: 'Nine quick drills: move, shoot, the shot clock, fake, pass, drive, crossover, free throws.', go: 'practice', done: seen('practice_done'), when: true },
     { id: 'roster', text: 'Meet your players', why: 'Tap anyone for his star ratings. Stars decide who should shoot, handle and finish.', go: 'roster', done: seen('v_roster'), when: true },
     { id: 'lineup', text: 'Check your starting five', why: 'Your best five should start. Tap two players to swap them.', go: 'lineup', done: seen('v_lineup'), when: true },
     { id: 'game1', text: 'Play your first game', why: 'Press PLAY above. You take the key moments; what you do in them swings the rest of the game.', go: '', done: games >= 1, when: true },
@@ -225,6 +225,8 @@ export const TROPHIES: Trophy[] = [
   { id: 'three50', name: 'Bombs Away', desc: 'Make 50 threes yourself.', credits: 5, test: (_s, c) => (c.three ?? 0) >= 50 },
   { id: 'ankles10', name: 'Ankle Collector', desc: 'Shake 10 defenders with a crossover.', credits: 3, test: (_s, c) => (c.ankles ?? 0) >= 10 },
   { id: 'andone5', name: 'And the Foul', desc: 'Five and-ones.', credits: 3, test: (_s, c) => (c.andone ?? 0) >= 5 },
+  { id: 'three_champ', name: 'Splash Champion', desc: 'Win the All-Star three-point contest.', credits: 3, test: (_s, c) => (c.three_win ?? 0) >= 1 },
+  { id: 'dunk_champ', name: 'Rim Rocker', desc: 'Win the All-Star dunk contest.', credits: 3, test: (_s, c) => (c.dunk_win ?? 0) >= 1 },
   { id: 'buzzer', name: 'Ice Water', desc: 'Hit a buzzer-beater.', credits: 5, test: (_s, c) => (c.buzzer ?? 0) >= 1 },
   { id: 'blowout', name: 'No Mercy', desc: 'Win a game by 30 or more.', credits: 3, test: (_s, c) => (c.blowout ?? 0) >= 1 },
   { id: 'bigGame', name: 'Takeover', desc: 'One of your players scores 40 in a game.', credits: 4, test: (_s, c) => (c.big40 ?? 0) >= 1 },

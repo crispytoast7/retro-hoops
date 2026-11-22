@@ -2,7 +2,7 @@
 // player should be stopped and told about: it begins, you advance, you are out, you are champions.
 import { prog } from '../org/progress';
 import type { PlayoffSeries, Save, ScheduledGame, Team } from '../types';
-import { cal } from './calendar';
+import { cal, seriesNeed } from './calendar';
 import { standings } from './schedule';
 
 export interface Slot {
@@ -31,7 +31,7 @@ function seriesGame(save: Save, s: PlayoffSeries): ScheduledGame | undefined {
   return s.gameId != null ? save.schedule.find(g => g.id === s.gameId) : undefined;
 }
 function slotOf(save: Save, s: PlayoffSeries, teamId: number): Slot {
-  const single = cal(save).seriesWins === 1;
+  const single = seriesNeed(save, s.round) === 1;
   const g = seriesGame(save, s);
   const score = single ? (g?.played ? (g.homeId === teamId ? g.homeScore ?? null : g.awayScore ?? null) : null) : teamId === s.highId ? s.highW : s.lowW;
   return { teamId, seed: seedOf(save, save.teams[teamId]), score, won: s.winnerId === teamId, label: '' };
@@ -93,7 +93,7 @@ export function playoffMoment(save: Save): Moment | null {
   const oppOf = (s: PlayoffSeries) => save.teams[s.highId === me.id ? s.lowId : s.highId];
   const scoreOf = (s: PlayoffSeries): string => {
     const g = seriesGame(save, s);
-    if (cal(save).seriesWins > 1) { const w = s.highId === me.id ? s.highW : s.lowW, l = s.highId === me.id ? s.lowW : s.highW; return `${Math.max(w, l)}-${Math.min(w, l)}`; }
+    if (seriesNeed(save, s.round) > 1) { const w = s.highId === me.id ? s.highW : s.lowW, l = s.highId === me.id ? s.lowW : s.highW; return `${Math.max(w, l)}-${Math.min(w, l)}`; }
     return g?.played ? `${Math.max(g.homeScore ?? 0, g.awayScore ?? 0)}-${Math.min(g.homeScore ?? 0, g.awayScore ?? 0)}` : '';
   };
   if (po.championId === me.id) {
@@ -102,7 +102,7 @@ export function playoffMoment(save: Save): Moment | null {
   const lost = mine.find(s => s.winnerId !== undefined && s.winnerId !== me.id);
   if (lost) {
     const opp = oppOf(lost);
-    return fresh({ id: key('out'), kind: 'out', title: lost.round === 3 ? 'SO CLOSE' : 'ELIMINATED', text: `The ${opp.name} beat you ${scoreOf(lost)} in the ${ROUND[lost.round]}. ${lost.round === 3 ? 'One game from the title.' : 'Your season is over.'}` });
+    return fresh({ id: key('out'), kind: 'out', title: lost.round === 3 ? 'SO CLOSE' : 'ELIMINATED', text: `The ${opp.name} beat you ${scoreOf(lost)} in the ${ROUND[lost.round]}. ${lost.round === 3 ? 'The title was right there.' : 'Your season is over.'}` });
   }
   if (save.phase !== 'playoffs') return null;
   const next = mine[mine.length - 1];
@@ -111,8 +111,8 @@ export function playoffMoment(save: Save): Moment | null {
   const where = g ? (g.homeId === me.id ? 'at home to' : 'away at') : 'against';
   const line = `${ROUND[next.round]}: ${where} the ${opp.name}, the ${confName(opp.conf)}'s #${seedOf(save, opp)} seed.`;
   if (next.round === 1) {
-    return fresh({ id: key('begin'), kind: 'begin', title: 'THE PLAYOFFS', text: `You are in as the #${seedOf(save, me)} seed in the ${confName(me.conf)}. One game decides each round. ${line}` });
+    return fresh({ id: key('begin'), kind: 'begin', title: 'THE PLAYOFFS', text: `You are in as the #${seedOf(save, me)} seed in the ${confName(me.conf)}. ${cal(save).seriesWins === 1 ? 'One game decides each round, until the Championship: that is a best of three. ' : ''}${line}` });
   }
   const prev = mine[mine.length - 2];
-  return fresh({ id: key(`adv${next.round}`), kind: 'advance', title: next.round === 3 ? 'TO THE CHAMPIONSHIP!' : 'YOU ADVANCE', text: `You beat the ${oppOf(prev).name} ${scoreOf(prev)}. ${line}` });
+  return fresh({ id: key(`adv${next.round}`), kind: 'advance', title: next.round === 3 ? 'TO THE CHAMPIONSHIP!' : 'YOU ADVANCE', text: `You beat the ${oppOf(prev).name} ${scoreOf(prev)}. ${line}${next.round === 3 ? ` Best of ${seriesNeed(save, 3) * 2 - 1}: first to ${seriesNeed(save, 3)} wins.` : ''}` });
 }

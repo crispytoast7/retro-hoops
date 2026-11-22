@@ -105,6 +105,8 @@ export const sfx = {
   good: () => { tone('square', 660, 660, 0.07, 0.14); tone('square', 880, 880, 0.07, 0.14, 0.07); tone('square', 1100, 1100, 0.12, 0.14, 0.14); },
   bad: () => { tone('square', 220, 180, 0.15, 0.16); tone('square', 165, 130, 0.22, 0.16, 0.14); },
   click: () => tone('square', 700, 700, 0.03, 0.1),
+  /** One second gone on a shot clock that is running out. */
+  tick: (urgent = false) => tone('square', urgent ? 1240 : 930, urgent ? 1240 : 930, 0.05, urgent ? 0.2 : 0.14),
   select: () => { tone('square', 520, 520, 0.04, 0.1); tone('square', 780, 780, 0.05, 0.1, 0.04); },
   coin: () => { tone('square', 988, 988, 0.06, 0.12); tone('square', 1319, 1319, 0.16, 0.12, 0.06); },
   cheer: (big = false) => { hiss(big ? 1.5 : 0.8, big ? 0.3 : 0.2, 700, 1300, 0.5); hiss(big ? 1.3 : 0.7, 0.1, 1700, 2300, 0.7, 0.06); },

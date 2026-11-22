@@ -60,7 +60,9 @@ export function ChampionScreen({ params }: { params: Record<string, any> }) {
     const g = save.schedule.find(x => x.id === s.gameId);
     const opp = save.teams[s.highId === me.id ? s.lowId : s.highId];
     const mine = g ? (g.homeId === me.id ? g.homeScore : g.awayScore) : undefined, theirs = g ? (g.homeId === me.id ? g.awayScore : g.homeScore) : undefined;
-    return { round: ROUND_NAMES[s.round], opp: opp.name, score: mine != null && theirs != null ? `${mine}-${theirs}` : '' };
+    // a series is told by its games won; a one-off by its score
+    const w = s.highId === me.id ? s.highW : s.lowW, l = s.highId === me.id ? s.lowW : s.highW;
+    return { round: ROUND_NAMES[s.round], opp: opp.name, score: w + l > 1 ? `${w}-${l} in games` : mine != null && theirs != null ? `${mine}-${theirs}` : '' };
   });
   const hist = save.history.find(h => h.year === save.year);
   const fmvp = hist?.awards.find(a => a.award === 'Finals MVP');

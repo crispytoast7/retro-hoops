@@ -170,8 +170,10 @@ function candidates(save: Save, rng: Rng): Weighted[] {
   const room = fit.filter(p => !atCeiling(p));
   if (room.length) {
     const p = room[rng.weighted(room.map(x => (x.age <= 24 ? 3 : 1)))];
-    const d = rng.pick(DRILLS.filter(([k]) => p.ratings[k] < 97));
-    add(3, { id: `drill_${d[0]}`, group: 'train', title: `${d[1]} with ${last(p)}`, effect: `${d[2]} +2 for good`, playerId: p.id, key: d[0] });
+    const open = DRILLS.filter(([k]) => p.ratings[k] < 97);
+    // (a player with nothing left to train still uses up the roll, so the week's other plans come out the same)
+    const d = rng.pick(open.length ? open : DRILLS);
+    if (open.length) add(3, { id: `drill_${d[0]}`, group: 'train', title: `${d[1]} with ${last(p)}`, effect: `${d[2]} +2 for good`, playerId: p.id, key: d[0] });
   }
   if (bench.length >= 3) add(2, { id: 'scrimmage', group: 'train', title: 'Bench scrimmage', effect: `All ${bench.length} bench players gain 25 XP` });
   const vet = fit.filter(p => p.age >= 30).sort((a, b) => ovr(b) - ovr(a))[0];

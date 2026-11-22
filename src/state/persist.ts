@@ -1,4 +1,5 @@
 // Save storage: IndexedDB is the main store, localStorage is a fallback copy.
+import { refreshBadges } from '../core/badges';
 import { SAVE_VERSION } from '../core/constants';
 import type { Save } from '../core/types';
 import { FACILITY_KEYS } from '../core/types';
@@ -42,6 +43,8 @@ export function migrate(raw: unknown): Save | null {
   for (const t of s.teams) if (t?.facilities) for (const k of FACILITY_KEYS) if (!t.facilities[k]) t.facilities[k] = { level: 1, condition: 100 };
   s.draftClass ??= [];
   s.tradeOffer ??= null;
+  // saves from before badges: anyone who has already earned one gets it, quietly
+  refreshBadges(s);
   return s;
 }
 function parse(text: string | null): Save | null {

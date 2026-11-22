@@ -371,3 +371,21 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 20px; }
 .tipdots { display: flex; gap: 6px; justify-content: center; }
 .tipdots span { width: 8px; height: 8px; background: var(--line); }
 .tipdots span.on { background: var(--gold); }
+
+/* player badges */
+.tag.bdg { color: #1a1204; background: var(--gold); font-size: 8px; padding: 3px 5px; }
+.bdgcard { border-left: 6px solid var(--gold); }
+
+/* All-Star weekend */
+.as-panel { border: 3px solid var(--gold); }
+.as-pick { max-width: 330px; gap: 6px; text-align: left; }
+.as-results { max-width: 340px; gap: 10px; text-align: left; }
+.as-table { display: flex; flex-direction: column; gap: 3px; }
+.as-row { display: flex; align-items: center; gap: 8px; padding: 3px 6px; background: var(--edge); font-size: 19px; }
+.as-row.me { outline: 2px solid var(--gold); color: var(--gold); }
+.as-place { font-family: var(--head); font-size: 9px; width: 12px; }
+.as-score { font-family: var(--head); font-size: 11px; }
+.as-cards { display: flex; gap: 6px; }
+.as-card { font-family: var(--head); font-size: 16px; background: #f4f0e0; color: #14121f; padding: 10px 8px; min-width: 34px; text-align: center; box-shadow: 0 4px 0 var(--edge); animation: pop .3s steps(4) backwards; }
+.as-card:nth-child(2) { animation-delay: .12s; } .as-card:nth-child(3) { animation-delay: .24s; } .as-card:nth-child(4) { animation-delay: .36s; } .as-card:nth-child(5) { animation-delay: .48s; }
+.as-card.ten { background: var(--gold); }

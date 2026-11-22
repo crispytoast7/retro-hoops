@@ -1,3 +1,4 @@
+import { BADGES, announceBadges, badgeOf, badgeProgress } from '../core/badges';
 import { tap } from '../state/device';
 import { ROSTER_MIN } from '../core/constants';
 import { sizeOf } from '../core/body';
@@ -11,7 +12,7 @@ import { careerStats, emptyStats, ovr } from '../core/ratings';
 import { RATING_KEYS, RATING_NAMES } from '../core/types';
 import type { StatLine, Trait } from '../core/types';
 import { sfx } from '../audio/sfx';
-import { act, touch, useSave } from '../state/store';
+import { act, getSave, touch, useSave } from '../state/store';
 import { Btn, Meter, Panel, Screen, Sprite, Stars, avg, confirmDialog, fullName, money, pct, short, toast } from './kit';
 import { back, nav, replace } from './router';
 
@@ -54,9 +55,12 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
   // other players of yours with level-up points waiting: one tap takes you to the next
   const waiting = mine ? readyToLevel(save).filter(x => x.id !== p.id) : [];
   const spending = mine && pts > 0 && !capped;
+  const badge = badgeOf(p), gift = badgeProgress(p);
+  // a level-up may be the one that earns his badge: say so on the spot
+  const badgeCheck = () => { if (act(s => announceBadges(s)).some(x => x.id === p.id)) { sfx.fanfare(); toast(`Badge earned: ${BADGES[getSave().players[p.id].badge!].name}!`, true); } };
   const upgrade = (k: (typeof RATING_KEYS)[number]) => {
     const err = act(s => spendPoint(s, p.id, k));
-    if (err) toast(err); else sfx.coin();
+    if (err) toast(err); else { sfx.coin(); badgeCheck(); }
   };
   const release = async () => {
     if (save.teams[save.userTeamId].roster.length <= ROSTER_MIN) return toast(`You need at least ${ROSTER_MIN} players.`);
@@ -82,6 +86,16 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
         </div>
       </Panel>
 
+      {!prospect && badge && (
+        <div class="panel bdgcard"><div class="head gold">◆ {BADGES[badge].name.toUpperCase()} BADGE</div><div>{BADGES[badge].desc}</div></div>
+      )}
+      {!prospect && !badge && gift && !p.retired && (
+        <div class="panel bdgcard">
+          <div class="head gold">◆ A GIFT: {gift.badge.name.toUpperCase()}</div>
+          <div>He earns this badge at {gift.need} {RATING_NAMES[gift.badge.key]}. He is at {gift.now}.</div>
+          <div class="dim" style={{ fontSize: '17px' }}>{gift.badge.desc}</div>
+        </div>
+      )}
       {(spending || waiting.length > 0) && (
         <div class="panel levelbar">
           <div class="grow">
@@ -89,7 +103,7 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
             <div>{spending ? `${pts} point${pts === 1 ? '' : 's'} to spend: ${tap} + on a rating, or Auto to let your assistant pick.` : 'Nothing to spend on him.'}{waiting.length > 0 ? ` ${waiting.length} more player${waiting.length === 1 ? '' : 's'} waiting.` : ''}</div>
           </div>
           <div class="col" style={{ gap: '6px', alignItems: 'stretch' }}>
-            {spending && <Btn kind="small primary" onClick={() => { const ks = act(s => autoSpend(s, p.id)); sfx.coin(); toast(ks.length ? `${RATING_NAMES[ks[0]]}${ks.length > 1 ? ` and ${ks.length - 1} more` : ''} up` : 'Nothing to spend.', true); }}>Auto</Btn>}
+            {spending && <Btn kind="small primary" onClick={() => { const ks = act(s => autoSpend(s, p.id)); sfx.coin(); badgeCheck(); toast(ks.length ? `${RATING_NAMES[ks[0]]}${ks.length > 1 ? ` and ${ks.length - 1} more` : ''} up` : 'Nothing to spend.', true); }}>Auto</Btn>}
             {waiting.length > 0 && <Btn kind="small" onClick={() => replace('player', { id: waiting[0].id })}>Next: {short(waiting[0].name)} ›</Btn>}
           </div>
         </div>

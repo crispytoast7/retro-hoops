@@ -1,4 +1,6 @@
 // Playing games, advancing weeks, playoffs.
+import { allStarPending, allStarWeek, finishAllStar, openAllStar } from '../org/allstar';
+import { announceBadges, withBadge } from '../badges';
 import { aiMaintainRosters } from '../gm/teamAi';
 import { aiOfferToUser, aiTradesWeek, validateTrade } from '../gm/trade';
 import { shortName } from '../gen/league';
@@ -18,7 +20,7 @@ import type { Rng } from '../rng';
 import { createLiveGame, simulateGame } from '../sim/engine';
 import type { GameSetup, LiveGame, SideInput } from '../sim/api';
 import type { GameResult, PlayoffSeries, Save, ScheduledGame, Team } from '../types';
-import { cal, perGame, playoffRound } from './calendar';
+import { cal, perGame, playoffRound, seriesNeed } from './calendar';
 import { gamesInWeek, standings, userGame } from './schedule';
 
 /** Key moments the user plays per game (a few more come late in close games). */
@@ -29,7 +31,7 @@ export function sideInput(save: Save, teamId: number): SideInput {
   const mine = teamId === save.userTeamId;
   return {
     // the user's players run hot and cold, and this week's plan may have bought an edge
-    team, players: team.roster.map(id => (mine ? withForm(save.players[id]) : save.players[id])),
+    team, players: team.roster.map(id => withBadge(mine ? withForm(save.players[id]) : save.players[id])),
     ocStars: (team.staff.oc?.stars ?? 0) + (mine && hasEdge(save, 'shoot') ? 1 : 0),
     dcStars: (team.staff.dc?.stars ?? 0) + (mine ? 0.5 * perk(save, 'film') + (hasEdge(save, 'film') ? 1.5 : 0) : 0),
     arenaLevel: effLevel(team.facilities.arena),
@@ -119,8 +121,9 @@ export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult,
   const c = save.coach, stop = c.stops[c.stops.length - 1];
   if (g.playoff) { if (won) c.playoffW++; else c.playoffL++; }
   else { if (won) { c.w++; if (stop) stop.w++; } else { c.l++; if (stop) stop.l++; } }
-  // a playoff game in a seven-game series counts for less than a one-off
-  const scale = g.playoff ? (cal(save).seriesWins > 1 ? 0.3 : 1) : perGame(save);
+  // a playoff game in a series counts for less than a one-off: a little less in a best of three, a lot less in a best of seven
+  const need = g.playoff ? seriesNeed(save, g.week - cal(save).regWeeks) : 1;
+  const scale = g.playoff ? (need >= 3 ? 0.3 : need === 2 ? 0.6 : 1) : perGame(save);
   afterUserGame(save, won, Math.abs(my - their), !!g.playoff, scale);
   // franchise single-game records
   const lines = home ? result.box.home : result.box.away;
@@ -186,9 +189,9 @@ function simGame(save: Save, g: ScheduledGame, rng: Rng): PostGame | null {
 // ---- playoffs ------------------------------------------------------------------------
 function nextSeriesGame(save: Save, s: PlayoffSeries, day: number): void {
   const n = s.games.length + 1; // game number in the series
-  const need = cal(save).seriesWins;
-  // higher seed hosts games 1, 2, 5, 7 (and the only game of a one-off)
-  const highHome = need === 1 || n === 1 || n === 2 || n === 5 || n === 7;
+  const need = seriesNeed(save, s.round);
+  // higher seed hosts games 1, 2, 5, 7 (the only game of a one-off; games 1 and 3 of a best of three)
+  const highHome = need === 1 || (need === 2 ? n !== 2 : n === 1 || n === 2 || n === 5 || n === 7);
   const id = save.year * 10000 + 5000 + save.schedule.filter(g => g.playoff).length;
   save.schedule.push({ id, week: cal(save).regWeeks + s.round, day, homeId: highHome ? s.highId : s.lowId, awayId: highHome ? s.lowId : s.highId, played: false, playoff: true });
   s.games.push(id); s.gameId = id;
@@ -214,9 +217,9 @@ function startPlayoffs(save: Save, rng: Rng): void {
 const seedOf = (save: Save, t: Team): number => standings(save, t.conf).indexOf(t);
 /** After a playoff game day: update series, schedule the next game of any series still alive. */
 function afterPlayoffDay(save: Save, day: number, rng: Rng): void {
-  const need = cal(save).seriesWins;
   for (const s of save.playoffs!.series) {
     if (s.winnerId !== undefined) continue;
+    const need = seriesNeed(save, s.round);
     const g = save.schedule.find(x => x.id === s.gameId);
     if (!g || !g.played || g.day !== day) continue;
     const winner = (g.homeScore ?? 0) > (g.awayScore ?? 0) ? g.homeId : g.awayId;
@@ -257,6 +260,8 @@ const cmpRecord = (a: Team, b: Team): number => b.record.w - a.record.w || (b.re
 function closeWeek(save: Save, rng: Rng): void {
   const c = cal(save);
   const wasRegular = save.phase === 'regular';
+  // an All-Star weekend he never got round to is settled without him
+  if (allStarPending(save)) finishAllStar(save);
   healWeek(save, rng);
   weeklyFacilities(save, rng);
   if (save.phase === 'regular') {
@@ -288,8 +293,11 @@ function closeWeek(save: Save, rng: Rng): void {
       if (done.length) pushNews(save, 'team', `Your assistant: ${done.join('; ')}.`, true);
     }
     rollMoment(save, rng);
+    announceBadges(save);
     // halfway through the season, someone has opinions about the greatest of all time
     if (save.week === Math.floor(cal(save).regWeeks / 2) + 1) publishGoatList(save, 'midseason');
+    // and the league stops for its All-Star weekend
+    if (save.phase === 'regular' && save.week === allStarWeek(save)) openAllStar(save);
     // named once the calendar has moved on, so the hub shows it in the week that follows
     const potw = awardPlayerOfWeek(save);
     if (potw) pushNews(save, 'award', `Player of the Week: ${potw.player.name} (${save.teams[potw.player.teamId!].name}), ${potw.text}.${potw.mine ? ' The club gets 1 credit.' : ''}`, potw.mine);

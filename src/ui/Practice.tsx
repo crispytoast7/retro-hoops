@@ -36,6 +36,11 @@ export const DRILLS: Drill[] = [
     say: { live: 'HOLD the SHOOT button', charge: 'LET GO when the crosshair is on the rim', shot: 'Green crosshair = swish' }, guide: { demo: 'hold' },
     done: r => { const s = shot(r); return !!s && (s.type === 'three' || s.type === 'mid') && r.quality >= 2; },
     retry: r => (shot(r) ? 'Let go a little sooner or later: only when the crosshair is ON the rim.' : 'Hold SHOOT until the crosshair is on the rim, then let go.') },
+  { title: 'SHOT CLOCK', brief: 'You have 24 seconds to shoot. The clock is above the basket.', hint: 'It also drains around the SHOOT button. Zero means you lose the ball.',
+    pc: { hint: 'It also drains around the SHOOT button. Zero means you lose the ball.' },
+    say: { live: 'Watch the clock above the basket. SHOOT before zero.', charge: 'LET GO when the crosshair is on the rim' }, guide: { clock: 12 },
+    done: r => !!shot(r) && !r.highlights.includes('tov'),
+    retry: r => (r.highlights.includes('tov') ? 'The clock above the basket hit zero, so you lost the ball. Shoot before it does.' : 'Take a shot before the clock above the basket hits zero.') },
   { title: 'NO SHOT', brief: 'Changed your mind? Slide your finger off SHOOT, then let go.', pc: { brief: 'Changed your mind? Keep SPACE down and press ESC.', say: { live: 'HOLD SPACE, then press ESC', charge: 'Press ESC before you let go of SPACE' }, retry: 'You let go of SPACE, so he shot. Press ESC first.' },
     say: { live: 'HOLD SHOOT, then SLIDE OFF it', charge: 'SLIDE your finger OFF the button' }, guide: { demo: 'slide', endOnCancel: true },
     done: r => r.cancels > 0, retry: 'You let go on the button, so he shot. Slide off it first, then let go.' },
@@ -45,11 +50,6 @@ export const DRILLS: Drill[] = [
   { title: 'PASS', brief: 'Tap a teammate. He gets the ball.', pc: { brief: 'Press a teammate\'s number, 1 to 4. He gets the ball.', hint: 'Clicking him works too.', say: { live: 'Press the NUMBER of the teammate with the yellow ring', pass: 'The ball is on its way' }, retry: 'Press the number shown above the teammate with the ring.' },
     say: { live: 'TAP the teammate with the yellow ring', pass: 'The ball is on its way' }, guide: { mate: 1, demo: 'tap', endOnCatch: true },
     done: r => r.passes > 0, retry: 'Tap right on the teammate with the ring.' },
-  { title: 'PULL PASS', brief: 'Touch your player and pull back, away from a teammate. Let go when a ring is on him.', hint: 'Aimed at the rim, it is a lob.', pc: { brief: 'Mouse: press on your player and drag away from a teammate. Let go when a ring is on him.', say: { live: 'PRESS on your player. DRAG AWAY from the teammate.', charge: 'Ring on him? LET GO.', pass: 'The ball is on its way' },
-      retry: r => (r.passes > 0 && r.pulls === 0 ? 'That was a click or a number key. This time press ON your player and drag away from the teammate, like a slingshot.' : 'Press ON your player. Drag the opposite way from the teammate until a ring is on him, then let go.') },
-    say: { live: 'TOUCH your player. PULL AWAY from the teammate.', charge: 'Ring on him? LET GO.', pass: 'The ball is on its way' }, guide: { mate: 2, demo: 'pull', endOnCatch: true },
-    done: r => r.pulls > 0 && r.passes > 0 && !r.highlights.includes('tov'),
-    retry: r => (r.passes > 0 && r.pulls === 0 ? 'That was a tap. This time start ON your player and pull away from the teammate, like a slingshot.' : 'Start ON your player. Pull the opposite way from the teammate until a ring is on him, then let go.') },
   { title: 'DRIVE', brief: 'Drag to the basket and keep going. He scores at the rim by himself.',
     pc: { brief: 'Run at the basket and keep going. He scores at the rim by himself.', say: { live: 'Hold W or UP toward the basket', finish: 'He finishes by himself' }, retry: 'Do not shoot. Keep running at the rim until he jumps.' },
     say: { live: 'DRAG toward the basket and keep going', finish: 'He finishes by himself' }, guide: { demo: 'drag' },
@@ -173,7 +173,7 @@ export function PracticeScreen(_p: { params: Record<string, any> }) {
           </div>
         )}
       </div>
-      <div class="ticker"><div class="lines"><div style={{ whiteSpace: 'normal' }}>{required ? 'Nine quick drills, then your first game.' : 'No shot clock and no steals in practice. Take your time.'}</div></div></div>
+      <div class="ticker"><div class="lines"><div style={{ whiteSpace: 'normal' }}>{required ? `${DRILLS.length} quick drills, then your first game.` : 'No shot clock and no steals in practice. Take your time.'}</div></div></div>
     </div>
   );
 }

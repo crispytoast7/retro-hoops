@@ -57,6 +57,9 @@ basketball,gm,manager,coach,retro,pixel,arcade,sports,franchise,draft,dunk,offli
 > • Six facilities to build, from a brick gym to a lit-up dome, shown in a picture of your club that grows
 > • Big moments: a star wants a new deal, a rookie breaks out, a rival comes for your coordinator
 > • Rivalries, player form, awards night, Player of the Week, and reporters arguing about the greatest of all time
+> • All-Star weekend: a three-point contest and a dunk contest you play yourself
+> • Rare players earn badges: Sniper, Posterizer, Ankle Breaker, Floor General, Lockdown, Glass Cleaner
+> • A best-of-three Championship
 >
 > PLAY YOUR WAY
 > • Plays fully offline. No account, no ads, no data collected

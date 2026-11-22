@@ -1,4 +1,5 @@
 // Offseason: awards, retirements, contracts, draft, free agency, training camp, new season.
+import { announceBadges } from '../badges';
 import { FA_DAYS, MIN_SALARY, ROSTER_MAX, ROSTER_MIN } from '../constants';
 import { genFreeAgents, genProspects, genStaffPool, shortName } from '../gen/league';
 import { aiDraftChoice, rookieContract } from '../gm/draft';
@@ -435,6 +436,8 @@ export function advanceOffseason(save: Save, rng: Rng): void {
 
 export function startNewSeason(save: Save, rng: Rng): void {
   const me = save.teams[save.userTeamId];
+  // a summer of growth may have earned someone his badge
+  announceBadges(save);
   // make sure the user can field a team
   const pool = () => save.freeAgents.map(id => save.players[id]).sort((a, b) => ovr(b) - ovr(a));
   while (me.roster.length < ROSTER_MIN) {

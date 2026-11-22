@@ -4,6 +4,7 @@ import { useEffect } from 'preact/hooks';
 import { sfx } from '../audio/sfx';
 import { markTip } from '../core/org/progress';
 import { BracketView, Match, Moment, Slot, bracketView } from '../core/season/bracket';
+import { seriesNeed } from '../core/season/calendar';
 import type { Save } from '../core/types';
 import { touch, useSave } from '../state/store';
 import { Btn, Panel, Screen, confName, fullName } from './kit';
@@ -51,7 +52,7 @@ export function Bracket({ save }: { save: Save }) {
       <Conf save={save} v={v} conf={0} />
       <div class="bk-final">
         <div class="bk-link" />
-        <div class="bk-caps one"><span>♛ CHAMPIONSHIP</span></div>
+        <div class="bk-caps one"><span>♛ CHAMPIONSHIP · BEST OF {seriesNeed(save, 3) * 2 - 1}</span></div>
         <Box save={save} m={v.final} wide />
         {v.championId != null && <div class="bk-champ">♛ {fullName(save.teams[v.championId]).toUpperCase()} ♛</div>}
         <div class="bk-link" />

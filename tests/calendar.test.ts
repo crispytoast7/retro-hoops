@@ -61,7 +61,8 @@ describe('82-game calendar', () => {
     expect(po.championId).toBe(po.series.find(s => s.round === 3)!.winnerId);
     // long seasons pay about what short ones do
     const earned = save.credits - credits0;
-    expect(earned).toBeGreaterThan(10); expect(earned).toBeLessThan(150);
+    // (a deep playoff run, its trophies and an All-Star contest win can add a few dozen)
+    expect(earned).toBeGreaterThan(10); expect(earned).toBeLessThan(200);
     const mvp = save.history[0].mvp!;
     const ppg = Number(mvp.line.split(' ')[0]);
     expect(ppg).toBeGreaterThan(20);

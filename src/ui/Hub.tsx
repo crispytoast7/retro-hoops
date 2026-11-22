@@ -1,10 +1,12 @@
+import { allStarPending, allStarState, finishAllStar } from '../core/org/allstar';
+import { badgeOf } from '../core/badges';
 import { pcText } from '../state/device';
 import { useEffect, useState } from 'preact/hooks';
 import { SALARY_CAP } from '../core/constants';
 import { capStatus, payroll } from '../core/org/finance';
 import { EventOutcome, currentEvent, eventText, resolveEvent, teamMorale } from '../core/org/people';
 import { Feature, checklist, gamesToUnlock, isUnlocked, perkPoints, rankName, tutorialNeeded, xpBar } from '../core/org/progress';
-import { cal, ROUND_NAMES } from '../core/season/calendar';
+import { cal, ROUND_NAMES, seriesNeed } from '../core/season/calendar';
 import { advance } from '../core/season/flow';
 import { gamesInWeek, userGame, userGamesInWeek } from '../core/season/schedule';
 import { playoffMoment } from '../core/season/bracket';
@@ -19,7 +21,7 @@ import { teamRatings } from '../core/sim/engine';
 import type { Effect, Save } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { act, touch, useSave } from '../state/store';
-import { Btn, Meter, Modal, Panel, Stars, fullName, money, recordStr, short, teamStarCount, toast } from './kit';
+import { BadgeTag, Btn, Meter, Modal, Panel, Stars, fullName, money, recordStr, short, teamStarCount, toast } from './kit';
 import { nav, replace, reset } from './router';
 import { holdTips } from './Tips';
 
@@ -172,7 +174,8 @@ export function HubScreen(_p: { params: Record<string, any> }) {
   const gameNo = g ? weekGames.findIndex(x => x.id === g.id) + 1 : 0;
   const series = save.phase === 'playoffs' && g ? save.playoffs?.series.find(s => s.winnerId === undefined && (s.highId === me.id || s.lowId === me.id)) : undefined;
   const myW = series ? (series.highId === me.id ? series.highW : series.lowW) : 0, oppW = series ? (series.highId === me.id ? series.lowW : series.highW) : 0;
-  const seriesText = !series || c.seriesWins === 1 ? '' : myW === oppW ? `Series tied ${myW}-${oppW}` : myW > oppW ? `You lead ${myW}-${oppW}` : `You trail ${myW}-${oppW}`;
+  const need = series ? seriesNeed(save, series.round) : c.seriesWins;
+  const seriesText = !series || need === 1 ? '' : myW === oppW ? `Series tied ${myW}-${oppW}` : myW > oppW ? `You lead ${myW}-${oppW}` : `You trail ${myW}-${oppW}`;
   const info = g ? intel(save, g) : null;
   const edge = edgeFor(save);
   const lean = g ? pressure(save) : 0;
@@ -207,6 +210,24 @@ export function HubScreen(_p: { params: Record<string, any> }) {
           <Meter label={rankName(xp.level).toUpperCase()} value={xp.pct} color="var(--gold)" text={xp.need ? `${xp.into}/${xp.need} XP` : 'MAX'} />
         </div>
 
+        {allStarPending(save) && (() => {
+          const as = allStarState(save)!;
+          const sh = save.players[as.shooterId], dk = save.players[as.dunkerId];
+          const mine = as.stars.map(id => save.players[id]).filter(pl => pl && pl.teamId === me.id);
+          return (
+            <div class="panel as-panel">
+              <div class="head gold">★ ALL-STAR WEEKEND</div>
+              {mine.length > 0 && <div class="gold">{mine.map(pl => short(pl.name)).join(', ')}: All-Star{mine.length === 1 ? '' : 's'}!</div>}
+              <div>{short(sh.name)} is in the three-point contest. {short(dk.name)} is in the dunk contest.</div>
+              <div style={{ height: '8px' }} />
+              <div class="row">
+                <Btn kind="primary" class="grow" onClick={() => nav('allstar')}>Play the contests</Btn>
+                <Btn onClick={() => { act(st => finishAllStar(st)); toast('The contests went on without you. Results are in the news.', true); }}>Skip</Btn>
+              </div>
+            </div>
+          );
+        })()}
+
         {save.phase === 'offseason' ? (
           <Panel team title="OFFSEASON">
             <div>The season is over. Awards, contracts, the draft and free agency await.</div>
@@ -214,7 +235,7 @@ export function HubScreen(_p: { params: Record<string, any> }) {
             <Btn kind="primary big block" onClick={() => nav('offseason')}>Go to Offseason</Btn>
           </Panel>
         ) : g && opp ? (
-          <Panel team title={save.phase === 'playoffs' ? `${round.toUpperCase()}${c.seriesWins > 1 ? ` · GAME ${myW + oppW + 1}` : ''}` : `WEEK ${save.week}${weekGames.length > 1 ? ` · GAME ${gameNo} OF ${weekGames.length}` : ''} · ${g.homeId === me.id ? 'HOME' : 'AWAY'}`}>
+          <Panel team title={save.phase === 'playoffs' ? `${round.toUpperCase()}${need > 1 ? ` · GAME ${myW + oppW + 1}` : ''}` : `WEEK ${save.week}${weekGames.length > 1 ? ` · GAME ${gameNo} OF ${weekGames.length}` : ''} · ${g.homeId === me.id ? 'HOME' : 'AWAY'}`}>
             <div class="row between">
               <div class="col" style={{ gap: '2px' }}><div class="head">{me.abbr}</div><Stars n={teamStarCount(rate(me.id))} /><div class="dim">{recordStr(me)}</div></div>
               <div class="head dim">{g.homeId === me.id ? 'VS' : 'AT'}</div>
@@ -224,6 +245,9 @@ export function HubScreen(_p: { params: Record<string, any> }) {
               <div class="intel">
                 {info.rival && <div><span class="tag gold">RIVALRY GAME</span> <span class="gold">Win: +2 credits, fans +3</span></div>}
                 {info.star && <div class="tap" onClick={() => nav('player', { id: info.star!.id })}><span class="dim">Their star:</span> {info.star.pos} {short(info.star.name)} <Stars v={ovr(info.star)} />{info.starPpg > 0 ? <span class="dim"> {info.starPpg.toFixed(1)} ppg</span> : null}</div>}
+                {opp.lineup.map(id => save.players[id]).filter(pl => pl && !pl.injury && badgeOf(pl)).slice(0, 3).map(pl => (
+                  <div class="tap" onClick={() => nav('player', { id: pl.id })}><BadgeTag player={pl} /> <span class="dim">{pl.pos}</span> {short(pl.name)}</div>
+                ))}
                 {info.run && <div class={info.run.startsWith('Won') ? 'bad' : 'good'}>{opp.name}: {info.run.toLowerCase()}</div>}
                 {info.race && <div class="dim">{info.race}</div>}
                 {lean >= 1.5 && <div class="bad">TARGET ON YOUR BACK · everyone brings their best against you (opponents +{lean})</div>}
@@ -237,9 +261,9 @@ export function HubScreen(_p: { params: Record<string, any> }) {
               <Btn onClick={() => go('sim')}>Sim</Btn>
             </div>
             {planWaiting && <div class="gold center" style={{ marginTop: '6px', fontSize: '18px' }}>Make your move for the week first ▼</div>}
-            {seriesText && <div class="gold center" style={{ marginTop: '8px' }}>{seriesText} · best of {c.seriesWins * 2 - 1}</div>}
+            {seriesText && <div class="gold center" style={{ marginTop: '8px' }}>{seriesText} · best of {need * 2 - 1}</div>}
             {save.phase === 'playoffs' && <><div style={{ height: '8px' }} /><Btn kind="small block" onClick={() => nav('bracket')}>View the bracket</Btn></>}
-            {(weekGames.length > 1 || c.seriesWins > 1) && <><div style={{ height: '8px' }} /><Btn kind="small block" onClick={() => go('week')}>{save.phase === 'playoffs' ? 'Sim the rest of the round' : 'Sim the rest of the week'}</Btn></>}
+            {(weekGames.length > 1 || need > 1) && <><div style={{ height: '8px' }} /><Btn kind="small block" onClick={() => go('week')}>{save.phase === 'playoffs' ? (need > 1 ? 'Sim the rest of the series' : 'Sim the rest of the round') : 'Sim the rest of the week'}</Btn></>}
           </Panel>
         ) : (
           <Panel team title={save.phase === 'playoffs' ? 'PLAYOFFS' : 'BYE'}>

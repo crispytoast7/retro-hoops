@@ -1,3 +1,4 @@
+import { BADGES, badgeOf } from '../core/badges';
 import { DESKTOP } from '../state/device';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { cal, ROUND_NAMES } from '../core/season/calendar';
@@ -297,7 +298,7 @@ export function GameScreen({ params }: { params: Record<string, any> }) {
           <thead><tr><th>ON THE FLOOR</th><th>SHOOT</th><th>HANDLE</th><th>FINISH</th></tr></thead>
           <tbody>
             {me.lineup.map(id => save.players[id]).filter(Boolean).map(pl => (
-              <tr><td><span class="tag pos">{pl.pos}</span> {short(pl.name)} <FormTag player={pl} /></td><td><Stars v={pl.ratings.sht} /></td><td><Stars v={pl.ratings.hnd} /></td><td><Stars v={pl.ratings.fin} /></td></tr>
+              <tr><td><span class="tag pos">{pl.pos}</span> {short(pl.name)}{badgeOf(pl) && <span class="gold" title={BADGES[badgeOf(pl)!].name}> ◆</span>} <FormTag player={pl} /></td><td><Stars v={pl.ratings.sht} /></td><td><Stars v={pl.ratings.hnd} /></td><td><Stars v={pl.ratings.fin} /></td></tr>
             ))}
           </tbody>
         </table>

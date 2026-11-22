@@ -173,21 +173,24 @@ describe('the team store and the trophy room', () => {
 describe('GOAT lists', () => {
   test('two a season, each reporter with an angle, and the news carries the list', async () => {
     const { save, rng } = mk(4, 5);
-    const lists: NonNullable<Save['news'][number]['list']>[] = [];
+    // collected as they are published: the news only keeps its latest 200 items
+    const found = new Map<string, NonNullable<Save['news'][number]['list']>>();
+    const collect = () => { for (const n of save.news) if (n.list) found.set(n.text, n.list); };
     for (let season = 0; season < 3; season++) {
       const { takeJob } = await import('../src/core/org/people');
       for (let i = 0; i < 60 && save.phase !== 'offseason'; i++) {
         if (save.fired) takeJob(save, save.fired.offers[0], true);
         advance(save, rng, 'simWeek');
+        collect();
         const m = pendingMoment(save); if (m) resolveMoment(save, m.choices.findIndex(c => !c.disabled));
       }
       if (save.fired) takeJob(save, save.fired.offers[0], true);
       // walk the offseason quickly
       const { advanceOffseason } = await import('../src/core/offseason/offseason');
       const { userOnClock, userDraftPick } = await import('../src/core/offseason/offseason');
-      for (let i = 0; i < 40 && save.phase === 'offseason'; i++) { if (userOnClock(save)) userDraftPick(save, null, rng); advanceOffseason(save, rng); }
+      for (let i = 0; i < 40 && save.phase === 'offseason'; i++) { if (userOnClock(save)) userDraftPick(save, null, rng); advanceOffseason(save, rng); collect(); }
     }
-    for (const n of save.news) if (n.list) lists.push(n.list);
+    const lists = [...found.values()];
     expect(lists.length).toBeGreaterThanOrEqual(5);
     for (const l of lists) {
       expect(l.rows.length).toBe(10);

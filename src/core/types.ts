@@ -4,6 +4,7 @@ export type Pos = 'PG' | 'SG' | 'SF' | 'PF' | 'C';
 export const POSITIONS: Pos[] = ['PG', 'SG', 'SF', 'PF', 'C'];
 
 /** sht=Shooting hnd=Handles pas=Passing spd=Speed fin=Finishing def=Defense reb=Rebounding */
+export type BadgeId = 'sniper' | 'posterizer' | 'handles' | 'dimer' | 'lockdown' | 'glass';
 export type RatingKey = 'sht' | 'hnd' | 'pas' | 'spd' | 'fin' | 'def' | 'reb';
 export const RATING_KEYS: RatingKey[] = ['sht', 'hnd', 'pas', 'spd', 'fin', 'def', 'reb'];
 export const RATING_NAMES: Record<RatingKey, string> = {
@@ -70,6 +71,8 @@ export interface Player {
   origin?: string;
   /** Draft prospects only: which ratings the user's scouts have revealed. */
   scouted?: boolean;
+  /** A special skill he has earned (see core/badges). Kept for good. */
+  badge?: BadgeId;
 }
 
 export interface StaffMember {

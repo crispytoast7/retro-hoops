@@ -9,5 +9,7 @@ export const CALENDARS: Record<'classic' | 'full', Calendar> = {
 export const cal = (save: Save): Calendar => save.calendar ?? CALENDARS.classic;
 /** Multiplier for per-game effects so a long season moves meters and credits like a short one. */
 export const perGame = (save: Save): number => 14 / cal(save).games;
+/** Wins needed to take a series in this round. The Championship is never a single game: at least a best of three. */
+export const seriesNeed = (save: Save, round: number): number => (round === 3 ? Math.max(2, cal(save).seriesWins) : cal(save).seriesWins);
 export const ROUND_NAMES = ['', 'Conference Semifinals', 'Conference Finals', 'Championship'];
 export const playoffRound = (save: Save): number => save.week - cal(save).regWeeks;
