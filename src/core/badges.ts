@@ -16,9 +16,11 @@ export const BADGES: Record<Badge, BadgeInfo> = {
 const BY_KEY: Partial<Record<RatingKey, Badge>> = { sht: 'sniper', fin: 'posterizer', hnd: 'handles', pas: 'dimer', def: 'lockdown', reb: 'glass' };
 
 /** The rating a gifted player needs to reach before the badge is his. */
-export const BADGE_AT = 82;
+export const BADGE_AT = 85;
 /** Share of players born with a gift. */
-export const GIFT_SHARE = 0.3;
+export const GIFT_SHARE = 0.15;
+/** Bumped whenever the two numbers above change, so older saves are recounted under the new rule. */
+export const BADGE_RULE = 2;
 /** What a badge is worth to its rating in simulated games. */
 export const BADGE_SIM = 4;
 
@@ -48,6 +50,12 @@ export function badgeProgress(p: Player): { badge: BadgeInfo; now: number; need:
 /** Hand out badges that have been earned. Once earned, a badge is kept for good. Returns the players who just got one. */
 export function refreshBadges(save: Save): Player[] {
   const out: Player[] = [];
+  const h = save as Save & { badgeRule?: number };
+  if (h.badgeRule !== BADGE_RULE) {
+    // a save from before the current rule: everyone is judged again from scratch
+    for (const id in save.players) delete save.players[id].badge;
+    h.badgeRule = BADGE_RULE;
+  }
   for (const id in save.players) {
     const p = save.players[id];
     if (p.badge || p.retired) continue;

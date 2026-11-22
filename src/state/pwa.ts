@@ -5,6 +5,9 @@ import { isNative } from './native';
 let apply: ((reload?: boolean) => Promise<void>) | null = null;
 let waiting = false;
 const subs = new Set<() => void>();
+/** Whether a new version may be applied without asking (set by the UI: true only where nothing can be lost). */
+let canAuto: () => boolean = () => false;
+export const setCanAuto = (f: () => boolean): void => { canAuto = f; };
 
 export function initPwa(): void {
   if (import.meta.env.DEV) return;
@@ -13,7 +16,11 @@ export function initPwa(): void {
   if (isNative()) return;
   try {
     apply = registerSW({
-      onNeedRefresh() { waiting = true; subs.forEach(f => f()); },
+      onNeedRefresh() {
+        // on the title screen nothing is in progress: take the new version straight away, no button needed
+        if (canAuto()) { void apply?.(true); return; }
+        waiting = true; subs.forEach(f => f());
+      },
       // the browser only looks for a new version on a fresh load; a home-screen app that is resumed never does.
       // Look again whenever the game comes back to the front, and every half hour while it stays open.
       onRegisteredSW(_url, reg) {

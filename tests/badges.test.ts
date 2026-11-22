@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { BADGES, BADGE_AT, announceBadges, badgeOf, badgeProgress, giftOf, refreshBadges, withBadge } from '../src/core/badges';
+import { BADGES, BADGE_AT, BADGE_RULE, announceBadges, badgeOf, badgeProgress, giftOf, refreshBadges, withBadge } from '../src/core/badges';
 import { newLeague } from '../src/core/gen/league';
 import { chooseTeam } from '../src/core/offseason/offseason';
 import { Rng } from '../src/core/rng';
@@ -14,7 +14,7 @@ function mk(seed = 6): { save: Save; rng: Rng } {
 }
 
 describe('player badges', () => {
-  test('rare: about one player in seven, every one of them with the rating to match', () => {
+  test('rare: about one player in thirty, every one of them with the rating to match', () => {
     let n = 0, b = 0;
     for (let seed = 1; seed <= 8; seed++) {
       const { save } = mk(seed);
@@ -27,15 +27,16 @@ describe('player badges', () => {
         expect(giftOf(p)).not.toBeNull();
       }
     }
-    expect(b / n).toBeGreaterThan(0.07);
-    expect(b / n).toBeLessThan(0.22);
+    expect(b / n).toBeGreaterThan(0.01);
+    expect(b / n).toBeLessThan(0.06);
   });
 
   test('a gifted player earns his badge when the rating gets there, the club is told, and he keeps it', () => {
     const { save } = mk();
-    const me = save.teams[save.userTeamId];
-    const p = me.roster.map(id => save.players[id]).find(x => !badgeOf(x) && giftOf(x))!;
+    // gifted players are rare, so take one from wherever he is and coach his club
+    const p = Object.values(save.players).find(x => x.teamId !== null && !badgeOf(x) && giftOf(x))!;
     expect(p).toBeDefined();
+    save.userTeamId = p.teamId!;
     const prog = badgeProgress(p)!;
     expect(prog.now).toBeLessThan(prog.need);
     expect(refreshBadges(save)).toEqual([]);
@@ -68,5 +69,20 @@ describe('player badges', () => {
     expect(q.ratings[k]).toBe(Math.min(99, p.ratings[k] + 4));
     for (const kk in p.ratings) if (kk !== k) expect((q.ratings as Record<string, number>)[kk]).toBe((p.ratings as Record<string, number>)[kk]);
     expect(withBadge(Object.values(save.players).find(x => !badgeOf(x))!).ratings).toBe(Object.values(save.players).find(x => !badgeOf(x))!.ratings);
+  });
+
+  test('a save made under an older, looser rule is recounted: badges nobody would earn today are taken back', () => {
+    const { save } = mk();
+    const keep = Object.values(save.players).filter(x => badgeOf(x)).map(x => x.id);
+    const fake = Object.values(save.players).find(x => !badgeOf(x) && !giftOf(x))!;
+    fake.badge = 'sniper';
+    delete (save as Save & { badgeRule?: number }).badgeRule;
+    refreshBadges(save);
+    expect(badgeOf(fake)).toBeNull();
+    expect(Object.values(save.players).filter(x => badgeOf(x)).map(x => x.id).sort()).toEqual(keep.sort());
+    expect((save as Save & { badgeRule?: number }).badgeRule).toBe(BADGE_RULE);
+    // and from then on a badge is kept for good again
+    const p = Object.values(save.players).find(x => badgeOf(x));
+    if (p) { p.ratings[BADGES[badgeOf(p)!].key] = 50; refreshBadges(save); expect(badgeOf(p)).not.toBeNull(); }
   });
 });

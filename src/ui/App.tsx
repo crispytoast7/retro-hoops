@@ -3,7 +3,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { kickMusic, setTrack } from '../audio/music';
 import { unlockAudio } from '../audio/sfx';
 import { markTip, prog } from '../core/org/progress';
-import { applyUpdate, onUpdate, updateWaiting } from '../state/pwa';
+import { applyUpdate, onUpdate, setCanAuto, updateWaiting } from '../state/pwa';
 import { flush, hasSave, touch, useSave } from '../state/store';
 import { ConfirmHost, ToastHost } from './kit';
 import { route, useRoute } from './router';
@@ -93,6 +93,9 @@ export function App() {
     </>
   );
 }
+
+// a new version found while the title screen is showing is applied at once
+setCanAuto(() => route().name === 'title');
 
 /** A new version is ready: offer it on any menu screen (the title screen has its own button). Never shown in a game. */
 function UpdateBar() {
