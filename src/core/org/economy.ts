@@ -1,5 +1,5 @@
 // Credits, facilities, staff, rating upgrades, scouting.
-import { clamp, starLevel } from '../ratings';
+import { clamp, overallOf, starLevel } from '../ratings';
 import type { Rng } from '../rng';
 import type { Facility, FacilityKey, GameResult, Player, RatingKey, Save, StaffMember, Team } from '../types';
 import { FACILITY_KEYS } from '../types';
@@ -123,6 +123,14 @@ export function maybePoach(save: Save, rng: Rng): void {
 
 // ---- rating upgrades -----------------------------------------------------------------
 export const UPGRADE_POINTS = 4;
+/** Training-camp sessions one player can take in a summer: camp sharpens a player, it does not rebuild him. */
+export const CAMP_SESSIONS = 3;
+type CampCount = { campUps?: Record<number, number> };
+/** Sessions this player has left at the current camp. */
+export const campSessionsLeft = (save: Save, p: Player): number =>
+  Math.max(0, CAMP_SESSIONS - ((save.offseason as CampCount | null)?.campUps?.[p.id] ?? 0));
+/** Nobody can be trained past his ceiling, with credits or with level-ups. */
+const reachedCeiling = (p: Player): boolean => overallOf(p.ratings, p.pos) >= p.potential;
 export function upgradeCost(save: Save, p: Player, key: RatingKey): number {
   const base = [0, 2, 3, 5, 8, 12][starLevel(p.ratings[key])];
   const training = effLevel(save.teams[save.userTeamId].facilities.training);
@@ -130,14 +138,26 @@ export function upgradeCost(save: Save, p: Player, key: RatingKey): number {
   if (save.phase === 'offseason' && save.offseason?.step === 'camp') c *= 0.75;
   return Math.max(1, Math.round(c));
 }
+/** Why this player cannot be trained right now, or null if he can. */
+export function upgradeBlock(save: Save, p: Player): string | null {
+  if (reachedCeiling(p)) return 'He has reached his ceiling.';
+  if (save.offseason && campSessionsLeft(save, p) <= 0) return `He has done his ${CAMP_SESSIONS} sessions for this camp.`;
+  return null;
+}
 export function upgradeRating(save: Save, playerId: number, key: RatingKey): string | null {
   const p = save.players[playerId];
   if (p.ratings[key] >= 99) return 'Already maxed out.';
+  const block = upgradeBlock(save, p);
+  if (block) return block;
   const cost = upgradeCost(save, p, key);
   if (save.credits < cost) return `Needs ${cost} credits.`;
   save.credits -= cost;
   p.ratings[key] = clamp(p.ratings[key] + UPGRADE_POINTS, 1, 99);
-  if (save.offseason) save.offseason.campSpent += cost;
+  if (save.offseason) {
+    save.offseason.campSpent += cost;
+    const off = save.offseason as CampCount;
+    (off.campUps ??= {})[p.id] = (off.campUps[p.id] ?? 0) + 1;
+  }
   note(save, 'train');
   return null;
 }

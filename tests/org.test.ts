@@ -12,7 +12,7 @@ import {
 } from '../src/core/offseason/offseason';
 import {
   FACILITY_COST, UPGRADE_POINTS, canHire, checkMilestones, effLevel, fireStaff, gameCredits, hireStaff, repairFacility,
-  scoutProspect, scoutedRating, upgradeCost, upgradeFacility, upgradeRating, weeklyFacilities,
+  scoutProspect, scoutedRating, upgradeBlock, upgradeCost, upgradeFacility, upgradeRating, weeklyFacilities, CAMP_SESSIONS, campSessionsLeft,
 } from '../src/core/org/economy';
 import { capSpace, capStatus, limitSpace, matchLimit, maxOffer, payroll, signingPath, statusOf } from '../src/core/org/finance';
 import { prog } from '../src/core/org/progress';
@@ -458,7 +458,7 @@ describe('economy: rating upgrades and scouting', () => {
     resetFacilities(save);
     save.credits = 100;
     const p = roster(save)[0];
-    p.ratings.sht = 50;
+    p.ratings.sht = 50; p.potential = 99;
     const cost = upgradeCost(save, p, 'sht');
     expect(upgradeRating(save, p.id, 'sht')).toBeNull();
     expect(p.ratings.sht).toBe(50 + UPGRADE_POINTS);
@@ -472,7 +472,7 @@ describe('economy: rating upgrades and scouting', () => {
     const { save } = mk();
     resetFacilities(save);
     const p = roster(save)[0];
-    p.ratings.def = 60;
+    p.ratings.def = 60; p.potential = 99;
     save.credits = 0;
     expect(upgradeRating(save, p.id, 'def')).toMatch(/credits/);
     expect(p.ratings.def).toBe(60);
@@ -481,6 +481,7 @@ describe('economy: rating upgrades and scouting', () => {
     const { save } = mk();
     resetFacilities(save);
     const p = roster(save)[0];
+    p.potential = 99;
     const costs = [30, 50, 65, 80, 95].map(v => { p.ratings.reb = v; return upgradeCost(save, p, 'reb'); });
     for (let i = 1; i < costs.length; i++) expect(costs[i]).toBeGreaterThanOrEqual(costs[i - 1]);
     expect(costs[4]).toBeGreaterThan(costs[0]);
@@ -491,6 +492,37 @@ describe('economy: rating upgrades and scouting', () => {
     save.credits = 100;
     upgradeRating(save, p.id, 'reb');
     expect(save.offseason.campSpent).toBe(upgradeCost(save, { ...p, ratings: { ...p.ratings, reb: p.ratings.reb - UPGRADE_POINTS } }, 'reb'));
+  });
+  test('nobody can be trained past his ceiling, and camp is three sessions a player', () => {
+    const { save } = mk();
+    resetFacilities(save);
+    save.credits = 500;
+    const [a, b] = roster(save);
+    // at his ceiling: credits buy nothing
+    a.potential = overallOf(a.ratings, a.pos);
+    const before = { ...a.ratings };
+    expect(upgradeBlock(save, a)).toMatch(/ceiling/);
+    expect(upgradeRating(save, a.id, 'def')).toMatch(/ceiling/);
+    expect(a.ratings).toEqual(before);
+    expect(save.credits).toBe(500);
+    // room to grow: three sessions at camp, then he is done for the summer
+    b.potential = 99;
+    for (const k of RATING_KEYS) b.ratings[k] = 60;
+    save.phase = 'offseason';
+    save.offseason = { step: 'camp', draftOrder: [], draftIdx: 0, prospects: [], faDay: 1, userOffers: {}, retired: [], campSpent: 0, log: [] };
+    expect(campSessionsLeft(save, b)).toBe(CAMP_SESSIONS);
+    for (let i = 0; i < CAMP_SESSIONS; i++) expect(upgradeRating(save, b.id, 'sht')).toBeNull();
+    expect(campSessionsLeft(save, b)).toBe(0);
+    const credits = save.credits;
+    expect(upgradeRating(save, b.id, 'def')).toMatch(/sessions/);
+    expect(save.credits).toBe(credits);
+    expect(b.ratings.sht).toBe(60 + CAMP_SESSIONS * UPGRADE_POINTS);
+    // the limit is per player, and a new camp starts fresh
+    const c = roster(save)[2];
+    c.potential = 99;
+    expect(upgradeRating(save, c.id, 'reb')).toBeNull();
+    save.offseason = { step: 'camp', draftOrder: [], draftIdx: 0, prospects: [], faDay: 1, userOffers: {}, retired: [], campSpent: 0, log: [] };
+    expect(campSessionsLeft(save, b)).toBe(CAMP_SESSIONS);
   });
   test('scoutProspect uses a point, then a credit, then errors', () => {
     const { save } = mk();

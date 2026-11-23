@@ -2,7 +2,7 @@ import { TAP, tap } from '../state/device';
 import { useState } from 'preact/hooks';
 import { ROSTER_MAX, ROSTER_MIN } from '../core/constants';
 import { CAMP_DRILLS, CAMP_SHOTS, campDrillsLeft, startCampDrill } from '../core/offseason/offseason';
-import { upgradeCost, upgradeRating } from '../core/org/economy';
+import { CAMP_SESSIONS, campSessionsLeft, upgradeBlock, upgradeCost, upgradeRating } from '../core/org/economy';
 import { capStatus, payroll } from '../core/org/finance';
 import { ovr } from '../core/ratings';
 import type { Player, RatingKey, Save } from '../core/types';
@@ -47,7 +47,7 @@ export function CampStep({ save }: { save: Save }) {
           <div><h3>ROSTER</h3><div class={`head ${n > ROSTER_MAX || n < ROSTER_MIN ? 'bad' : ''}`}>{n}/{ROSTER_MAX}</div></div>
           <div><h3>PAYROLL</h3><div class={`head ${STATUS_CLASS[capStatus(save, me)]}`}>{money(payroll(save, me))}</div></div>
         </div>
-        <div style={{ marginTop: '6px' }}>Rating upgrades cost <b class="good">25% less</b> during camp. {TAP} a player to train him.</div>
+        <div style={{ marginTop: '6px' }}>{TAP} a player to train him: up to <b class="good">{CAMP_SESSIONS} sessions</b> each, never past his ceiling.</div>
         {off.campSpent > 0 && <div class="dim" style={{ fontSize: '18px' }}>Spent at camp so far: ◉ {off.campSpent}</div>}
       </Panel>
 
@@ -68,7 +68,7 @@ export function CampStep({ save }: { save: Save }) {
       )}
 
       <div class="panel list ox-list">
-        {roster.map(p => <PlayerLine save={save} player={p} onClick={() => setSel(p.id)} sub={<span>{contractText(p)}</span>} right={<span class="tag">TRAIN</span>} />)}
+        {roster.map(p => <PlayerLine save={save} player={p} onClick={() => setSel(p.id)} sub={<span>{contractText(p)}</span>} right={upgradeBlock(save, p) ? <span class="tag dim">{campSessionsLeft(save, p) <= 0 ? 'DONE' : 'CEILING'}</span> : <span class="tag">TRAIN ×{campSessionsLeft(save, p)}</span>} />)}
       </div>
 
       <div class="row">
@@ -101,6 +101,7 @@ function TrainModal({ save, player: p, onClose }: { save: Save; player: Player; 
     toast(`${RATING_NAMES[k]} trained!`, true);
   };
   const release = async () => { if (await releaseWithConfirm(save, p)) onClose(); };
+  const block = upgradeBlock(save, p), sessions = campSessionsLeft(save, p);
   return (
     <Modal onClose={onClose}>
       <div class="row" style={{ alignItems: 'flex-start' }}>
@@ -112,6 +113,8 @@ function TrainModal({ save, player: p, onClose }: { save: Save; player: Player; 
         </div>
       </div>
       <div class="row between"><span class="dim">Credits</span><span class="head gold">◉ {save.credits}</span></div>
+      <div class="row between"><span class="dim">Ceiling</span><Stars v={p.potential} /></div>
+      <div class={block ? 'gold' : 'dim'} style={{ fontSize: '18px' }}>{block ?? `${sessions} of ${CAMP_SESSIONS} camp sessions left.`}</div>
       <div class="list">
         {RATING_KEYS.map(k => {
           const cost = upgradeCost(save, p, k);
@@ -122,12 +125,12 @@ function TrainModal({ save, player: p, onClose }: { save: Save; player: Player; 
                 <div>{RATING_NAMES[k]}</div>
                 <div class="row" style={{ gap: '6px' }}><Stars v={p.ratings[k]} /><span class="ox-prog" title="Progress to the next half star"><span style={{ width: `${Math.round(halfStarProgress(p.ratings[k]) * 100)}%` }} /></span></div>
               </div>
-              <Btn disabled={maxed || save.credits < cost} onClick={() => up(k)} silent>{maxed ? 'MAX' : `+ ◉${cost}`}</Btn>
+              <Btn disabled={maxed || !!block || save.credits < cost} onClick={() => up(k)} silent>{maxed ? 'MAX' : `+ ◉${cost}`}</Btn>
             </div>
           );
         })}
       </div>
-      <div class="dim" style={{ fontSize: '17px' }}>Each upgrade adds a little; the bar under the stars fills toward the next half star.</div>
+      <div class="dim" style={{ fontSize: '17px' }}>The bar under the stars fills toward the next half star.</div>
       <div class="row">
         <Btn kind="danger" onClick={() => { void release(); }}>Release</Btn>
         <Btn class="grow" kind="primary" onClick={onClose}>Done</Btn>

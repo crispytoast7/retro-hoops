@@ -59,7 +59,7 @@ const STEP_TIPS: Record<string, Tip> = {
   contracts: { id: 'o_contracts', title: 'Contracts', text: ['Re-sign the players you want to keep. The rest leave when you continue.', 'You may pass the salary cap for your own players, never the hard limit.'] },
   draft: { id: 'o_draft', title: 'The draft', text: ['The worst teams pick first. On the clock? Tap a prospect.', 'Rookies are cheap. Scouted ones show their true ratings.'] },
   freeAgency: { id: 'o_freeAgency', title: 'Free agency', text: ['Five days. Offer a salary and years.', 'You need cap room, and the best players sign on day one.'] },
-  camp: { id: 'o_camp', title: 'Training camp', text: ['Rating upgrades are 25% cheaper in camp.', 'Check your lineup, then start the season.'] },
+  camp: { id: 'o_camp', title: 'Training camp', text: ['Spend credits to train players: three sessions each.', 'Nobody trains past his ceiling.', 'Check your lineup, then start the season.'] },
 };
 const WELCOME: Tip = {
   id: 'welcome', title: 'Welcome, Coach', pages: true,
