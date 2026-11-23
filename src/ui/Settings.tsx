@@ -65,7 +65,7 @@ export function SettingsScreen(_p: { params: Record<string, any> }) {
   const doExport = async () => {
     const s = getSave();
     if (isNative()) {
-      // the iPhone app has no downloads folder: hand the file to the share sheet instead
+      // the phone apps have no downloads folder: hand the file to the share sheet instead
       const ok = await shareFile(`retro-hoops-${s.coach.name.replace(/\W+/g, '-').toLowerCase()}-season-${s.year}.json`, exportSave());
       if (!ok) toast('Could not open the share sheet.');
       return;

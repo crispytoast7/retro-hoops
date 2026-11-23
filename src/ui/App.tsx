@@ -4,6 +4,7 @@ import { kickMusic, setTrack } from '../audio/music';
 import { unlockAudio } from '../audio/sfx';
 import { markTip, prog } from '../core/org/progress';
 import { applyUpdate, onUpdate, setCanAuto, updateWaiting } from '../state/pwa';
+import { onAndroidBack } from '../state/native';
 import { flush, hasSave, touch, useSave } from '../state/store';
 import { ConfirmHost, ToastHost } from './kit';
 import { route, useRoute } from './router';
@@ -56,6 +57,16 @@ function WithSave(p: { C: ScreenFn; params: Record<string, any>; route: string }
   );
 }
 
+/** Screens played on the court: nothing may pull the player out of them by accident. */
+const onCourt = (): boolean => route().name === 'game' || route().name === 'practice' || route().name === 'allstar';
+/** Press the screen's own "<" button, if it has one. */
+function pressBack(): boolean {
+  const backBtn = document.querySelector('.screen .topbar .btn.small') as HTMLElement | null;
+  if (!backBtn || backBtn.textContent?.trim() !== '<') return false;
+  backBtn.click();
+  return true;
+}
+
 export function App() {
   const r = useRoute();
   useEffect(() => {
@@ -73,14 +84,16 @@ export function App() {
         // the main button of whatever is on top: a pop-up first, then the screen's footer
         const btn = (modal?.querySelector('.btn.primary:not(:disabled)') ?? (!modal ? document.querySelector('.screen .footer .btn.primary:not(:disabled)') : null)) as HTMLElement | null;
         if (btn) { e.preventDefault(); btn.click(); }
-      } else if (k === 'Escape' && !modal && route().name !== 'game' && route().name !== 'practice' && route().name !== 'allstar') {
-        const backBtn = document.querySelector('.screen .topbar .btn.small') as HTMLElement | null;
-        if (backBtn && backBtn.textContent?.trim() === '<') { e.preventDefault(); backBtn.click(); }
+      } else if (k === 'Escape' && !modal && !onCourt()) {
+        if (pressBack()) e.preventDefault();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  // Android's back button: out of a menu screen like Escape; ignored on the court and while a pop-up
+  // waits for an answer; off to the home screen from a screen with nowhere to go back to
+  useEffect(() => onAndroidBack(() => (document.querySelector('.modal, .moment') || onCourt() ? 'stay' : pressBack())), []);
   useEffect(() => { setTrack(r.name === 'game' || r.name === 'practice' || r.name === 'allstar' ? 'game' : 'menu'); }, [r.name]);
   const C = SCREENS[r.name] ?? TitleScreen;
   const needsSave = r.name !== 'title' && r.name !== 'newgame' && r.name !== 'settings';

@@ -117,6 +117,25 @@ With a free Apple ID the app stops opening after 7 days; run step 3 again to ren
 (your save stays). A paid Apple Developer membership makes that one year. To work in
 Xcode instead, run `npm run ios:sync` then `npm run ios:open` and press Run.
 
+## Android app
+
+The same game also runs as a native Android app through the Capacitor shell in `android/`:
+its own icon, saves kept inside the app, fully offline, and the phone's back button leaves
+menu screens.
+
+To build the installable file (needs Java 21 and the Android SDK; the top of
+`scripts/android-apk.sh` lists what to install):
+
+- `npm run android:apk` builds `android/Retro-Hoops.apk`. Send that file to an Android
+  phone, open it there and allow the install when Android asks.
+- `npm run android:device` builds it and installs it on a phone plugged into this computer
+  (with USB debugging switched on under Settings > Developer options).
+
+The first build creates a signing key in `~/.retro-hoops/`. Android only installs an update
+over the old app (keeping the save) when it is signed with the same key, so keep a copy of
+that folder; it is deliberately not part of this repo. To work in Android Studio instead,
+run `npm run android:sync` and open the `android/` folder.
+
 ## How it is built
 
 See [ARCHITECTURE.md](ARCHITECTURE.md). In short: Vite + TypeScript, Canvas 2D for the

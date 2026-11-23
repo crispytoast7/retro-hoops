@@ -11,9 +11,14 @@
     "typecheck": "tsc --noEmit",
     "ios:sync": "npm run build && cap sync ios",
     "ios:open": "cap open ios",
-    "ios:device": "bash scripts/ios-device.sh"
+    "ios:device": "bash scripts/ios-device.sh",
+    "android:sync": "npm run build && cap sync android",
+    "android:apk": "bash scripts/android-apk.sh",
+    "android:device": "bash scripts/android-apk.sh --install"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
     "@capacitor/core": "^8.6.2",
     "@capacitor/filesystem": "^8.1.5",
     "@capacitor/haptics": "^8.0.2",

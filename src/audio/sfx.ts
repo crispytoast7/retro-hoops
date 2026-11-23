@@ -139,7 +139,7 @@ export function stopCrowd(): void {
   crowdSrc = null; crowdGain = null;
 }
 
-// big plays are felt as well as heard (iPhone app only)
+// big plays are felt as well as heard (phone apps only)
 const FEEL: Partial<Record<keyof typeof sfx, Parameters<typeof buzz>[0]>> = { dunk: 'heavy', swish: 'light', perfect: 'success', steal: 'medium', block: 'medium' };
 for (const k of Object.keys(FEEL) as (keyof typeof sfx)[]) {
   const play = sfx[k] as (...a: unknown[]) => void;

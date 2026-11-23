@@ -56,7 +56,7 @@ export async function loadStored(): Promise<Save | null> {
   let a: Save | null = null, b: Save | null = null;
   try { a = parse(await idbGet()); } catch { /* IndexedDB unavailable */ }
   try { b = parse(localStorage.getItem(LS_KEY)); } catch { /* storage blocked */ }
-  // in the iPhone app, a third copy lives in the app's own files: the newest of the three wins
+  // in the phone apps, a third copy lives in the app's own files: the newest of the three wins
   const c = parse(await fileGet());
   return [a, b, c].filter((x): x is Save => !!x).sort((x, y) => y.savedAt - x.savedAt)[0] ?? null;
 }

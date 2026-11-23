@@ -11,7 +11,7 @@ export const setCanAuto = (f: () => boolean): void => { canAuto = f; };
 
 export function initPwa(): void {
   if (import.meta.env.DEV) return;
-  // inside the native iPhone shell the files are already on the device: no service worker needed.
+  // inside the native iPhone or Android shell the files are already on the device: no service worker needed.
   // (Not `window.Capacitor`: the Capacitor library defines that in a plain browser too.)
   if (isNative()) return;
   try {
