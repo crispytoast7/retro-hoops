@@ -249,13 +249,23 @@ export function progressPlayer(p: Player, rng: Rng, training: number, minShare: 
   if (p.trait === 'Hard Worker') mean += 0.8;
   if (p.trait === 'Lazy') mean -= 0.8;
   const delta = mean + rng.gauss() * 1.4;
+  const was = { ...p.ratings };
   for (const k of RATING_KEYS) {
     let d = delta + rng.gauss() * 1.6;
     if (delta < 0 && ATHLETIC.includes(k)) d *= 1.5;
     if (delta < 0 && (k === 'sht' || k === 'pas')) d *= 0.45;
     p.ratings[k] = clamp(Math.round(p.ratings[k] + d), 15, 99);
   }
+  // the ceiling is physical: a good summer takes him up to it, never through it
+  const cap = Math.max(p.potential, before);
+  for (let i = 0; i < 400 && overallOf(p.ratings, p.pos) > cap; i++) {
+    const grown = RATING_KEYS.filter(k => p.ratings[k] > was[k]);
+    if (!grown.length) break;
+    const k = grown.reduce((a, b) => (p.ratings[b] - was[b] > p.ratings[a] - was[a] ? b : a));
+    p.ratings[k]--;
+  }
   const after = overallOf(p.ratings, p.pos);
-  if (after > p.potential) p.potential = after;
+  // and it comes down with age: past thirty he can train back a little of what he has lost, not all of it
+  if (a >= 30) p.potential = clamp(p.potential, after, after + 2);
   return after - before;
 }

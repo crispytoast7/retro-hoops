@@ -26,6 +26,16 @@ export function stars(v: number): number {
 export const starLevel = (v: number): number => Math.max(1, Math.min(5, Math.ceil(stars(v))));
 
 export const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+/**
+ * Raise one rating by up to `by` points. A player's ceiling is physical: the raise stops at the point
+ * where his overall would pass it. Returns what he actually gained.
+ */
+export function raiseRating(p: Player, key: RatingKey, by: number): number {
+  const before = p.ratings[key];
+  p.ratings[key] = clamp(before + by, 1, 99);
+  while (p.ratings[key] > before && overallOf(p.ratings, p.pos) > p.potential) p.ratings[key]--;
+  return p.ratings[key] - before;
+}
 export const round1 = (v: number): number => Math.round(v * 10) / 10;
 
 export function emptyStats(): StatLine {

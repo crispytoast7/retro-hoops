@@ -11,7 +11,7 @@ import { afterUserGame, bumpFans, bumpOwner, checkFired, healWeek, rollEvent, ro
 import { checkTrophies, gameProgress, isUnlocked, perk, seasonProgress } from '../org/progress';
 import { Objective, ObjectiveResult, settleObjective } from '../org/objectives';
 import { gameXp } from '../org/xp';
-import { heatedGame, rollMoment } from '../org/moments';
+import { heatedGame, rollMoment, settleStakes } from '../org/moments';
 import { doChores } from '../org/chores';
 import { publishGoatList } from '../org/goat';
 import { FormChange, awardPlayerOfWeek, edgeFor, hasEdge, pressure, withPressure, isRivalGame, notePerformance, settleSponsor, sponsorOf, updateForm, weekState, withForm } from '../org/week';
@@ -112,8 +112,13 @@ export interface PostGame {
   /** What else the game meant: rivalry, a guarantee kept or broken, a sponsor paying out. */
   notes: { text: string; good: boolean }[];
 }
-/** After the user's own game (played or simmed): credits, coach record, morale, owner, fans. */
-export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult, highlights: string[], rng: Rng, objective?: Objective | null): PostGame {
+/** What a game pays when the user leaves it to his assistant instead of playing it. */
+export const SIM_PAY = 0.5;
+/**
+ * After the user's own game (played or simmed): credits, coach record, morale, owner, fans.
+ * `simmed`: he did not coach it himself, so the club's takings and his own XP are cut to SIM_PAY.
+ */
+export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult, highlights: string[], rng: Rng, objective?: Objective | null, simmed = false): PostGame {
   applyGame(save, g, result, rng);
   const home = g.homeId === save.userTeamId;
   const my = home ? result.homeScore : result.awayScore, their = home ? result.awayScore : result.homeScore;
@@ -135,7 +140,10 @@ export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult,
       if (v > 0 && (!cur || v > cur.value)) save.records[k] = { value: v, playerId: p.id, name: p.name, year: save.year, teamId: save.userTeamId };
     }
   }
-  const credits = [...gameCredits(save, result, highlights, !!g.playoff, scale), ...checkMilestones(save)];
+  const pay = gameCredits(save, result, highlights, !!g.playoff, scale);
+  // sitting a game out is not free: the assistant's games bring in half
+  if (simmed) { const cut = Math.round(pay.reduce((s, x) => s + x.amount, 0) * (1 - SIM_PAY) * 100) / 100; if (cut > 0) pay.push({ label: 'Simulated: half pay', amount: -cut }); }
+  const credits = [...pay, ...checkMilestones(save)];
   // what the week's plan and the rivalry add
   const notes: PostGame['notes'] = [];
   const edge = edgeFor(save);
@@ -147,6 +155,9 @@ export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult,
     if (won) { credits.push({ label: heat ? 'Rivalry win (you fired back)' : 'Rivalry win', amount: heat ? 4 : 2 }); bumpFans(save, heat ? 6 : 3); notes.push({ text: `You beat your rivals, the ${opp.name}. Fans +${heat ? 6 : 3}.${heat ? ' Your words held up.' : ''}`, good: true }); }
     else { bumpFans(save, heat ? -5 : -2); notes.push({ text: `You lost to your rivals, the ${opp.name}. Fans -${heat ? 5 : 2}.${heat ? ' After all that talk.' : ''}`, good: false }); }
   }
+  // something a big moment put on this game: a guarantee, a grudge, a promise to the owner
+  const stake = settleStakes(save, g.id, won);
+  if (stake) { if (stake.credits) credits.push({ label: stake.label, amount: stake.credits }); notes.push({ text: stake.text, good: won }); }
   if (edge?.kind === 'promo') {
     const gate = credits.find(x => x.label === 'Home gate');
     if (gate) credits.push({ label: 'Ticket promotion', amount: gate.amount });
@@ -164,7 +175,7 @@ export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult,
   const me = save.teams[save.userTeamId];
   if (!g.playoff && me.record.streak === -4) pushNews(save, 'owner', headline(rng, 'ownerAngry', { owner: save.owner.name, team: me.name }), true);
   if (!g.playoff && me.record.streak === 4) pushNews(save, 'owner', headline(rng, 'ownerHappy', { owner: save.owner.name, team: me.name }), true);
-  const gp = gameProgress(save, result, highlights, !!g.playoff, scale);
+  const gp = gameProgress(save, result, highlights, !!g.playoff, simmed ? scale * SIM_PAY : scale);
   const done = objective ? settleObjective(save, objective, result, highlights) : null;
   const playerLevelUps = gameXp(save, lines, g.playoff ? 1 : Math.max(scale, 0.35));
   const form = updateForm(save, lines, rng);
@@ -181,7 +192,7 @@ export function finishUserGame(save: Save, g: ScheduledGame, result: GameResult,
 function simGame(save: Save, g: ScheduledGame, rng: Rng): PostGame | null {
   fixLineup(save, save.teams[g.homeId]); fixLineup(save, save.teams[g.awayId]);
   const result = simulateGame(buildSetup(save, g, 0), rng);
-  if (g.homeId === save.userTeamId || g.awayId === save.userTeamId) return finishUserGame(save, g, result, [], rng);
+  if (g.homeId === save.userTeamId || g.awayId === save.userTeamId) return finishUserGame(save, g, result, [], rng, null, true);
   applyGame(save, g, result, rng);
   return null;
 }

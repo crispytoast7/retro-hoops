@@ -41,7 +41,7 @@ export function BigMomentHost({ save }: { save: Save }) {
         <div class="moment-text">{m!.text}</div>
         <div class="col" style={{ gap: '6px' }}>
           {m!.choices.map((c, i) => (
-            <Btn class="opt" disabled={!!c.disabled} silent onClick={() => { const r = act(s => resolveMoment(s, i)); if (r) { if (r.good) sfx.fanfare(); else sfx.select(); setRes(r); } }}>
+            <Btn class="opt" disabled={!!c.disabled} silent onClick={() => { const r = act((s, rng) => resolveMoment(s, i, rng)); if (r) { if (r.good) sfx.fanfare(); else sfx.select(); setRes(r); } }}>
               <span>{c.label}</span><span class="fx">{c.disabled ?? c.effect}</span>
             </Btn>
           ))}

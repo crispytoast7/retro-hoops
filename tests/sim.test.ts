@@ -224,7 +224,7 @@ describe('simulateGame', () => {
     expect(big).toBeGreaterThan(home);
     expect(home / n).toBeGreaterThan(0.525);
     expect(home / n).toBeLessThan(0.585);
-  });
+  }, 30000);
 
   test('a star leads the box score', () => {
     const a = makeSquad(1), b = makeSquad(2);

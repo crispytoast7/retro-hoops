@@ -1,5 +1,5 @@
 // Credits, facilities, staff, rating upgrades, scouting.
-import { clamp, overallOf, starLevel } from '../ratings';
+import { clamp, overallOf, raiseRating, starLevel } from '../ratings';
 import type { Rng } from '../rng';
 import type { Facility, FacilityKey, GameResult, Player, RatingKey, Save, StaffMember, Team } from '../types';
 import { FACILITY_KEYS } from '../types';
@@ -152,7 +152,7 @@ export function upgradeRating(save: Save, playerId: number, key: RatingKey): str
   const cost = upgradeCost(save, p, key);
   if (save.credits < cost) return `Needs ${cost} credits.`;
   save.credits -= cost;
-  p.ratings[key] = clamp(p.ratings[key] + UPGRADE_POINTS, 1, 99);
+  raiseRating(p, key, UPGRADE_POINTS);
   if (save.offseason) {
     save.offseason.campSpent += cost;
     const off = save.offseason as CampCount;

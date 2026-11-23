@@ -1,5 +1,5 @@
 // Player experience: your players earn XP in games and level up; you choose what improves.
-import { clamp, gameScore, ovr } from '../ratings';
+import { clamp, gameScore, ovr, raiseRating } from '../ratings';
 import type { BoxLine, Player, RatingKey, Save } from '../types';
 import { effLevel } from './economy';
 import { note } from './progress';
@@ -54,7 +54,7 @@ export function spendPoint(save: Save, playerId: number, key: RatingKey): string
   if (p.ratings[key] >= 99) return 'Already maxed out.';
   if (atCeiling(p)) return 'He has reached his ceiling.';
   p.pts = (p.pts ?? 0) - 1;
-  p.ratings[key] = clamp(p.ratings[key] + POINT_GAIN, 1, 99);
+  raiseRating(p, key, POINT_GAIN);
   note(save, 'train');
   return null;
 }

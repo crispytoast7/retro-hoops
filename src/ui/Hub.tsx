@@ -12,7 +12,7 @@ import { gamesInWeek, userGame, userGamesInWeek } from '../core/season/schedule'
 import { playoffMoment } from '../core/season/bracket';
 import { readyToLevel } from '../core/org/xp';
 import { choresList, doChores } from '../core/org/chores';
-import { pendingMoment } from '../core/org/moments';
+import { pendingMoment, stakesFor } from '../core/org/moments';
 import { BigMomentHost } from './BigMoment';
 import { ClubView } from './ClubView';
 import { doPlan, skipPlan, edgeFor, ensureWeek, honorNow, intel, pressure, needsWeek, plansOpen, signSponsor, sponsorOf, sponsorOffers, sponsorOpen, sponsorProgress, weekState } from '../core/org/week';
@@ -256,6 +256,7 @@ export function HubScreen(_p: { params: Record<string, any> }) {
                 {lean >= 1.5 && <div class="bad">TARGET ON YOUR BACK · everyone brings their best against you (opponents +{lean})</div>}
                 {lean <= -1 && <div class="good">TAKEN LIGHTLY · they are not up for this one (opponents {lean})</div>}
                 {edge && <div class="good">EDGE · {edge.label}</div>}
+                {stakesFor(save, g.id) && <div class="gold">ON THE LINE · {stakesFor(save, g.id)!.label}</div>}
               </div>
             )}
             <div style={{ height: '10px' }} />
@@ -263,6 +264,7 @@ export function HubScreen(_p: { params: Record<string, any> }) {
               <Btn kind="primary big" class="grow" disabled={me.lineup.length < 5} onClick={() => go('play')}>Play</Btn>
               <Btn onClick={() => go('sim')}>Sim</Btn>
             </div>
+            <div class="dim center" style={{ marginTop: '6px', fontSize: '17px' }}>A simmed game pays half.</div>
             {planWaiting && <div class="gold center" style={{ marginTop: '6px', fontSize: '18px' }}>Make your move for the week first ▼</div>}
             {seriesText && <div class="gold center" style={{ marginTop: '8px' }}>{seriesText} · best of {need * 2 - 1}</div>}
             {save.phase === 'playoffs' && <><div style={{ height: '8px' }} /><Btn kind="small block" onClick={() => nav('bracket')}>View the bracket</Btn></>}

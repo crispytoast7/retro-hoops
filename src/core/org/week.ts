@@ -4,7 +4,7 @@ import { MIN_SALARY } from '../constants';
 import { genPlayer, shortName } from '../gen/league';
 import { marketSalary } from '../gm/value';
 import { fixLineup } from '../lineup';
-import { clamp, gameScore, ovr } from '../ratings';
+import { clamp, gameScore, ovr, raiseRating } from '../ratings';
 import { Rng } from '../rng';
 import { cal } from '../season/calendar';
 import { standings, userGame } from '../season/schedule';
@@ -261,8 +261,7 @@ export function doPlan(save: Save, id: string, rng: Rng): string | null {
   const edge = (kind: EdgeKind, label: string) => { w.edge = { kind, label }; };
   if (plan.id.startsWith('drill_') && p && plan.key) {
     const before = p.ratings[plan.key];
-    p.ratings[plan.key] = clamp(before + 2, 1, 99);
-    if (ovr(p) > p.potential) p.potential = ovr(p);
+    raiseRating(p, plan.key, 2);
     result = `${p.name}: ${RATING_NAME[plan.key]} ${before} to ${p.ratings[plan.key]}.`;
   } else switch (plan.id) {
     case 'scrimmage': {
@@ -294,8 +293,7 @@ export function doPlan(save: Save, id: string, rng: Rng): string | null {
       if (rng.chance(2 / 3)) {
         const k = rng.pick(RATING_KEYS.filter(x => p.ratings[x] < 96));
         const before = p.ratings[k];
-        p.ratings[k] = clamp(before + 4, 1, 99);
-        if (ovr(p) > p.potential) p.potential = ovr(p);
+        raiseRating(p, k, 4);
         result = `It worked. ${last(p)}: ${RATING_NAME[k]} ${before} to ${p.ratings[k]}.`;
       } else {
         p.injury = { weeks: 1, desc: 'sore' };
