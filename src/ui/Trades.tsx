@@ -16,7 +16,7 @@ import { POSITIONS } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { act, useSave } from '../state/store';
 import { Btn, Modal, Panel, Screen, Stars, Tabs, confirmDialog, fullName, money, recordStr, toast } from './kit';
-import { BestFive, CeilTag } from './TradeCard';
+import { BestFive, CeilTag, RoleTag } from './TradeCard';
 import { stillGrowing } from '../core/org/economy';
 import { CapTag, FreeAgentList, PlayerLine, STATUS_CLASS, STRATEGY_HINT, VIA_TEXT, contractText, dealText, pickText } from './OffseasonParts';
 
@@ -113,7 +113,7 @@ function OfferCard({ save, offer, title, onAccept, onDecline }: { save: Save; of
       <div class="offer-label">YOU GET</div>
       <div class="list">
         {gets.players.map(id => save.players[id]).filter(Boolean).map(pl => (
-          <PlayerLine save={save} player={pl} sub={<span>{contractText(pl)}</span>} />
+          <PlayerLine save={save} player={pl} sub={<><span>{contractText(pl)}</span><RoleTag save={save} p={pl} /></>} />
         ))}
         {gets.picks.map(pk => <div class="item" style={{ minHeight: '36px' }}><span class="tag gold">PICK</span><span class="grow">{pickWords(save, from, pk)}</span></div>)}
         {!gets.players.length && !gets.picks.length && <div class="item dim" style={{ minHeight: '36px' }}>Nothing back: they simply take the contract off your hands.</div>}
@@ -121,7 +121,7 @@ function OfferCard({ save, offer, title, onAccept, onDecline }: { save: Save; of
       <div class="offer-label">YOU GIVE</div>
       <div class="list">
         {offer.bGives.players.map(id => save.players[id]).filter(Boolean).map(pl => (
-          <PlayerLine save={save} player={pl} sub={<span>{contractText(pl)}</span>} />
+          <PlayerLine save={save} player={pl} sub={<><span>{contractText(pl)}</span><RoleTag save={save} p={pl} /></>} />
         ))}
         {offer.bGives.picks.map(pk => <div class="item" style={{ minHeight: '36px' }}><span class="tag gold">PICK</span><span class="grow">{pickWords(save, me, pk)}</span></div>)}
         {!offer.bGives.players.length && !offer.bGives.picks.length && <div class="item dim" style={{ minHeight: '36px' }}>Nothing</div>}
@@ -379,7 +379,7 @@ function AssetList({ save, team, side, onPlayer, onPick }: { save: Save; team: T
         return (
           <PlayerLine save={save} player={pl} sel={on} onClick={() => onPlayer(pl.id)}
             note={save.tradeDemands.includes(pl.id) ? <span class="tag bad" style={{ marginLeft: '4px' }}>WANTS OUT</span> : null}
-            sub={<><span>{contractText(pl)}</span>{stillGrowing(pl) && <CeilTag save={save} p={pl} />}</>}
+            sub={<><span>{contractText(pl)}</span><RoleTag save={save} p={pl} />{stillGrowing(pl) && <CeilTag save={save} p={pl} />}</>}
             right={<span class={`tag ${on ? 'good' : ''}`}>{on ? 'IN ✓' : 'ADD'}</span>} />
         );
       })}

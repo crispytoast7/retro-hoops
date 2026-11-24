@@ -19,12 +19,21 @@ function Side({ save, title, players, picks }: { save: Save; title: string; play
         <div class="tc-p">
           <div class="row" style={{ gap: '4px' }}><span class="tag pos">{p.pos}</span><span class="nowrap">{short(p.name)}</span></div>
           <div class="row" style={{ gap: '6px', fontSize: '16px' }}><Stars v={ovr(p)} /><span class="dim">{p.age}y · {p.contract.years}yr</span></div>
+          <RoleTag save={save} p={p} />
         </div>
       ))}
       {picks.map(pk => <div class="tc-p dim" style={{ fontSize: '17px' }}>{pickText(save, pk)}</div>)}
       {!players.length && !picks.length && <div class="dim">Nothing</div>}
     </div>
   );
+}
+
+/** Starter or bench, on whichever club he plays for now. */
+export function RoleTag({ save, p }: { save: Save; p: Player }) {
+  const t = p.teamId !== null ? save.teams[p.teamId] : null;
+  if (!t) return null;
+  const starts = t.lineup.includes(p.id);
+  return <span class={`tag ${starts ? 'gold' : ''}`}>{starts ? 'STARTER' : 'BENCH'}</span>;
 }
 
 /** A young player's ceiling, in a word: exact if known, a range if not. */
