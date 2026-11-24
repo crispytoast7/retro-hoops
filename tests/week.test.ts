@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { newLeague } from '../src/core/gen/league';
 import { chooseTeam } from '../src/core/offseason/offseason';
-import { doPlan, edgeFor, ensureWeek, formOf, intel, isRivalGame, needsWeek, plansOpen, rivalOf, signSponsor, sponsorOf, sponsorOffers, sponsorOpen, sponsorProgress, weekState, withForm } from '../src/core/org/week';
+import { doPlan, edgeFor, ensureWeek, formOf, intel, isRivalGame, needsWeek, plansOpen, rivalOf, signSponsor, sponsorOf, sponsorOffers, sponsorOpen, sponsorProgress, weekState, withForm, quietWeek } from '../src/core/org/week';
 import { Rng } from '../src/core/rng';
 import { CALENDARS } from '../src/core/season/calendar';
 import { advance, sideInput } from '../src/core/season/flow';
@@ -37,6 +37,8 @@ describe('the weekly plan', () => {
     for (let i = 0; i < 10; i++) {
       ensureWeek(save);
       const w = weekState(save);
+      // a quiet week deals nothing
+      if (quietWeek(save)) { expect(w.hand.length).toBe(0); play(save, rng); continue; }
       const ids = w.hand.map(p => p.id);
       if (ids.every(id => w.last.includes(id))) repeats++;
       ids.forEach(id => seen.add(id));
@@ -47,7 +49,7 @@ describe('the weekly plan', () => {
       play(save, rng);
     }
     expect(repeats).toBe(0);
-    expect(seen.size).toBeGreaterThanOrEqual(9);
+    expect(seen.size).toBeGreaterThanOrEqual(8);
   });
 
   test('every plan can be carried out', () => {
@@ -62,6 +64,7 @@ describe('the weekly plan', () => {
       for (let i = 0; i < 6 && save.phase === 'regular'; i++) {
         ensureWeek(save);
         const w = weekState(save);
+        if (!w.hand.length) { play(save, rng); continue; } // a quiet week
         const plan = w.hand[(seed + i) % w.hand.length];
         const r = doPlan(save, plan.id, rng);
         expect(r, plan.id).toBeTruthy();

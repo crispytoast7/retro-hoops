@@ -6,8 +6,8 @@ import { FACILITY_KEYS } from '../types';
 import { NEWS } from '../../data/news';
 import { note, perk } from './progress';
 
-export function pushNews(save: Save, kind: Save['news'][number]['kind'], text: string, mine = false): void {
-  save.news.unshift({ year: save.year, week: save.week, kind, text, mine });
+export function pushNews(save: Save, kind: Save['news'][number]['kind'], text: string, mine = false, big = false): void {
+  save.news.unshift({ year: save.year, week: save.week, kind, text, mine, ...(big ? { big } : {}) });
   if (save.news.length > 200) save.news.length = 200;
 }
 export function headline(rng: Rng, key: string, tokens: Record<string, string | number>): string {

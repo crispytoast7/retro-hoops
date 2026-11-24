@@ -25,6 +25,7 @@ import { PlayerScreen } from './Player';
 import { PostGameScreen } from './PostGame';
 import { PracticeScreen } from './Practice';
 import { ProgressHost } from './Tips';
+import { RankingsScreen } from './Rankings';
 import { RosterScreen } from './Roster';
 import { ScheduleScreen } from './Schedule';
 import { ScoutingScreen } from './Scouting';
@@ -40,7 +41,7 @@ const SCREENS: Record<string, ScreenFn> = {
   title: TitleScreen, newgame: NewGameScreen, hub: HubScreen, roster: RosterScreen, player: PlayerScreen,
   lineup: LineupScreen, staff: StaffScreen, facilities: FacilitiesScreen, finances: FinancesScreen,
   trades: TradesScreen, standings: StandingsScreen, schedule: ScheduleScreen, stats: StatsScreen,
-  history: HistoryScreen, news: NewsScreen, game: GameScreen, postgame: PostGameScreen,
+  history: HistoryScreen, news: NewsScreen, rankings: RankingsScreen, game: GameScreen, postgame: PostGameScreen,
   offseason: OffseasonScreen, scouting: ScoutingScreen, settings: SettingsScreen, fired: FiredScreen, coach: CoachScreen, practice: PracticeScreen, allstar: AllStarScreen,
   bracket: BracketScreen, champion: ChampionScreen,
 };

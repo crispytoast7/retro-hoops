@@ -215,6 +215,24 @@ function candidates(save: Save, rng: Rng): Weighted[] {
   return out;
 }
 
+/**
+ * Not every week has something in it. About three weeks in ten are quiet: no plans to pick from, no
+ * pop-up events, nothing but the game. (Playoff weeks, the first two weeks and deadline week never are.)
+ */
+export function quietWeek(save: Save): boolean {
+  if (save.phase !== 'regular') return false;
+  const c = cal(save);
+  // drawn once a season: a set number of them, never two in a row, different every year and for every club
+  const rng = new Rng((Math.imul(save.year + 11, 0x9e3779b1) ^ Math.imul(save.userTeamId + 3, 0x85ebca6b)) >>> 0);
+  const open = rng.shuffle(Array.from({ length: Math.max(0, c.regWeeks - 2) }, (_, i) => i + 3).filter(w => w !== c.deadlineWeek));
+  const quiet = new Set<number>();
+  for (const w of open) {
+    if (quiet.size >= Math.round(c.regWeeks * 0.28)) break;
+    if (!quiet.has(w - 1) && !quiet.has(w + 1)) quiet.add(w);
+  }
+  return quiet.has(save.week);
+}
+
 /** Deal this week's three plans (one to train, one to prepare, one for the club) if the week has changed. */
 export function ensureWeek(save: Save): boolean {
   const w = weekState(save);
@@ -224,7 +242,7 @@ export function ensureWeek(save: Save): boolean {
   // remember two weeks back, so the same plan does not keep coming round
   w.last = [...w.hand.map(p => p.id), ...w.last.slice(0, 3)];
   w.key = key; w.picked = null; w.result = null; w.edge = null; w.hand = [];
-  if (!plansOpen(save)) return true;
+  if (!plansOpen(save) || quietWeek(save)) return true;
   const rng = new Rng((save.rng ^ Math.imul(save.year * 97 + save.week, 2654435761)) >>> 0);
   const all = candidates(save, rng);
   for (const group of ['train', 'prep', 'club'] as const) {

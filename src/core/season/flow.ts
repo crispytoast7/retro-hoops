@@ -14,7 +14,8 @@ import { gameXp } from '../org/xp';
 import { heatedGame, rollMoment, settleStakes } from '../org/moments';
 import { doChores } from '../org/chores';
 import { publishGoatList } from '../org/goat';
-import { FormChange, awardPlayerOfWeek, edgeFor, hasEdge, pressure, withPressure, isRivalGame, notePerformance, settleSponsor, sponsorOf, updateForm, weekState, withForm } from '../org/week';
+import { mvpWeek, powerWeek, publishMvpLadder, publishPower } from '../org/rankings';
+import { FormChange, quietWeek, awardPlayerOfWeek, edgeFor, hasEdge, pressure, withPressure, isRivalGame, notePerformance, settleSponsor, sponsorOf, updateForm, weekState, withForm } from '../org/week';
 import { addStats } from '../ratings';
 import type { Rng } from '../rng';
 import { createLiveGame, simulateGame } from '../sim/engine';
@@ -276,7 +277,7 @@ function advancePlayoffs(save: Save, rng: Rng): boolean {
     const f = done[0];
     po.championId = f.winnerId;
     const champ = save.teams[f.winnerId!], other = save.teams[f.winnerId === f.highId ? f.lowId : f.highId];
-    pushNews(save, 'league', headline(rng, 'champion', { team: `${champ.city} ${champ.name}`, opp: other.name }), champ.id === save.userTeamId);
+    pushNews(save, 'league', headline(rng, 'champion', { team: `${champ.city} ${champ.name}`, opp: other.name }), champ.id === save.userTeamId, true);
   }
   return true;
 }
@@ -293,7 +294,7 @@ function closeWeek(save: Save, rng: Rng): void {
   if (save.phase === 'regular') {
     if (save.week <= c.deadlineWeek) aiTradesWeek(save, rng);
     aiMaintainRosters(save, rng);
-    if (save.week === c.deadlineWeek) { pushNews(save, 'league', 'The trade deadline has passed. Rosters are locked until the offseason.'); save.tradeOffer = null; }
+    if (save.week === c.deadlineWeek) { pushNews(save, 'league', 'The trade deadline has passed. Rosters are locked until the offseason.', false, true); save.tradeOffer = null; }
     save.week++;
     if (save.week > c.regWeeks) {
       startPlayoffs(save, rng);
@@ -305,7 +306,8 @@ function closeWeek(save: Save, rng: Rng): void {
         const offer = aiOfferToUser(save, rng);
         if (offer) save.tradeOffer = offer;
       }
-      if (isUnlocked(save, 'staff')) rollEvent(save, rng);
+      // a quiet week stays quiet
+      if (isUnlocked(save, 'staff') && !quietWeek(save)) rollEvent(save, rng);
     }
   } else if (save.phase === 'playoffs') {
     if (advancePlayoffs(save, rng)) {
@@ -325,6 +327,8 @@ function closeWeek(save: Save, rng: Rng): void {
     if (save.week === Math.floor(cal(save).regWeeks / 2) + 1) publishGoatList(save, 'midseason');
     // and the league stops for its All-Star weekend
     if (save.phase === 'regular' && save.week === allStarWeek(save)) openAllStar(save);
+    // and every few weeks somebody ranks everybody
+    if (powerWeek(save)) publishPower(save); else if (mvpWeek(save)) publishMvpLadder(save);
     // named once the calendar has moved on, so the hub shows it in the week that follows
     const potw = awardPlayerOfWeek(save);
     if (potw) pushNews(save, 'award', `Player of the Week: ${potw.player.name} (${save.teams[potw.player.teamId!].name}), ${potw.text}.${potw.mine ? ' The club gets 1 credit.' : ''}`, potw.mine);

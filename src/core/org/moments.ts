@@ -19,7 +19,7 @@ import { POSITIONS } from '../types';
 import { pushNews, teamName } from './economy';
 import { payroll } from './finance';
 import { isUnlocked } from './progress';
-import { isRivalGame } from './week';
+import { isRivalGame, quietWeek } from './week';
 import { atCeiling, grantXp } from './xp';
 
 export type MomentKind = 'extension' | 'breakout' | 'poach' | 'demand' | 'trash' | 'deadline'
@@ -354,7 +354,8 @@ export function rollMoment(save: Save, rng: Rng): void {
   if (!m && save.week === c.deadlineWeek) m = deadline(save, rng);
   // an owner at the end of his patience does not wait his turn
   if (!m && save.week >= 3) m = ultimatum(save);
-  if (!m && save.week >= 2 && rng.chance(0.55)) {
+  // one thing a week at most: nothing more on a quiet week, or when an event is already waiting
+  if (!m && save.week >= 2 && !quietWeek(save) && !save.pendingEvent && rng.chance(0.5)) {
     const options = [trash, extension, breakout, poach, feud, minutes, nightout, hurt, refs, vow, revenge, rumour, wantsout].map(f => f(save)).filter((x): x is BigMoment => !!x);
     if (options.length) m = rng.pick(options);
   }

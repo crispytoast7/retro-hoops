@@ -192,8 +192,17 @@ export interface NewsItem {
   text: string;
   /** True if it concerns the user's team. */
   mine?: boolean;
+  /** A story big enough for everyone's front page: a champion, a blockbuster, a record. */
+  big?: boolean;
   /** A ranked list attached to the story (a reporter's all-time top ten). */
-  list?: { by: string; outlet: string; motto: string; rows: { playerId: number; name: string; team: string; note: string }[] };
+  list?: {
+    /** What is being ranked: the greatest players ever (the default), the sixteen clubs, or this season's MVP race. */
+    kind?: 'goat' | 'power' | 'mvp';
+    title?: string;
+    by: string; outlet: string; motto: string;
+    /** Best first. `playerId` is -1 on a list of clubs; `move` is places gained since the last such list (99: new on it). */
+    rows: { playerId: number; teamId?: number; name: string; team: string; note: string; move?: number; mine?: boolean }[];
+  };
 }
 
 export type EffectKind =

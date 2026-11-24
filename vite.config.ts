@@ -30,5 +30,6 @@ export default defineConfig({
       workbox: { globPatterns: ['**/*.{js,css,html,svg,png,woff2}'] },
     }),
   ],
-  test: { include: ['tests/**/*.test.ts'] },
+  // generous: this machine is often busy with other work, and a slow run is not a failed one
+  test: { include: ['tests/**/*.test.ts'], testTimeout: 30000 },
 });

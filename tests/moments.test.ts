@@ -175,7 +175,7 @@ describe('GOAT lists', () => {
     const { save, rng } = mk(4, 5);
     // collected as they are published: the news only keeps its latest 200 items
     const found = new Map<string, NonNullable<Save['news'][number]['list']>>();
-    const collect = () => { for (const n of save.news) if (n.list) found.set(n.text, n.list); };
+    const collect = () => { for (const n of save.news) if (n.list && (n.list.kind ?? 'goat') === 'goat') found.set(n.text, n.list); };
     for (let season = 0; season < 3; season++) {
       const { takeJob } = await import('../src/core/org/people');
       for (let i = 0; i < 60 && save.phase !== 'offseason'; i++) {

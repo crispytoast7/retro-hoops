@@ -5,7 +5,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { SALARY_CAP } from '../core/constants';
 import { capStatus, payroll } from '../core/org/finance';
 import { EventOutcome, currentEvent, eventText, resolveEvent, teamMorale } from '../core/org/people';
-import { Feature, checklist, gamesToUnlock, isUnlocked, perkPoints, rankName, tutorialNeeded, xpBar } from '../core/org/progress';
+import { Feature, checklist, gamesToUnlock, isUnlocked, perkPoints, rankName, tutorialNeeded, xpBar, prog } from '../core/org/progress';
 import { cal, ROUND_NAMES, seriesNeed } from '../core/season/calendar';
 import { advance, playoffsUnsettled, settlePlayoffs } from '../core/season/flow';
 import { gamesInWeek, userGame, userGamesInWeek } from '../core/season/schedule';
@@ -13,9 +13,10 @@ import { playoffMoment } from '../core/season/bracket';
 import { readyToLevel } from '../core/org/xp';
 import { choresList, doChores } from '../core/org/chores';
 import { pendingMoment, stakesFor } from '../core/org/moments';
+import { freshRanking } from '../core/org/rankings';
 import { BigMomentHost } from './BigMoment';
 import { ClubView } from './ClubView';
-import { doPlan, skipPlan, edgeFor, ensureWeek, honorNow, intel, pressure, needsWeek, plansOpen, signSponsor, sponsorOf, sponsorOffers, sponsorOpen, sponsorProgress, weekState } from '../core/org/week';
+import { doPlan, skipPlan, edgeFor, ensureWeek, quietWeek, honorNow, intel, pressure, needsWeek, plansOpen, signSponsor, sponsorOf, sponsorOffers, sponsorOpen, sponsorProgress, weekState } from '../core/org/week';
 import { ovr } from '../core/ratings';
 import { teamRatings } from '../core/sim/engine';
 import type { Effect, Save } from '../core/types';
@@ -80,6 +81,7 @@ const PLAN_GROUP = { train: 'TRAIN', prep: 'PREPARE', club: 'CLUB' } as const;
 /** One move a week: three to choose from, and what you pass on is gone. */
 function WeekPlan({ save }: { save: Save }) {
   const w = weekState(save);
+  if (plansOpen(save) && !needsWeek(save) && !w.hand.length && quietWeek(save)) return <Panel title="A QUIET WEEK"><div class="dim">Nothing on the calendar but the game.</div></Panel>;
   if (!plansOpen(save) || needsWeek(save) || !w.hand.length) return null;
   if (w.picked === 'skip') return null;
   if (w.picked) {
@@ -188,6 +190,7 @@ export function HubScreen(_p: { params: Record<string, any> }) {
   const run = (what: 'play' | 'sim' | 'week') => { if (what === 'play' && g) nav('game', { gameId: g.id }); else if (what === 'sim') sim('simGame'); else simWeek(); };
   const go = (what: 'play' | 'sim' | 'week') => { if (planWaiting) setAsk(what); else run(what); };
   const sponsor = sponsorOf(save);
+  const fresh = save.phase !== 'offseason' ? freshRanking(save, prog(save).seen) : null;
   const openGames = save.phase !== 'offseason' && gamesInWeek(save, save.week).some(x => !x.played);
 
   return (
@@ -279,6 +282,14 @@ export function HubScreen(_p: { params: Record<string, any> }) {
           </Panel>
         )}
 
+        {fresh && (
+          <Panel title="THE RANKINGS ARE OUT">
+            <div class="gold">{fresh.item.list!.title ?? `${fresh.item.list!.by}'s all-time top 10`} · {fresh.item.list!.outlet}</div>
+            <div class="dim" style={{ fontSize: '17px' }}>{fresh.item.list!.rows.some(r => r.mine ?? save.players[r.playerId]?.teamId === me.id) ? 'You are on it. See where.' : 'See who made it.'}</div>
+            <div style={{ height: '6px' }} />
+            <Btn kind="primary block" onClick={() => nav('rankings', { list: fresh.item.list, reveal: true, seenKey: fresh.key })}>Watch the countdown</Btn>
+          </Panel>
+        )}
         {honorNow(save) && (
           <div class="panel honor">
             <div class="head gold">★ PLAYER OF THE WEEK</div>
@@ -358,9 +369,10 @@ export function HubScreen(_p: { params: Record<string, any> }) {
           </div>
         </Panel>
 
-        <Panel title="LATEST">
+        <Panel title="YOUR HEADLINES">
           <div class="list">
-            {save.news.slice(0, 4).map(n => <div class="item" style={{ minHeight: 0 }}><span class={n.mine ? '' : 'dim'}>{n.text}</span></div>)}
+            {/* only what involves this club, and the stories big enough to matter to everyone */}
+            {save.news.filter(n => n.mine || n.list || n.big).slice(0, 4).map(n => <div class="item" style={{ minHeight: 0 }}><span class={n.mine ? '' : 'dim'}>{n.text}</span></div>)}
           </div>
           <Btn kind="small" onClick={() => nav('news')}>All news</Btn>
         </Panel>

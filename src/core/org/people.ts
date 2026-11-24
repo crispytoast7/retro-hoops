@@ -151,7 +151,7 @@ function subjectFor(save: Save, t: EventTemplate, rng: Rng): Player | null | und
   return pool.length ? rng.pick(pool) : undefined;
 }
 export function rollEvent(save: Save, rng: Rng): void {
-  if (save.pendingEvent || !rng.chance(0.55)) return;
+  if (save.pendingEvent || !rng.chance(0.38)) return;
   const opts = rng.shuffle(EVENTS.filter(e => !save.seenEvents.includes(e.id)));
   for (const t of opts) {
     const subj = subjectFor(save, t, rng);

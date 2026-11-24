@@ -11,6 +11,7 @@ import { userGame } from '../src/core/season/schedule';
 import { simulateGame } from '../src/core/sim/engine';
 import type { GameResult, Save } from '../src/core/types';
 import { RATING_KEYS } from '../src/core/types';
+import { quietWeek } from '../src/core/org/week';
 
 function mk(seed = 6, team = 5): { save: Save; rng: Rng } {
   const save = newLeague({ seed, coachName: 'T', coachLook: { skin: 0, hair: 0, hairColor: 0 }, settings: { sound: false, difficulty: 'normal', haptics: false }, calendar: CALENDARS.classic });
@@ -35,10 +36,12 @@ describe('drama', () => {
       const me = save.teams[save.userTeamId];
       for (let w = 0; w < 12 && save.phase === 'regular'; w++) {
         advance(save, rng, 'simWeek'); answer(save);
+        if (quietWeek(save)) continue; // nothing optional happens in a quiet week
         for (let k = 0; k < 60; k++) {
           // a fresh slate each time, with the conditions the rarer moments need
           const st = momentState(save);
           st.pending = null; st.count = 0; st.done = []; st.stakes = undefined;
+          save.pendingEvent = null;
           for (const id of me.roster) { save.players[id].injury = null; save.players[id].morale = 60; }
           save.coach.rep = 60;
           save.owner.approval = k % 7 === 0 ? 20 : 60;
@@ -86,10 +89,11 @@ describe('drama', () => {
     for (const userWins of [true, false]) {
       const { save, rng } = mk(6);
       const me = save.teams[save.userTeamId];
-      for (let i = 0; i < 3; i++) { advance(save, rng, 'simWeek'); answer(save); }
+      for (let i = 0; i < 3 || quietWeek(save); i++) { advance(save, rng, 'simWeek'); answer(save); }
       let found = false;
       for (let k = 0; k < 400 && !found; k++) {
         const st = momentState(save); st.pending = null; st.count = 0; st.done = []; st.stakes = undefined;
+        save.pendingEvent = null;
         for (const id of me.roster) save.players[id].injury = null;
         rollMoment(save, rng);
         if (pendingMoment(save)?.kind === 'vow') found = true;

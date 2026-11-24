@@ -167,7 +167,7 @@ export function beginOffseason(save: Save, rng: Rng): void {
   const fmvp = finalsMvp(save, champId, final);
   if (fmvp) awards.splice(mvp ? awards.indexOf(mvp) + 1 : 0, 0, fmvp);
   const awardRewards = payAwardRewards(save, awards);
-  for (const a of awards.filter(x => !x.award.startsWith('All-League')).slice(0, 7)) pushNews(save, 'award', headline(rng, 'award', { player: a.name, team: save.teams[a.teamId].name, award: a.award }), a.teamId === me.id);
+  for (const a of awards.filter(x => !x.award.startsWith('All-League')).slice(0, 7)) pushNews(save, 'award', headline(rng, 'award', { player: a.name, team: save.teams[a.teamId].name, award: a.award }), a.teamId === me.id, a.award === 'MVP');
   const myFinish = playoffFinish(save, me.id);
   save.history.push({
     year: save.year, championId: champId, runnerUpId: runnerUp,

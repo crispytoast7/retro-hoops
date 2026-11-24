@@ -391,3 +391,14 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 20px; }
 .as-card { font-family: var(--head); font-size: 16px; background: #f4f0e0; color: #14121f; padding: 10px 8px; min-width: 34px; text-align: center; box-shadow: 0 4px 0 var(--edge); animation: pop .3s steps(4) backwards; }
 .as-card:nth-child(2) { animation-delay: .12s; } .as-card:nth-child(3) { animation-delay: .24s; } .as-card:nth-child(4) { animation-delay: .36s; } .as-card:nth-child(5) { animation-delay: .48s; }
 .as-card.ten { background: var(--gold); }
+
+/* a ranking counted down: hidden rows wait their turn, the podium is gold */
+.rk-head { text-align: center; } .rk-motto { font-size: 17px; margin-top: 4px; }
+.rk-row { align-items: flex-start; gap: 10px; min-height: 44px; opacity: .45; }
+.rk-row.open { opacity: 1; animation: fade .18s steps(3); }
+.rk-row.mine { background: rgba(255, 210, 60, .13); box-shadow: inset 3px 0 0 var(--gold); }
+.rk-rank { font-family: var(--head); font-size: 12px; min-width: 26px; text-align: right; color: var(--dim); padding-top: 3px; }
+.rk-row.podium.open .rk-rank { color: var(--gold); }
+.rk-note { font-size: 17px; } .rk-hidden { color: var(--line); letter-spacing: 4px; }
+.rk-move { font-family: var(--head); font-size: 9px; padding-top: 4px; } .rk-move.good { color: var(--good); } .rk-move.bad { color: var(--bad); }
+.rk-foot { position: sticky; bottom: 0; }
