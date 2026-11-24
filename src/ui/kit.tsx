@@ -63,12 +63,12 @@ export function Stars(p: { v?: number; n?: number; big?: boolean }) {
   );
 }
 
-export function Meter(p: { label: string; value: number; color?: string; text?: string }) {
+export function Meter(p: { label: string; value: number; color?: string; text?: string; onClick?: () => void }) {
   const v = Math.max(0, Math.min(100, p.value));
   const color = p.color ?? (v >= 60 ? 'var(--good)' : v >= 35 ? 'var(--gold)' : 'var(--bad)');
   return (
-    <div class="meter">
-      <div class="lbl"><span>{p.label}</span><span>{p.text ?? Math.round(v)}</span></div>
+    <div class={`meter ${p.onClick ? 'tap' : ''}`} onClick={p.onClick}>
+      <div class="lbl"><span>{p.label}{p.onClick && <span class="dim"> ⓘ</span>}</span><span>{p.text ?? Math.round(v)}</span></div>
       <div class="bar"><div class="fill" style={{ width: `${v}%`, background: color }} /></div>
     </div>
   );

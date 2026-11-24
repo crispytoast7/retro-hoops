@@ -123,8 +123,8 @@ const SHOT_CONE = 0.82;   // cos 35deg: a pull this well lined up with the hoop 
 const MATE_CONE = 0.92;   // cos 23deg: a pull lined up with a teammate is the start of a pass
 const LEAD_REACH = 26;    // a pass to a spot needs a teammate who will be this close to it
 const AIM_QUICK = 0.18;   // a flick off your player this fast is a move, not a shot
-const PUTBACK_RANGE = 42;  // an offensive board this close to the rim can go straight back up
-const PUTBACK_TIME = 0.5;   // seconds (real time) the chance stays open
+const PUTBACK_RANGE = 48;  // an offensive board this close to the rim can go straight back up
+const PUTBACK_TIME = 0.9;   // seconds (real time) the chance stays open
 const AIM_HOLD = 0.22;     // the SHOOT button has to be held this long: a tap is not a shot
 const AMP_FLOOR = 9.5;     // the crosshair never swings less than this, so letting go blind is a bad bet for anyone
 const FT_HOLD = 0.3;
@@ -283,7 +283,8 @@ export class Arcade {
   private doubled = false;
   private chal = 1;
   private shot = { t: 0, dur: 0, x0: 0, y0: 0, made: false, type: 'mid' as ShotType, quality: 0, blockBy: -1, foul: false, pts: 2, text: '', buzzer: false, x1: 0, y1: 0, arc: 30, z0: 30 };
-  private reb = { t: 0, dur: 0.6, x0: 0, y0: 0, x1: 0, y1: 0, winner: null as Ent | null };
+  /** A missed shot in the air. `crasher` is the man of yours going after it; `jump` is when you tapped (-1: not yet). */
+  private reb = { t: 0, dur: 0.6, x0: 0, y0: 0, x1: 0, y1: 0, winner: null as Ent | null, crasher: -1, jump: -1 };
   private slowmo = 1;
   // input
   /** The finger on the shoot button, tracked apart from the one that moves the player. */
@@ -431,6 +432,7 @@ export class Arcade {
   private noMenu = (e: Event) => e.preventDefault();
   private onDown = (e: PointerEvent) => {
     const p = this.toLogical(e);
+    if (this.phase === 'rebound') { e.preventDefault(); this.crash(); return; }
     if (!this.btn.down && (this.phase === 'live' || this.phase === 'charge') && Math.hypot(p.x - BTN.x, p.y - BTN.y) <= BTN.r + 3) {
       e.preventDefault();
       try { this.canvas.setPointerCapture(e.pointerId); } catch { /* not supported */ }
@@ -498,6 +500,7 @@ export class Arcade {
     this.keys.add(k);
     // aiming with Space: Escape or a direction key calls it off
     if (this.phase === 'charge' && this.aim.kb && !this.ftMode && (k === 'escape' || ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k))) { this.keyCancelled = true; this.cancelAim(); return; }
+    if (this.phase === 'rebound' && k === ' ') { this.crash(); return; }
     if (this.phase !== 'live') return;
     if (this.ftMode && k !== ' ') return;
     if (k === ' ' && this.putback > 0) this.doPutback();
@@ -691,6 +694,35 @@ export class Arcade {
       this.highlights.push('fake'); this.crowd = Math.min(100, this.crowd + 3);
       this.ankleT = this.time;
     } else this.popup('NOT FOOLED', '#c8c8d8', 1, 150);
+  }
+  /** Who comes down with a missed shot: whoever is close and can rebound, the defence a little favoured. A well-timed jump by your man swings it. */
+  private settleRebound(): Ent {
+    const rb = this.reb, all = [...this.off, ...this.def];
+    const err = rb.jump < 0 ? 9 : Math.abs(rb.jump - rb.dur);
+    const timing = err <= 0.1 ? 6 : err <= 0.22 ? 3 : rb.jump < 0 ? 1 : 0.7; // a jump far too early is worse than none
+    if (rb.jump >= 0) this.popup(err <= 0.1 ? 'PERFECT JUMP!' : err <= 0.22 ? 'GOOD JUMP' : rb.jump < rb.dur ? 'TOO EARLY' : 'TOO LATE', err <= 0.1 ? PAL.green : err <= 0.22 ? PAL.white : '#ffa04d', 1, rb.y1 - 24);
+    const ws = all.map(e => {
+      const d = Math.hypot(e.x - rb.x1, e.y - rb.y1);
+      const r = e.p.ratings.reb / 100;
+      const mine = e === this.off[rb.crasher];
+      // your man crashing in counts as close if he is anywhere near it: he is flying in, not standing
+      const dd = mine && rb.jump >= 0 ? Math.max(0, d - 18) : d;
+      let w = r * r * (1 / (1 + (dd / 24) ** 2)) * (e.off ? 1 : 2.1) * (e.stun > 0 ? 0.3 : 1) * (hasBadge(e.p, 'glass') ? 1.9 : 1) + 0.002;
+      if (mine) w *= timing;
+      return w;
+    });
+    let roll = Math.random() * ws.reduce((s, v) => s + v, 0), wi = 0;
+    for (; wi < ws.length - 1; wi++) { roll -= ws[wi]; if (roll < 0) break; }
+    return all[wi];
+  }
+  /** You tapped while a miss was in the air: your man goes up for it. */
+  private crash(): void {
+    const rb = this.reb;
+    if (this.phase !== 'rebound' || rb.jump >= 0 || rb.t < 0.12) return;
+    rb.jump = rb.t;
+    const c = this.off[rb.crasher];
+    if (c) { c.lift = 9; c.armsUp = 0.5; }
+    sfx.move();
   }
   /** Straight back up off an offensive rebound: a dunk for a finisher, a tip-in for anyone else. */
   private doPutback(): void {
@@ -1042,16 +1074,12 @@ export class Arcade {
     const a = Math.PI * (0.12 + Math.random() * 0.76);
     const r = 14 + Math.random() * 30;
     const x1 = clamp(HOOP.x + Math.cos(a) * r, SIDE_L + 6, SIDE_R - 6), y1 = HOOP.y + Math.sin(a) * r;
-    const ws: number[] = [], all = [...this.off, ...this.def];
-    for (const e of all) {
-      const d = Math.hypot(e.x - x1, e.y - y1);
-      const rb = e.p.ratings.reb / 100;
-      ws.push(rb * rb * (1 / (1 + (d / 24) ** 2)) * (e.off ? 1 : 2.1) * (e.stun > 0 ? 0.3 : 1) * (hasBadge(e.p, 'glass') ? 1.9 : 1) + 0.002);
-    }
-    let roll = Math.random() * ws.reduce((s, v) => s + v, 0), wi = 0;
-    for (; wi < ws.length - 1; wi++) { roll -= ws[wi]; if (roll < 0) break; }
-    this.reb = { t: 0, dur: 0.6, x0: this.ball.x, y0: this.ball.y, x1, y1, winner: all[wi] };
+    // your man nearest where it will come down goes after it; you time his jump
+    let crasher = -1, cd = 1e9;
+    this.off.forEach((e, i) => { const d = Math.hypot(e.x - x1, e.y - y1); if (d < cd) { cd = d; crasher = i; } });
+    this.reb = { t: 0, dur: 0.95, x0: this.ball.x, y0: this.ball.y, x1, y1, winner: null, crasher, jump: -1 };
     this.phase = 'rebound';
+    if (!this.contest) this.popup(this.usedKeys ? 'SPACE AS IT COMES DOWN' : 'TAP AS IT COMES DOWN', PAL.white, 1, 150);
   }
 
   // ---- update -----------------------------------------------------------------------
@@ -1344,7 +1372,7 @@ export class Arcade {
       this.ball.y = rb.y0 + (rb.y1 - rb.y0) * k;
       this.ball.z = (RIM_Z + 2) * Math.abs(Math.cos(k * Math.PI * 1.5)) * (1 - k * 0.5);
       if (k >= 1) {
-        const w = rb.winner!;
+        const w = rb.winner = this.settleRebound();
         this.ball.x = w.x; this.ball.y = w.y;
         if (w.off && this.clock > 0.5) {
           this.events.push({ t: 'oreb', by: w.p.id });
@@ -1393,11 +1421,12 @@ export class Arcade {
       if (this.phase !== 'finish' && !(this.hang > 0 && i === this.handler)) e.lift = Math.max(0, e.lift - dt * 30);
       const controlled = i === this.handler && (this.phase === 'live' || this.phase === 'charge' || this.phase === 'finish' || this.phase === 'shot');
       if (!controlled) {
-        if (rebounding && Math.hypot(e.x - this.reb.x1, e.y - this.reb.y1) < 60) { e.tx = this.reb.x1; e.ty = this.reb.y1 + 3; }
+        if (rebounding && (i === this.reb.crasher || Math.hypot(e.x - this.reb.x1, e.y - this.reb.y1) < 60)) { e.tx = this.reb.x1; e.ty = this.reb.y1 + 3; }
         else if (this.phase === 'pass' && i === this.pass.to) { e.tx = this.pass.x1; e.ty = this.pass.y1; }
         else if (!over && !this.ftMode) this.followRoute(e, dt);
         const leg = e.route[e.leg];
-        this.steer(e, e.tx, e.ty, this.speed(e) * (leg && e.wait <= 0 ? leg.speed : 0.85), dt);
+        const crashing = rebounding && i === this.reb.crasher;
+        this.steer(e, e.tx, e.ty, this.speed(e) * (crashing ? 1.7 : leg && e.wait <= 0 ? leg.speed : 0.85), dt);
       }
       const sp = Math.hypot(e.vx, e.vy);
       e.run = sp > 5 ? (e.run < 0 ? 0 : e.run + dt * 5) : -1;
@@ -1682,6 +1711,7 @@ export class Arcade {
       }
       this.drawGuideFloor();
     this.drawRack();
+    this.drawReboundCue();
       if (this.style && (this.phase === 'finish' || this.hang > 0)) this.drawDunkFx(s.offColors);
       let hoopDrawn = false;
       for (const e of ents) {
@@ -1873,6 +1903,17 @@ export class Arcade {
     if (this.phase === 'rebound' && Math.hypot(e.x - this.reb.x1, e.y - this.reb.y1) < 16) return 'shoot';
     if (!e.off && this.def[this.handler] === e && (this.phase === 'live' || this.phase === 'charge') && e.stun <= 0) return 'defend';
     return 'stand';
+  }
+
+  /** A miss in the air: a ring closes on the spot where it will come down. Tap as it closes. */
+  private drawReboundCue(): void {
+    if (this.phase !== 'rebound' || this.contest) return;
+    const rb = this.reb, g = this.g, left = rb.dur - rb.t;
+    const target = 6, r = target + Math.max(0, left / rb.dur) * 22;
+    const col = rb.jump >= 0 ? '#8f8ab8' : Math.abs(left) <= 0.1 ? PAL.green : Math.abs(left) <= 0.22 ? PAL.white : PAL.yellow;
+    const ring = (rr: number, c: string) => { g.fillStyle = c; const n = Math.max(14, Math.round(rr * 3)); for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; g.fillRect(Math.round(rb.x1 + Math.cos(a) * rr), Math.round(rb.y1 + Math.sin(a) * rr * 0.55), 2, 1); } };
+    ring(target, 'rgba(255,255,255,0.55)');
+    ring(r, col);
   }
 
   /** Three-point contest: the rack he is shooting from (or running to), with the balls still on it. */

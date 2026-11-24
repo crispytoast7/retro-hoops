@@ -127,6 +127,25 @@ function SponsorOffer({ save }: { save: Save }) {
   );
 }
 
+/** What each meter on the hub means, and what moves it. Short: one line each. */
+const METER_HELP = {
+  owner: {
+    title: 'OWNER APPROVAL', what: 'If it hits zero you are fired (never in your first season at a club).',
+    up: ['Wins, and playoff wins most of all', 'Meeting the owner\'s season goals', 'Lunch with the owner, community days', 'Keeping promises you make him'],
+    down: ['Losses, worse on a losing streak', 'Big payroll on a losing team', 'Broken guarantees and promises', 'Scandals you laugh off'],
+  },
+  fans: {
+    title: 'FAN SUPPORT', what: 'More fans means more credits from the gate and the team store.',
+    up: ['Wins, close wins and rivalry wins', 'Saluting the fans after a win', 'Open practices, ticket promotions', 'All-Stars, contest wins, a Trophy Room'],
+    down: ['Losses and losing streaks', 'Losing to your rival', 'Broken guarantees'],
+  },
+  morale: {
+    title: 'TEAM MORALE', what: 'Unhappy players ask for trades and will not re-sign.',
+    up: ['Wins', 'Praising players, team dinners, light weeks', 'A captain softens losses', 'Starting the players who deserve it'],
+    down: ['Losses', 'Two-a-days and extra practice', 'Good players stuck on the bench', 'Feuds, fines and broken promises'],
+  },
+} as const;
+
 export function HubScreen(_p: { params: Record<string, any> }) {
   const save = useSave();
   const me = save.teams[save.userTeamId];
@@ -190,6 +209,7 @@ export function HubScreen(_p: { params: Record<string, any> }) {
   const run = (what: 'play' | 'sim' | 'week') => { if (what === 'play' && g) nav('game', { gameId: g.id }); else if (what === 'sim') sim('simGame'); else simWeek(); };
   const go = (what: 'play' | 'sim' | 'week') => { if (planWaiting) setAsk(what); else run(what); };
   const sponsor = sponsorOf(save);
+  const [explain, setExplain] = useState<null | keyof typeof METER_HELP>(null);
   const fresh = save.phase !== 'offseason' ? freshRanking(save, prog(save).seen) : null;
   const openGames = save.phase !== 'offseason' && gamesInWeek(save, save.week).some(x => !x.played);
 
@@ -207,9 +227,9 @@ export function HubScreen(_p: { params: Record<string, any> }) {
       <div class="body">
         <ClubView save={save} compact onPick={() => isUnlocked(save, 'facilities') ? nav('facilities') : toast(`Facilities unlock after ${gamesToUnlock(save, 'facilities')} more game${gamesToUnlock(save, 'facilities') === 1 ? '' : 's'}.`)} />
         <div class="panel row" style={{ gap: '10px' }}>
-          <Meter label="OWNER" value={save.owner.approval} />
-          <Meter label="FANS" value={save.fans} />
-          <Meter label="MORALE" value={teamMorale(save, me)} />
+          <Meter label="OWNER" value={save.owner.approval} onClick={() => setExplain('owner')} />
+          <Meter label="FANS" value={save.fans} onClick={() => setExplain('fans')} />
+          <Meter label="MORALE" value={teamMorale(save, me)} onClick={() => setExplain('morale')} />
         </div>
         <div class="panel row tap" style={{ gap: '10px', padding: '6px 10px' }} onClick={() => isUnlocked(save, 'coach') ? nav('coach') : toast('The coach profile unlocks after 2 games.')}>
           <span class="head gold" style={{ whiteSpace: 'nowrap' }}>LV {xp.level}</span>
@@ -378,6 +398,17 @@ export function HubScreen(_p: { params: Record<string, any> }) {
         </Panel>
         <Btn kind="small" onClick={() => reset('title')}>Title screen</Btn>
       </div>
+      {explain && (
+        <Modal onClose={() => setExplain(null)}>
+          <h3>{METER_HELP[explain].title}</h3>
+          <div>{METER_HELP[explain].what}</div>
+          <div class="head good" style={{ marginTop: '8px' }}>RAISES IT</div>
+          <ul class="mh-list">{METER_HELP[explain].up.map(t => <li>{t}</li>)}</ul>
+          <div class="head bad">TANKS IT</div>
+          <ul class="mh-list">{METER_HELP[explain].down.map(t => <li>{t}</li>)}</ul>
+          <Btn kind="primary" onClick={() => setExplain(null)}>Got it</Btn>
+        </Modal>
+      )}
       {pendingMoment(save) ? null : <EventModal save={save} />}
       <BigMomentHost save={save} />
       {ask && planWaiting && (
