@@ -55,7 +55,7 @@ export interface Contest {
   hot?: boolean;
 }
 /** The situation a key moment starts from. */
-export type Scenario = 'halfcourt' | 'fastbreak' | 'pnr' | 'post' | 'iso' | 'open' | 'lateclock' | 'freethrows';
+export type Scenario = 'halfcourt' | 'fastbreak' | 'pnr' | 'post' | 'iso' | 'open' | 'lateclock' | 'freethrows' | 'inbound' | 'double' | 'needthree';
 export const SCENARIOS: Record<Scenario, { name: string; hint: string }> = {
   halfcourt: { name: 'HALF COURT', hint: 'Run the offense. Find the open man.' },
   fastbreak: { name: 'FAST BREAK', hint: 'Numbers! Push it before the defense gets back.' },
@@ -65,6 +65,9 @@ export const SCENARIOS: Record<Scenario, { name: string; hint: string }> = {
   open: { name: 'OPEN LOOK', hint: 'He is open. Shoot it before the defender arrives.' },
   lateclock: { name: 'SHOT CLOCK DOWN', hint: 'Seven seconds. Make something happen.' },
   freethrows: { name: 'AT THE LINE', hint: 'Two shots. Hold, then let go when the crosshair is on the rim.' },
+  inbound: { name: 'SIDELINE INBOUND', hint: 'Five seconds to get it in. Pass to a cutter.' },
+  double: { name: 'DOUBLE TEAM', hint: 'They are sending two at your star. Find the open man.' },
+  needthree: { name: 'DOWN THREE', hint: 'A two will not do it. They are guarding the arc tight.' },
 };
 export interface Guide {
   /** A spot to dribble to; the possession ends when the ball-handler gets there. */
@@ -281,6 +284,15 @@ export class Arcade {
   /** Consecutive makes by each player this game (from earlier key moments). */
   private hot: Record<number, number> = {};
   private doubled = false;
+  /** Seconds left to inbound the ball from the sideline (0: not inbounding). */
+  private inbound = 0;
+  private inboundCount = 0;
+  /** Who took it out: he may stand out of bounds until the ball has left his hands. */
+  private inbounder = -1;
+  /** A defender sent to trap the man with the ball, until the ball moves (-1: none). */
+  private trap = -1;
+  /** Down three late: the defence guards the arc and gives up the paint. */
+  private needThree = false;
   private chal = 1;
   private shot = { t: 0, dur: 0, x0: 0, y0: 0, made: false, type: 'mid' as ShotType, quality: 0, blockBy: -1, foul: false, pts: 2, text: '', buzzer: false, x1: 0, y1: 0, arc: 30, z0: 30 };
   /** A missed shot in the air. `crasher` is the man of yours going after it; `jump` is when you tapped (-1: not yet). */
@@ -367,7 +379,7 @@ export class Arcade {
     this.guide = setup.guide ?? null;
     this.hot = setup.hot ?? {};
     this.chal = this.practice ? 1 : clamp(setup.challenge ?? 1, 0.5, 2.6);
-    this.doubled = false;
+    this.doubled = false; this.inbound = 0; this.inbounder = -1; this.trap = -1; this.needThree = false;
     this.aim.on = false;
     this.reached = false; this.lastQuality = -1; this.hang = 0;
     this.camCool--;
@@ -577,6 +589,14 @@ export class Arcade {
       const gap = Math.min(this.practice && !this.guide?.tight ? 26 : 13, d * 0.6);
       return { x: this.lag.x + (dx / d) * gap, y: this.lag.y + (dy / d) * gap };
     }
+    // a called double team: this man leaves his own to trap the ball until it moves
+    if (this.trap === i && this.phase !== 'pass') {
+      const dx = this.def[i].x - h.x, dy = this.def[i].y - h.y, d = Math.hypot(dx, dy) || 1;
+      if (!this.doubled && d < 40) { this.doubled = true; this.popup('DOUBLE TEAM!', PAL.red, 2); }
+      return { x: h.x + (dx / d) * 9, y: h.y + (dy / d) * 9 };
+    }
+    // down three: stay glued to shooters on the arc instead of helping inside
+    if (this.needThree && this.phase !== 'pass' && isThree(man.x, man.y)) return { x: man.x + (HOOP.x - man.x) * 0.08, y: man.y + (HOOP.y - man.y) * 0.08 };
     // a hot hand draws a second defender, which leaves somebody open
     if (this.phase !== 'pass' && !this.practice && (this.hot[h.p.id] ?? 0) >= 2 && this.doubler() === i) {
       const dx = this.def[i].x - h.x, dy = this.def[i].y - h.y, d = Math.hypot(dx, dy) || 1;
@@ -734,6 +754,7 @@ export class Arcade {
   private startAim(kb: boolean): void {
     if (this.phase !== 'live') return;
     if (this.contest?.kind === 'three' && !this.atRack) { if (!this.popups.some(p => p.text === 'GET TO THE RACK')) this.popup('GET TO THE RACK', PAL.yellow, 1); return; }
+    if (this.inbound > 0) { if (!this.popups.some(p => p.text === 'PASS IT IN')) this.popup('PASS IT IN', PAL.yellow, 1); return; }
     this.putback = 0;
     const h = this.off[this.handler];
     h.vx = 0; h.vy = 0;
@@ -1153,6 +1174,13 @@ export class Arcade {
       if (this.clockOn && this.shotClock <= this.tickAt && this.shotClock > 0) { this.tickAt = Math.ceil(this.shotClock) - 1; sfx.tick(this.shotClock <= 3); }
     }
     this.onClock?.(this.clock, this.periodEnds ? -1 : this.shotClock);
+    // inbounding: five seconds, counted out loud
+    if (this.inbound > 0 && this.phase === 'live') {
+      this.inbound -= this.realDt;
+      const n = Math.ceil(this.inbound);
+      if (n !== this.inboundCount && n > 0) { this.inboundCount = n; const h = this.off[this.handler]; this.popup(String(n), n <= 2 ? PAL.red : PAL.white, 2, h.y - 30); sfx.tick(n <= 2); }
+      if (this.inbound <= 0) { this.inbound = 0; this.turnover('oob', null, 'FIVE SECONDS!'); return; }
+    }
     // a contest keeps moving: wait too long on a ball and it is gone
     if (this.contest && (this.phase === 'live' || this.phase === 'charge')) {
       this.contestT += this.realDt;
@@ -1186,7 +1214,7 @@ export class Arcade {
       } else { const k = this.keyVec(); mx = k.x; my = k.y; }
       // a contest shooter runs from rack to rack and stands still once he is there
       const running = this.contest?.kind === 'three' && !this.atRack;
-      if (this.ftMode || (this.contest && !running)) { mx = 0; my = 0; }
+      if (this.ftMode || (this.contest && !running) || this.inbound > 0) { mx = 0; my = 0; }
       this.mv = { x: mx, y: my };
       let sp = this.speed(h) * (0.8 + 0.2 * h.p.ratings.hnd / 100) * (running ? 1.9 : 1);
       if (h.slow > 0) sp *= 0.45;
@@ -1223,7 +1251,7 @@ export class Arcade {
         }
       }
       if (this.practice) { h.x = clamp(h.x, SIDE_L + 3, SIDE_R - 3); h.y = Math.max(h.y, BASE_Y + 3); } // no stepping out in practice
-      else if (h.x < SIDE_L + 1 || h.x > SIDE_R - 1 || h.y < BASE_Y + 1) { this.turnover('oob', null); return; }
+      else if (this.inbound <= 0 && this.handler !== this.inbounder && (h.x < SIDE_L + 1 || h.x > SIDE_R - 1 || h.y < BASE_Y + 1)) { this.turnover('oob', null); return; }
       // drive to the rim
       const hx = HOOP.x - h.x, hy = HOOP.y - h.y, hd = Math.hypot(hx, hy);
       if (hd < RIM_ZONE && h.y > HOOP.y - 6) {
@@ -1255,13 +1283,15 @@ export class Arcade {
           }
         }
       }
-      if (this.ball.x < SIDE_L - 2 || this.ball.x > SIDE_R + 2 || this.ball.y < BASE_Y - 2) { this.turnover('oob', null); return; }
+      // (the inbound pass starts beyond the sideline: that one is fine)
+      if (ps.from !== this.inbounder && (this.ball.x < SIDE_L - 2 || this.ball.x > SIDE_R + 2 || this.ball.y < BASE_Y - 2)) { this.turnover('oob', null); return; }
       if (k >= 1) {
         const to = this.off[ps.to];
         if (Math.hypot(to.x - ps.x1, to.y - ps.y1) > (this.lob ? 11 : 14)) { // nobody got to it (a lob has to be on the money)
           this.turnover('oob', null, 'BAD PASS'); return;
         }
         this.assist = { id: from.p.id, t: this.time };
+        this.inbounder = -1;
         this.handler = ps.to;
         this.off[ps.to].route = []; this.off[ps.to].screen = 0;
         if (this.lob && Math.hypot(to.x - HOOP.x, to.y - HOOP.y) < 40) {
@@ -1652,6 +1682,46 @@ export class Arcade {
       clockTo(6);
     } else if (sc === 'lateclock') {
       clockTo(7);
+    } else if (sc === 'inbound') {
+      // the worst shooter takes it out on the right sideline; two cut to get open, two space the floor
+      const ib = best(e => -e.p.ratings.sht - e.p.ratings.fin);
+      const rest = this.off.map((_, i) => i).filter(i => i !== ib);
+      place(this.off[ib], SIDE_R + 1, 132);
+      const at: [number, number, SlotName][] = [[150, 112, 'RW'], [126, 150, 'TOP'], [92, 72, 'LB'], [60, 150, 'LS']];
+      rest.forEach((i, k) => { const [x, y, n] = at[k]; place(this.off[i], x, y); this.off[i].home = n; });
+      // the cuts: one pops to the wing, one curls to the top
+      this.send(this.off[rest[0]], [{ x: 200, y: 104, speed: 1.15, hold: 0.6 }], 'RW');
+      this.send(this.off[rest[1]], [{ x: 176, y: 160, speed: 1.1, hold: 0.6 }], 'RS', 0.5);
+      setBall(ib); resetDef();
+      // his man stands in his face on the line
+      place(this.def[ib], SIDE_R - 13, 132);
+      this.inbound = 5; this.inboundCount = 0; this.inbounder = ib; this.grace = 1;
+      this.playT = 99; this.driveReacted = true;
+      clockTo(14);
+    } else if (sc === 'double') {
+      const si = best(e => e.p.ratings.hnd + e.p.ratings.sht + e.p.ratings.fin);
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const al: SlotName[] = side < 0 ? ['RW', 'RC', 'TOP', 'LB'] : ['LW', 'LC', 'TOP', 'RB'];
+      let k = 0;
+      this.off.forEach((e, i) => { if (i !== si) putHome(e, al[k++]); });
+      this.off[si].home = side < 0 ? 'LW' : 'RW';
+      place(this.off[si], HOOP.x + side * 70, 132);
+      setBall(si); resetDef();
+      // they leave the worst shooter to send help
+      const leave = best(e => -e.p.ratings.sht, this.off.filter((_, i) => i !== si));
+      this.trap = leave;
+      const h = this.off[si];
+      place(this.def[leave], h.x - side * 18, h.y - 10);
+      this.playT = 99; this.driveReacted = true;
+      clockTo(12);
+    } else if (sc === 'needthree') {
+      const si = best(e => e.p.ratings.sht);
+      const spots: SlotName[] = ['TOP', 'RW', 'LW', 'RC', 'LC'];
+      let k = 1;
+      this.off.forEach((e, i) => putHome(e, i === si ? spots[0] : spots[k++]));
+      setBall(si); resetDef();
+      this.needThree = true;
+      clockTo(12);
     } else if (sc === 'freethrows') {
       const si = best(e => e.p.ratings.fin + e.p.ratings.hnd * 0.5);
       const lane: [number, number][] = [[PAINT_L - 6, 62], [PAINT_R + 6, 62], [PAINT_L - 6, 84], [150, 150]];
@@ -1670,6 +1740,13 @@ export class Arcade {
 
   /** The passer does not stand and watch: give-and-go to the rim, or fill an open spot. */
   private afterPass(from: Ent): void {
+    this.trap = -1;
+    if (this.inbound > 0) {
+      // in from the sideline: the inbounder steps onto the floor and fills a spot
+      this.inbound = 0;
+      this.send(from, [{ x: SIDE_R - 24, y: from.y, speed: 1, hold: 0.1 }], this.openSlot(PERIMETER, from), 0.2);
+      return;
+    }
     if (this.practice) return;
     const sgn = from.x < HOOP.x ? -1 : 1;
     const farFromRim = Math.hypot(from.x - HOOP.x, from.y - HOOP.y) > 70;

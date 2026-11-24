@@ -29,12 +29,16 @@ const ADJUST: Record<Adjust, { label: string; effect: string }> = {
 };
 
 function pickScenario(s: UserPossessionSetup, momentum: number, used: Scenario[], adjust: Adjust | null): Scenario {
-  if (s.lastShot) return Math.random() < 0.55 ? 'iso' : 'halfcourt';
+  // down three at the death: only a three will do
+  if ((s.clutch || s.lastShot) && s.oppScore - s.userScore === 3) return 'needthree';
+  if (s.lastShot) return Math.random() < 0.55 ? 'iso' : Math.random() < 0.5 ? 'inbound' : 'halfcourt';
   const last = used[used.length - 1], prev = used[used.length - 2];
   const w: [Scenario, number][] = [
     ['halfcourt', 1.6], ['pnr', 2], ['post', adjust === 'rim' ? 2.6 : 1.6], ['iso', 1.6], ['open', adjust === 'shoot' ? 3 : 1.6], ['lateclock', 1],
     ['fastbreak', (momentum > 15 ? 3.2 : 1.6) * (adjust === 'rim' ? 1.5 : 1)],
     ['freethrows', used.length >= 2 && used.filter(u => u === 'freethrows').length < 2 ? (s.clutch ? 1.6 : 0.9) : 0],
+    ['inbound', used.length >= 1 ? 1.1 : 0],
+    ['double', used.length >= 2 ? (momentum > 10 ? 1.8 : 1.1) : 0],
   ];
   const pool = w.filter(([k]) => k !== last && (k !== prev || Math.random() < 0.4));
   let r = Math.random() * pool.reduce((a, [, v]) => a + v, 0);
