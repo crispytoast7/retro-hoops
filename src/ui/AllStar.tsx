@@ -68,7 +68,7 @@ export function AllStarScreen(_p: { params: Record<string, any> }) {
     const ro = new ResizeObserver(fit);
     ro.observe(wrap.current!);
     arcade.current = new Arcade(canvas.current!, { paint: me.colors.primary, accent: me.colors.secondary, banners: me.titles.length, crowdA: '#ffd23c', crowdB: '#ffffff', wood: courtStyle(save) });
-    show.current = new DunkShow(stage2.current!);
+    show.current = new DunkShow(stage2.current!, { paint: me.colors.primary, accent: me.colors.secondary, banners: me.titles.length, wood: courtStyle(save) });
     return () => { alive.current = false; ro.disconnect(); arcade.current?.destroy(); show.current?.destroy(); };
   }, []);
 
@@ -106,11 +106,16 @@ export function AllStarScreen(_p: { params: Record<string, any> }) {
   };
   const runDunk = async (d: DunkChoice, retry = false) => {
     setStage('dunk'); setAgain(null);
-    const r = await show.current!.play({ player: dunker, mate: mates(dunker)[0], colors: me.colors, dunk: d, keys: DESKTOP, label: `DUNK ${dunks.length + 1} OF ${DUNK_TRIES}${retry ? ' · SECOND TRY' : ''}` });
+    // five judges from around the league
+    const judges = save.teams.filter(t => t.id !== me.id).slice(0, 5).map(t => save.players[t.roster[0]]).filter(Boolean);
+    const r = await show.current!.play({ player: dunker, mate: mates(dunker)[0], judges, colors: me.colors, dunk: d, keys: DESKTOP, label: `DUNK ${dunks.length + 1} OF ${DUNK_TRIES}${retry ? ' - SECOND TRY' : ''}` });
     if (!alive.current) return;
     // a miss gets one more go at it, as in the real thing
     if (!r.made && !retry) { setAgain(d); setStage('retry'); return; }
     const cards = judgeDunk(d.style, r, dice.current, retry);
+    // the judges raise their cards on the court before the totals come up
+    await show.current!.showCards(cards);
+    if (!alive.current) return;
     if (r.made) sfx.fanfare(); else sfx.groan();
     setDunks(list => [...list, { name: d.name, cards, total: cards.reduce((s, v) => s + v, 0), made: r.made }]);
     setStage('cards');

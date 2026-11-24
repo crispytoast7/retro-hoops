@@ -8,7 +8,7 @@ import type { Player, Save } from '../types';
 import { pushNews } from './economy';
 import { prog } from './progress';
 
-export type DunkStyle = 'twohand' | 'onehand' | 'reverse' | 'windmill' | 'spin' | 'legs' | 'line' | 'board' | 'over';
+export type DunkStyle = 'twohand' | 'onehand' | 'reverse' | 'windmill' | 'spin' | 'legs' | 'line' | 'oop' | 'over';
 export interface DunkChoice {
   style: DunkStyle; name: string;
   /** What it looks like, in a few words. */
@@ -26,9 +26,9 @@ export const DUNKS: DunkChoice[] = [
   { style: 'onehand', name: 'Tomahawk', blurb: 'Cocked back behind the head', perfect: 7.9, ease: 1.25, trick: false },
   { style: 'reverse', name: 'Reverse', blurb: 'Turns his back to the rim', perfect: 8.4, ease: 1.15, trick: true },
   { style: 'windmill', name: 'Windmill', blurb: 'The ball goes all the way round', perfect: 8.9, ease: 1.05, trick: true },
-  { style: 'board', name: 'Off the backboard', blurb: 'Throws it off the glass, catches it in the air', perfect: 9.2, ease: 1, trick: true },
+  { style: 'oop', name: 'Alley-oop', blurb: 'A teammate lobs it from the wing: catch it at the top', perfect: 9.2, ease: 1, trick: true },
   { style: 'spin', name: '360', blurb: 'A full turn in the air', perfect: 9.4, ease: 0.95, trick: true },
-  { style: 'over', name: 'Over a teammate', blurb: 'Clears a man standing in his way', perfect: 9.6, ease: 0.9, trick: true },
+  { style: 'over', name: 'Over a teammate', blurb: 'Clears a teammate crouched in the lane', perfect: 9.6, ease: 0.9, trick: true },
   { style: 'line', name: 'From the free-throw line', blurb: 'Takes off from fifteen feet', perfect: 9.8, ease: 0.85, trick: false },
   { style: 'legs', name: 'Between the legs', blurb: 'Under the leg and down', perfect: 10, ease: 0.8, trick: true },
 ];
