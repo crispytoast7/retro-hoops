@@ -405,3 +405,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 20px; }
 .lu-sub { min-height: 0; padding-top: 2px; padding-bottom: 8px; font-size: 18px; border-top: 0; }
 
 .meter.tap { cursor: pointer; } .mh-list { margin: 2px 0 8px; padding-left: 20px; font-size: 18px; } .mh-list li { margin: 1px 0; }
+
+/* the trainer: ceiling in view, the best pick marked, what a tap does next to it */
+.tr-head { display: flex; flex-direction: column; gap: 4px; }
+.tr-room { height: 7px; background: var(--edge); border: 2px solid var(--edge); } .tr-room > span { display: block; height: 100%; background: var(--good); }
+.tr-say { font-size: 18px; }
+.tr-row.best { background: rgba(255, 210, 60, .1); box-shadow: inset 3px 0 0 var(--gold); }
+.tr-fx { font-family: var(--head); font-size: 9px; min-width: 48px; text-align: right; }

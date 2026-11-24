@@ -12,6 +12,7 @@ import { act } from '../state/store';
 import { Btn, Modal, Panel, Sprite, Stars, money, toast } from './kit';
 import { NameLink, PlayerLine, STATUS_CLASS, contractText, releaseWithConfirm } from './OffseasonParts';
 import { CampDrill } from './CampDrill';
+import { Trainer } from './Trainer';
 import { nav } from './router';
 
 /** How far a rating is through its current half star (0-1), so an upgrade that does not yet add half a star still shows. */
@@ -101,7 +102,6 @@ function TrainModal({ save, player: p, onClose }: { save: Save; player: Player; 
     toast(`${RATING_NAMES[k]} trained!`, true);
   };
   const release = async () => { if (await releaseWithConfirm(save, p)) onClose(); };
-  const block = upgradeBlock(save, p), sessions = campSessionsLeft(save, p);
   return (
     <Modal onClose={onClose}>
       <div class="row" style={{ alignItems: 'flex-start' }}>
@@ -113,24 +113,7 @@ function TrainModal({ save, player: p, onClose }: { save: Save; player: Player; 
         </div>
       </div>
       <div class="row between"><span class="dim">Credits</span><span class="head gold">◉ {save.credits}</span></div>
-      <div class="row between"><span class="dim">Ceiling</span><Stars v={p.potential} /></div>
-      <div class={block ? 'gold' : 'dim'} style={{ fontSize: '18px' }}>{block ?? `${sessions} of ${CAMP_SESSIONS} camp sessions left.`}</div>
-      <div class="list">
-        {RATING_KEYS.map(k => {
-          const cost = upgradeCost(save, p, k);
-          const maxed = p.ratings[k] >= 99;
-          return (
-            <div class="item">
-              <div class="grow">
-                <div>{RATING_NAMES[k]}</div>
-                <div class="row" style={{ gap: '6px' }}><Stars v={p.ratings[k]} /><span class="ox-prog" title="Progress to the next half star"><span style={{ width: `${Math.round(halfStarProgress(p.ratings[k]) * 100)}%` }} /></span></div>
-              </div>
-              <Btn disabled={maxed || !!block || save.credits < cost} onClick={() => up(k)} silent>{maxed ? 'MAX' : `+ ◉${cost}`}</Btn>
-            </div>
-          );
-        })}
-      </div>
-      <div class="dim" style={{ fontSize: '17px' }}>The bar under the stars fills toward the next half star.</div>
+      <Trainer save={save} player={p} mode="camp" onDone={() => toast(`${p.name.split(' ').pop()} trained!`, true)} />
       <div class="row">
         <Btn kind="danger" onClick={() => { void release(); }}>Release</Btn>
         <Btn class="grow" kind="primary" onClick={onClose}>Done</Btn>

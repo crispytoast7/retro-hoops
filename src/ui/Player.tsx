@@ -13,6 +13,7 @@ import { RATING_KEYS, RATING_NAMES } from '../core/types';
 import type { StatLine, Trait } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { act, getSave, touch, useSave } from '../state/store';
+import { Trainer } from './Trainer';
 import { Btn, Meter, Panel, Screen, Sprite, Stars, avg, confirmDialog, fullName, money, pct, short, toast } from './kit';
 import { back, nav, replace } from './router';
 
@@ -58,10 +59,6 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
   const badge = badgeOf(p), gift = badgeProgress(p);
   // a level-up may be the one that earns his badge: say so on the spot
   const badgeCheck = () => { if (act(s => announceBadges(s)).some(x => x.id === p.id)) { sfx.fanfare(); toast(`Badge earned: ${BADGES[getSave().players[p.id].badge!].name}!`, true); } };
-  const upgrade = (k: (typeof RATING_KEYS)[number]) => {
-    const err = act(s => spendPoint(s, p.id, k));
-    if (err) toast(err); else { sfx.coin(); badgeCheck(); }
-  };
   const release = async () => {
     if (save.teams[save.userTeamId].roster.length <= ROSTER_MIN) return toast(`You need at least ${ROSTER_MIN} players.`);
     if (!(await confirmDialog(`Release ${p.name}? ${dead > 0 ? `${money(dead)} stays on your cap as dead money until next offseason.` : ''}`, 'Release'))) return;
@@ -110,24 +107,21 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
         </div>
       )}
       {!prospect && (
-        <Panel title="RATINGS">
-          <div class="list">
+        <Panel title={spending ? 'LEVEL UP' : 'RATINGS'}>
+          {spending ? <Trainer save={save} player={p} mode="points" onDone={badgeCheck} /> : <div class="list">
             {RATING_KEYS.map(k => (
               <div class="item">
                 <div class="grow"><div>{RATING_NAMES[k]}</div><div class="dim" style={{ fontSize: '16px' }}>{RATING_DESC[k]}</div></div>
                 <Stars v={p.ratings[k]} />
-                {mine && pts > 0 && !capped && <Btn kind="small primary" disabled={p.ratings[k] >= 99} onClick={() => upgrade(k)} silent>+{POINT_GAIN}</Btn>}
               </div>
             ))}
-          </div>
+          </div>}
           {mine && (
             <div style={{ marginTop: '8px' }}>
               <Meter label={`LEVEL ${levelOfPlayer(p)}`} value={(xpOfPlayer(p) / xpNeed(levelOfPlayer(p))) * 100} color="var(--gold)" text={`${xpOfPlayer(p)}/${xpNeed(levelOfPlayer(p))} XP`} />
-              <div class={pts > 0 && !capped ? 'gold' : 'dim'} style={{ fontSize: '18px', marginTop: '6px' }}>
-                {capped ? 'He has reached his ceiling. Further level-ups pay you a credit each.'
-                  : pts > 0 ? `${pts} level-up point${pts === 1 ? '' : 's'} to spend: ${tap} + on a rating (+${POINT_GAIN} points, about half a star).`
-                    : 'He earns XP by playing. Each level-up lets you raise one rating.'}
-              </div>
+              {!spending && <div class="dim" style={{ fontSize: '18px', marginTop: '6px' }}>
+                {capped ? 'He has reached his ceiling. Further level-ups pay you a credit each.' : 'He earns XP by playing. Each level-up lets you raise one rating.'}
+              </div>}
             </div>
           )}
         </Panel>
