@@ -17,6 +17,12 @@ export function RankingsScreen({ params }: { params: Record<string, any> }) {
   const [shown, setShown] = useState(params.reveal && list ? 0 : list?.rows.length ?? 0);
   useEffect(() => { if (params.seenKey) touch(s => markTip(s, params.seenKey)); }, []);
   const n = list?.rows.length ?? 0;
+  // the countdown starts at the bottom of the list and climbs: keep the newest name in view
+  useEffect(() => {
+    if (!params.reveal) return;
+    const rows = document.querySelectorAll('.rk-row');
+    rows[Math.max(0, Math.min(n - 1, n - shown - (shown >= n ? 0 : 1)))]?.scrollIntoView({ block: 'center', behavior: shown ? 'smooth' : 'auto' });
+  }, [shown]);
   const next = () => {
     if (shown >= n) return;
     const rank = n - shown; // the place about to be revealed
