@@ -6,6 +6,7 @@ import { ovr } from '../core/ratings';
 import type { Save } from '../core/types';
 import { act, touch } from '../state/store';
 import { Btn, Sprite, Stars } from './kit';
+import { TradeCard } from './TradeCard';
 import { nav } from './router';
 import { holdTips } from './Tips';
 
@@ -40,7 +41,14 @@ export function BigMomentHost({ save }: { save: Save }) {
         )}
         <div class="moment-text">{m!.text}</div>
         <div class="col" style={{ gap: '6px' }}>
-          {m!.choices.map((c, i) => (
+          {m!.kind === 'deadline' && m!.data?.offers?.map((o, i) => (
+            <div class="panel col" style={{ gap: '6px' }}>
+              <div class="head gold">FROM THE {save.teams[o.aId].name.toUpperCase()}</div>
+              <TradeCard save={save} sides={{ give: o.bGives, get: o.aGives }} />
+              <Btn kind="primary" silent onClick={() => { const r = act(s => resolveMoment(s, i)); if (r) { if (r.good) sfx.fanfare(); else sfx.select(); setRes(r); } }}>Take this deal</Btn>
+            </div>
+          ))}
+          {m!.choices.map((c, i) => m!.kind === 'deadline' && i < (m!.data?.offers?.length ?? 0) ? null : (
             <Btn class="opt" disabled={!!c.disabled} silent onClick={() => { const r = act((s, rng) => resolveMoment(s, i, rng)); if (r) { if (r.good) sfx.fanfare(); else sfx.select(); setRes(r); } }}>
               <span>{c.label}</span><span class="fx">{c.disabled ?? c.effect}</span>
             </Btn>

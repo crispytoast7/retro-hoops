@@ -163,6 +163,33 @@ export function upgradeRating(save: Save, playerId: number, key: RatingKey): str
 }
 
 // ---- scouting ------------------------------------------------------------------------
+type CeilMemo = Save & { ceilScouted?: number[] };
+/** Young enough that how good he could become still matters. */
+export const stillGrowing = (p: Player): boolean => p.age <= 25;
+/**
+ * What the user knows about a player's ceiling: exact for his own players, for veterans (who have reached
+ * theirs) and for anyone he has scouted; otherwise a range whose width depends on his scouting office.
+ */
+export function ceilingView(save: Save, p: Player): { known: boolean; lo: number; hi: number } {
+  const o = overallOf(p.ratings, p.pos), cap = Math.max(p.potential, o);
+  if (p.teamId === save.userTeamId || !stillGrowing(p) || (save as CeilMemo).ceilScouted?.includes(p.id)) return { known: true, lo: cap, hi: cap };
+  const spread = 16 - effLevel(save.teams[save.userTeamId].facilities.scouting) * 2.5;
+  let h = (p.id * 2654435761 + 977) >>> 0; h = (h ^ (h >>> 13)) * 1274126177 >>> 0;
+  const mid = cap + ((h % 1000) / 1000 - 0.5) * spread;
+  return { known: false, lo: Math.round(clamp(Math.max(o, mid - spread / 2), 1, 99)), hi: Math.round(clamp(mid + spread / 2, o, 99)) };
+}
+/** Spend a scouting report (or a credit) to learn exactly how good a young player could become. */
+export function scoutCeiling(save: Save, playerId: number): string | null {
+  const p = save.players[playerId];
+  if (!p) return 'No such player.';
+  if (ceilingView(save, p).known) return 'You already know his ceiling.';
+  if (save.scoutPoints > 0) save.scoutPoints--;
+  else if (save.credits >= 1) save.credits--;
+  else return 'No scouting reports or credits left.';
+  ((save as CeilMemo).ceilScouted ??= []).push(playerId);
+  note(save, 'scout');
+  return null;
+}
 export const scoutPointsPerSeason = (save: Save): number => effLevel(save.teams[save.userTeamId].facilities.scouting) * 3 + 3 * perk(save, 'scout');
 export function scoutProspect(save: Save, playerId: number): string | null {
   const p = save.players[playerId];

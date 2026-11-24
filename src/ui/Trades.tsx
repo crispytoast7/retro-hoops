@@ -16,6 +16,8 @@ import { POSITIONS } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { act, useSave } from '../state/store';
 import { Btn, Modal, Panel, Screen, Stars, Tabs, confirmDialog, fullName, money, recordStr, toast } from './kit';
+import { BestFive, CeilTag } from './TradeCard';
+import { stillGrowing } from '../core/org/economy';
 import { CapTag, FreeAgentList, PlayerLine, STATUS_CLASS, STRATEGY_HINT, VIA_TEXT, contractText, dealText, pickText } from './OffseasonParts';
 
 const r1 = (v: number): number => Math.round(v * 10) / 10;
@@ -117,7 +119,14 @@ function OfferCard({ save, offer, title, onAccept, onDecline }: { save: Save; of
         {!gets.players.length && !gets.picks.length && <div class="item dim" style={{ minHeight: '36px' }}>Nothing back: they simply take the contract off your hands.</div>}
       </div>
       <div class="offer-label">YOU GIVE</div>
-      <div class="offer-give">{[playersWord(save, offer.bGives.players), ...offer.bGives.picks.map(pk => pickWords(save, me, pk))].filter(Boolean).join(', ') || 'Nothing'}</div>
+      <div class="list">
+        {offer.bGives.players.map(id => save.players[id]).filter(Boolean).map(pl => (
+          <PlayerLine save={save} player={pl} sub={<span>{contractText(pl)}</span>} />
+        ))}
+        {offer.bGives.picks.map(pk => <div class="item" style={{ minHeight: '36px' }}><span class="tag gold">PICK</span><span class="grow">{pickWords(save, me, pk)}</span></div>)}
+        {!offer.bGives.players.length && !offer.bGives.picks.length && <div class="item dim" style={{ minHeight: '36px' }}>Nothing</div>}
+      </div>
+      <BestFive save={save} sides={{ give: offer.bGives, get: offer.aGives }} />
       <div class="offer-money">
         Your payroll {money(m.payBefore)} → <b class={STATUS_CLASS[m.status]}>{money(m.payAfter)}</b>
         {diff < 0 ? <span class="good"> · saves {money(-diff)}</span> : diff > 0 ? <span class="gold"> · adds {money(diff)}</span> : null}
@@ -337,6 +346,7 @@ function ProposeTab({ save }: { save: Save }) {
           </Panel>
         </div>
       )}
+      {them && (g.players.length > 0 || r.players.length > 0) && <Panel><BestFive save={save} sides={{ give: g, get: r }} /></Panel>}
       {them && <div class="dim" style={{ fontSize: '17px' }}>{TAP} players and picks to add them to the deal. {TAP} a name to see the player.</div>}
       {footer && <div class="ox-sticky">{footer}</div>}
     </>
@@ -369,7 +379,7 @@ function AssetList({ save, team, side, onPlayer, onPick }: { save: Save; team: T
         return (
           <PlayerLine save={save} player={pl} sel={on} onClick={() => onPlayer(pl.id)}
             note={save.tradeDemands.includes(pl.id) ? <span class="tag bad" style={{ marginLeft: '4px' }}>WANTS OUT</span> : null}
-            sub={<span>{contractText(pl)}</span>}
+            sub={<><span>{contractText(pl)}</span>{stillGrowing(pl) && <CeilTag save={save} p={pl} />}</>}
             right={<span class={`tag ${on ? 'good' : ''}`}>{on ? 'IN ✓' : 'ADD'}</span>} />
         );
       })}

@@ -10,7 +10,8 @@ import { clamp, ovr, round1 } from '../core/ratings';
 import type { FreeAgentOffer, Player, Save } from '../core/types';
 import { touch } from '../state/store';
 import { Btn, Modal, Panel, Stars, money, toast } from './kit';
-import { CapTag, FreeAgentList, PlayerLine, STATUS_CLASS, VIA_TEXT, dealText } from './OffseasonParts';
+import { CapTag, FreeAgentList, PlayerLine, STATUS_CLASS, VIA_TEXT, contractText, dealText, releaseWithConfirm } from './OffseasonParts';
+import { nav } from './router';
 
 const INTEREST_CLASS = { none: 'bad', low: 'gold', medium: 'ox-accent', high: 'good' } as const;
 const INTEREST_TEXT = { none: 'NO INTEREST', low: 'LOW INTEREST', medium: 'MEDIUM INTEREST', high: 'HIGH INTEREST' } as const;
@@ -120,6 +121,16 @@ export function FreeAgencyStep({ save }: { save: Save }) {
             })}
           </div>
         )}
+      </Panel>
+
+      <Panel title={`YOUR ROSTER (${me.roster.length}/${ROSTER_MAX})`}>
+        <div class="dim" style={{ fontSize: '17px', marginBottom: '4px' }}>{TAP} a player to see him. Release someone to free a roster spot or cap room.</div>
+        <div class="list">
+          {me.roster.map(id => save.players[id]).filter(Boolean).sort((a, b) => ovr(b) - ovr(a)).map(p => (
+            <PlayerLine save={save} player={p} onClick={() => nav('player', { id: p.id })} sub={<span>{contractText(p)}</span>}
+              right={<span onClick={e => e.stopPropagation()}><Btn kind="small" onClick={() => { void releaseWithConfirm(save, p); }}>Release</Btn></span>} />
+          ))}
+        </div>
       </Panel>
 
       <h3>FREE AGENTS</h3>

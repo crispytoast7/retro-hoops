@@ -412,3 +412,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 20px; }
 .tr-say { font-size: 18px; }
 .tr-row.best { background: rgba(255, 210, 60, .1); box-shadow: inset 3px 0 0 var(--gold); }
 .tr-fx { font-family: var(--head); font-size: 9px; min-width: 48px; text-align: right; }
+
+/* a trade at a glance */
+.tc { display: flex; flex-direction: column; gap: 6px; }
+.tc-cols { display: grid; grid-template-columns: 1fr auto 1fr; gap: 6px; align-items: start; }
+.tc-side { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.tc-p { min-width: 0; }
+.tc-arrow { font-family: var(--head); color: var(--gold); padding-top: 18px; }
+.tc-verdict { flex-wrap: wrap; gap: 6px; font-size: 18px; }

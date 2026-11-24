@@ -14,6 +14,7 @@ import type { StatLine, Trait } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { act, getSave, touch, useSave } from '../state/store';
 import { Trainer } from './Trainer';
+import { ceilingView, scoutCeiling } from '../core/org/economy';
 import { Btn, Meter, Panel, Screen, Sprite, Stars, avg, confirmDialog, fullName, money, pct, short, toast } from './kit';
 import { back, nav, replace } from './router';
 
@@ -75,7 +76,14 @@ export function PlayerScreen({ params }: { params: Record<string, any> }) {
             <div class="row wrap"><span class="tag pos">{p.pos}</span><span>#{p.num}</span><span class="dim">Age {p.age}</span></div>
             <div class="dim">{sizeOf(p)}</div>
             <div class="row">{prospect ? <span class="dim">Unscouted prospect</span> : <Stars v={ovr(p)} big />}{!prospect && isStar(p) && <span class="tag gold">STAR</span>}</div>
-            {mine && <div class="row dim" style={{ gap: '6px' }}>Ceiling <Stars v={Math.max(p.potential, ovr(p))} /></div>}
+            {!prospect && !p.retired && (() => {
+              const cv = ceilingView(save, p);
+              return cv.known
+                ? <div class="row dim" style={{ gap: '6px' }}>Ceiling <Stars v={cv.hi} /></div>
+                : <div class="row dim" style={{ gap: '6px', flexWrap: 'wrap' }}>Ceiling <Stars v={cv.lo} /> to <Stars v={cv.hi} />
+                    <Btn kind="small" onClick={() => { const err = act(s => scoutCeiling(s, p.id)); if (err) toast(err); else { sfx.select(); toast('Scouted: his ceiling is in.', true); } }}>Scout ({save.scoutPoints > 0 ? '1 report' : '◉1'})</Btn>
+                  </div>;
+            })()}
             <div class="dim nowrap">{team ? fullName(team) : p.retired ? 'Retired' : prospect || save.draftClass.includes(p.id) ? 'Draft prospect' : 'Free agent'}</div>
             {mine && formOf(p) !== 0 && <div class={formOf(p) > 0 ? 'accent' : ''} style={formOf(p) < 0 ? { color: '#7fc4ff' } : undefined}>{formOf(p) > 0 ? '▲'.repeat(formOf(p)) : '▼'.repeat(-formOf(p))} {FORM_NAME[formOf(p)]}: playing {Math.abs(formOf(p)) * FORM_RATING} points {formOf(p) > 0 ? 'above' : 'below'} his ratings</div>}
             {p.injury && <div class="bad">{p.injury.desc === 'suspended' ? 'Suspended' : `Injured: ${p.injury.desc}`}, {p.injury.weeks} wk</div>}
