@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { newLeague } from '../src/core/gen/league';
 import { chooseTeam } from '../src/core/offseason/offseason';
-import { DUNKS, DUNK_TRIES, JUDGES, STARS_PER_CONF, THREE_MAX, allStarPending, allStarState, allStarWeek, finishAllStar, judgeDunk, simDunk, simThree } from '../src/core/org/allstar';
+import { DUNKS, DUNK_TRIES, JUDGES, STARS_PER_CONF, THREE_BALLS, THREE_MAX, allStarPending, allStarState, allStarWeek, dunkMade, finishAllStar, judgeDunk, simDunk, simThree, threePoints } from '../src/core/org/allstar';
 import { pendingMoment, resolveMoment } from '../src/core/org/moments';
 import { prog } from '../src/core/org/progress';
 import { Rng } from '../src/core/rng';
@@ -84,11 +84,47 @@ describe('All-Star weekend', () => {
     for (let i = 0; i < 100; i++) { const t = simThree(best('sht'), rng); expect(t).toBeGreaterThanOrEqual(0); expect(t).toBeLessThanOrEqual(THREE_MAX); const d = simDunk(best('fin'), rng); expect(d).toBeGreaterThanOrEqual(DUNK_TRIES * JUDGES * 5); expect(d).toBeLessThanOrEqual(DUNK_TRIES * JUDGES * 10); }
     expect(avg(() => simThree(best('sht'), rng))).toBeGreaterThan(avg(() => simThree(worst('sht'), rng)) + 1);
     expect(avg(() => simDunk(best('fin'), rng))).toBeGreaterThan(avg(() => simDunk(worst('fin'), rng)) + 5);
-    const total = (style: (typeof DUNKS)[number]['style'], q: number) => avg(() => judgeDunk(style, q, rng).reduce((s, v) => s + v, 0));
-    expect(total('legs', 3)).toBeGreaterThan(total('windmill', 3));
-    expect(total('windmill', 3)).toBeGreaterThan(total('twohand', 3));
-    expect(total('windmill', 3)).toBeGreaterThan(total('windmill', 2));
-    // a missed dunk scores worse than the safest dunk made
-    expect(total('legs', 1)).toBeLessThan(total('twohand', 2));
+    const all = (b: 0 | 1 | 2 | 3) => ({ jump: b, trick: b, slam: b });
+    const total = (style: (typeof DUNKS)[number]['style'], beats: ReturnType<typeof all>, retry = false) => avg(() => judgeDunk(style, beats, rng, retry).reduce((s, v) => s + v, 0));
+    expect(total('legs', all(3))).toBeGreaterThan(total('windmill', all(3)));
+    expect(total('windmill', all(3))).toBeGreaterThan(total('twohand', all(3)));
+    expect(total('windmill', all(3))).toBeGreaterThan(total('windmill', all(2)));
+    expect(total('windmill', all(2))).toBeGreaterThan(total('windmill', all(1)));
+    // a flawless hardest dunk is a row of tens; a second try costs a little
+    expect(total('legs', all(3))).toBe(JUDGES * 10);
+    expect(total('spin', all(3), true)).toBeLessThan(total('spin', all(3)));
+    // a fumbled trick is scored as a plain jam; a missed dunk scores worse than the safest dunk made
+    expect(total('legs', { jump: 3, trick: 0, slam: 3 })).toBeLessThan(total('twohand', all(3)));
+    expect(dunkMade({ jump: 3, trick: 0, slam: 3 })).toBe(true);
+    expect(dunkMade({ jump: 3, trick: 3, slam: 0 })).toBe(false);
+    expect(total('legs', { jump: 0, trick: 0, slam: 0 })).toBeLessThan(total('twohand', all(1)));
+  });
+
+  test('a sharp showing wins: two clean hard dunks or a hot hand beat the field nearly every time', () => {
+    const { save } = mk();
+    const ps = Object.values(save.players).filter(p => p.teamId !== null);
+    const top = (k: 'sht' | 'fin') => ps.slice().sort((x, y) => y.ratings[k] - x.ratings[k]).slice(0, 3);
+    const rng = new Rng(11);
+    let dunkWins = 0, threeWins = 0, weakThree = 0;
+    const N = 400;
+    // two between-the-legs dunks hit well (not perfectly), and 13 of 16 from the arc with a few dead centre
+    const good = { jump: 2 as const, trick: 2 as const, slam: 3 as const };
+    for (let i = 0; i < N; i++) {
+      const mine = judgeDunk('legs', good, rng).reduce((s, v) => s + v, 0) + judgeDunk('legs', good, rng).reduce((s, v) => s + v, 0);
+      if (top('fin').every(p => simDunk(p, rng) <= mine)) dunkWins++;
+      let score = 0, streak = 0;
+      for (let b = 0; b < THREE_BALLS; b++) {
+        if (b % 5 === 4) { streak = 0; continue; } // misses one in five
+        streak++; score += threePoints({ money: b % 3 === 2 && b < 15, deep: b === 15, swish: b % 4 === 0, streak });
+      }
+      if (top('sht').every(p => simThree(p, rng) <= score)) threeWins++;
+      // a cold hand (half of them, no bonuses) should not walk away with it
+      let cold = 0;
+      for (let b = 0; b < THREE_BALLS; b += 2) cold += threePoints({ money: b % 3 === 2 && b < 15, deep: b === 15, streak: 1 });
+      if (top('sht').every(p => simThree(p, rng) <= cold)) weakThree++;
+    }
+    expect(dunkWins / N).toBeGreaterThan(0.9);
+    expect(threeWins / N).toBeGreaterThan(0.85);
+    expect(weakThree / N).toBeLessThan(0.35);
   });
 });

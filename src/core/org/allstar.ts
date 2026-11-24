@@ -1,5 +1,6 @@
 // All-Star weekend: at mid-season the league names its All-Stars, and every club sends a shooter to the
 // three-point contest and a dunker to the dunk contest. The user plays his own two by hand (or skips them).
+// A sharp showing wins: rivals are good, never flawless.
 import { clamp, gameScore } from '../ratings';
 import { Rng } from '../rng';
 import { cal } from '../season/calendar';
@@ -7,29 +8,55 @@ import type { Player, Save } from '../types';
 import { pushNews } from './economy';
 import { prog } from './progress';
 
-export type DunkStyle = 'twohand' | 'onehand' | 'reverse' | 'windmill' | 'spin' | 'legs';
+export type DunkStyle = 'twohand' | 'onehand' | 'reverse' | 'windmill' | 'spin' | 'legs' | 'line' | 'board' | 'over';
 export interface DunkChoice {
   style: DunkStyle; name: string;
-  /** What a judge gives it on average: thrown down perfectly, and merely cleanly. */
-  perfect: number; clean: number;
-  /** How much harder the take-off is to time (1 = a plain jam). */
-  amp: number;
+  /** What it looks like, in a few words. */
+  blurb: string;
+  /** What a judge gives it on average when every beat is hit perfectly. */
+  perfect: number;
+  /** How generous the timing is: above 1 is forgiving, below 1 is tight. */
+  ease: number;
+  /** It has a move in mid-air that must be timed too. */
+  trick: boolean;
 }
-/** Safe to spectacular. The hard ones score higher and are harder to time. */
+/** Safe to spectacular. The hard ones score higher and leave less room for error. */
 export const DUNKS: DunkChoice[] = [
-  { style: 'twohand', name: 'Two-hand jam', perfect: 7.0, clean: 6.4, amp: 1 },
-  { style: 'onehand', name: 'One-hand slam', perfect: 7.6, clean: 7.0, amp: 1.12 },
-  { style: 'reverse', name: 'Reverse', perfect: 8.3, clean: 7.6, amp: 1.28 },
-  { style: 'windmill', name: 'Windmill', perfect: 9.0, clean: 8.2, amp: 1.45 },
-  { style: 'spin', name: '360', perfect: 9.5, clean: 8.7, amp: 1.62 },
-  { style: 'legs', name: 'Between the legs', perfect: 10, clean: 9.2, amp: 1.8 },
+  { style: 'twohand', name: 'Two-hand jam', blurb: 'Straight up, both hands', perfect: 7.4, ease: 1.35, trick: false },
+  { style: 'onehand', name: 'Tomahawk', blurb: 'Cocked back behind the head', perfect: 7.9, ease: 1.25, trick: false },
+  { style: 'reverse', name: 'Reverse', blurb: 'Turns his back to the rim', perfect: 8.4, ease: 1.15, trick: true },
+  { style: 'windmill', name: 'Windmill', blurb: 'The ball goes all the way round', perfect: 8.9, ease: 1.05, trick: true },
+  { style: 'board', name: 'Off the backboard', blurb: 'Throws it off the glass, catches it in the air', perfect: 9.2, ease: 1, trick: true },
+  { style: 'spin', name: '360', blurb: 'A full turn in the air', perfect: 9.4, ease: 0.95, trick: true },
+  { style: 'over', name: 'Over a teammate', blurb: 'Clears a man standing in his way', perfect: 9.6, ease: 0.9, trick: true },
+  { style: 'line', name: 'From the free-throw line', blurb: 'Takes off from fifteen feet', perfect: 9.8, ease: 0.85, trick: false },
+  { style: 'legs', name: 'Between the legs', blurb: 'Under the leg and down', perfect: 10, ease: 0.8, trick: true },
 ];
 /** A missed dunk still gets a (bad) score. */
-export const MISSED_DUNK = 5.2;
+export const MISSED_DUNK = 5;
 export const JUDGES = 5;
-/** Three-point contest: racks around the arc, balls on each; the last ball of a rack is the money ball, worth two. */
-export const RACKS = 5, BALLS = 2;
-export const THREE_MAX = RACKS * (BALLS + 1);
+/** How well one beat of a dunk (the jump, the trick, the slam) was timed. */
+export type Beat = 0 | 1 | 2 | 3; // missed, late, good, perfect
+/** A dunk goes down when he gets off the floor and gets it over the rim; a fumbled trick only costs points. */
+export const dunkMade = (beats: { jump: Beat; trick?: Beat; slam: Beat }): boolean => beats.jump > 0 && beats.slam > 0;
+/**
+ * Three-point contest: five racks round the arc, three balls on each (the last is the money ball, worth
+ * two), then one from the logo worth three. Dead centre is a bonus point, and so is every make once he
+ * has hit three in a row. One clock runs through the whole thing, and he has to get from rack to rack.
+ */
+export const RACKS = 5, BALLS = 3, DEEP_BALL = 3;
+export const THREE_CLOCK = 50;
+/** Points for one made ball. `streak` counts this make. */
+export const threePoints = (o: { money?: boolean; deep?: boolean; swish?: boolean; streak: number }): number =>
+  (o.deep ? DEEP_BALL : o.money ? 2 : 1) + (o.swish ? 1 : 0) + (o.streak >= 3 ? 1 : 0);
+/** The best score there is: every ball dead centre. */
+export const THREE_MAX = ((): number => {
+  let s = 0, streak = 0;
+  for (let r = 0; r < RACKS; r++) for (let b = 0; b < BALLS; b++) s += threePoints({ money: b === BALLS - 1, swish: true, streak: ++streak });
+  return s + threePoints({ deep: true, swish: true, streak: ++streak });
+})();
+/** Balls in the whole contest. */
+export const THREE_BALLS = RACKS * BALLS + 1;
 export const DUNK_TRIES = 2;
 /** Stars named per conference. */
 export const STARS_PER_CONF = 5;
@@ -86,29 +113,45 @@ export function openAllStar(save: Save): AllStarState {
 }
 
 // ---- scoring --------------------------------------------------------------------------
-/** A rival's three-point contest score: better shooters make more, nobody is automatic. */
+/** A rival's three-point contest score, under the same rules the user plays: better shooters make more, nobody is automatic. */
 export function simThree(p: Player, rng: Rng): number {
-  const make = clamp(0.16 + 0.5 * (p.ratings.sht / 100), 0.3, 0.68);
-  let score = 0;
-  for (let r = 0; r < RACKS; r++) for (let b = 0; b < BALLS; b++) if (rng.next() < make) score += b === BALLS - 1 ? 2 : 1;
+  const make = clamp(0.2 + 0.4 * (p.ratings.sht / 100), 0.3, 0.6);
+  let score = 0, streak = 0;
+  const ball = (chance: number, o: { money?: boolean; deep?: boolean }): void => {
+    if (rng.next() >= chance) { streak = 0; return; }
+    streak++;
+    score += threePoints({ ...o, swish: rng.next() < 0.25, streak });
+  };
+  for (let r = 0; r < RACKS; r++) for (let b = 0; b < BALLS; b++) ball(make, { money: b === BALLS - 1 });
+  ball(make * 0.6, { deep: true });
   return score;
 }
 /** Five judges' cards for one dunk, given what the dunk deserved on average. Each card is 5 to 10. */
 export function judge(mean: number, rng: Rng): number[] {
-  return Array.from({ length: JUDGES }, () => clamp(Math.round(mean + rng.gauss() * 0.4), 5, 10));
+  return Array.from({ length: JUDGES }, () => clamp(Math.round(mean + rng.gauss() * 0.35), 5, 10));
 }
-/** The judges' cards for a dunk the user tried: its style, and how well he timed the take-off (0-3). */
-export function judgeDunk(style: DunkStyle, quality: number, rng: Rng): number[] {
+/** What the judges make of a dunk on average: its difficulty, less whatever the timing gave away. A retry costs a little. */
+export function dunkMean(style: DunkStyle, beats: { jump: Beat; trick?: Beat; slam: Beat }, retry = false): number {
   const d = DUNKS.find(x => x.style === style) ?? DUNKS[0];
-  return judge(quality >= 3 ? d.perfect : quality === 2 ? d.clean : MISSED_DUNK, rng);
+  if (!dunkMade(beats)) return MISSED_DUNK;
+  const off = (b: Beat): number => [0, 0.8, 0.3, 0][b];
+  let mean = d.perfect - off(beats.jump) - off(beats.slam);
+  // the trick is what the dunk is worth: fumble it and it is scored as a plain jam
+  if (d.trick) mean = beats.trick ? mean - off(beats.trick) : Math.min(mean, DUNKS[0].perfect) - 0.6;
+  return clamp(mean - (retry ? 0.5 : 0), MISSED_DUNK + 0.6, 10);
 }
-/** A rival's dunk contest total over all his tries. */
+/** The judges' cards for a dunk the user tried. */
+export function judgeDunk(style: DunkStyle, beats: { jump: Beat; trick?: Beat; slam: Beat }, rng: Rng, retry = false): number[] {
+  const mean = dunkMean(style, beats, retry);
+  // a flawless hard dunk is a row of tens, as it should be
+  return mean >= 9.9 ? Array.from({ length: JUDGES }, () => 10) : judge(mean, rng);
+}
+/** A rival's dunk contest total over all his tries. Good dunkers go for more, and nobody is flawless twice. */
 export function simDunk(p: Player, rng: Rng): number {
   let total = 0;
   for (let i = 0; i < DUNK_TRIES; i++) {
-    // the great dunkers go for more, and now and then one of them misses
-    const miss = rng.next() < 0.12;
-    const mean = miss ? MISSED_DUNK : clamp(6.0 + 2.8 * ((p.ratings.fin - 60) / 35) + rng.gauss() * 0.45, 6, 9.8);
+    const miss = rng.next() < 0.14;
+    const mean = miss ? MISSED_DUNK : clamp(6.6 + 2 * ((p.ratings.fin - 60) / 35) + rng.gauss() * 0.4, 6.2, 9);
     total += judge(mean, rng).reduce((s, v) => s + v, 0);
   }
   return total;

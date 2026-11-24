@@ -38,14 +38,21 @@ export interface ArcadeSetup {
   challenge?: number;
 }
 export type DunkStyle = 'twohand' | 'onehand' | 'reverse' | 'windmill' | 'spin' | 'legs';
+/** The three-point contest. (The dunk contest has a stage of its own: see dunkshow.ts.) */
 export interface Contest {
-  kind: 'three' | 'dunk';
+  kind: 'three';
   /** Where he stands. */
   x: number; y: number;
-  /** Three-point contest: the last ball of a rack is worth two. */
-  money?: boolean;
-  /** Dunk contest: the dunk he is going for, and how much harder it makes the timing (1 = a plain jam). */
-  style?: DunkStyle; amp?: number;
+  /** Three-point contest: the last ball of a rack is worth two, the one from the logo three. */
+  money?: boolean; deep?: boolean;
+  /** Three-point contest: the rack this ball is on. He starts at (x, y) and has to get there before he can shoot. */
+  rack?: { x: number; y: number };
+  /** Three-point contest: seconds left on the clock that runs through the whole contest. */
+  clock?: number;
+  /** Balls left on this rack, this one included (drawn on the rack). */
+  left?: number;
+  /** He has made his last two: this one is worth a point more. */
+  hot?: boolean;
 }
 /** The situation a key moment starts from. */
 export type Scenario = 'halfcourt' | 'fastbreak' | 'pnr' | 'post' | 'iso' | 'open' | 'lateclock' | 'freethrows';
@@ -94,6 +101,8 @@ export interface ArcadeResult {
   shots: { by: number; made: boolean }[];
   /** Timing of the last jump shot: 3 perfect, 2 good, 1 early/late, 0 way off, -1 none taken. */
   quality: number;
+  /** A contest attempt: where he ended up, the real seconds it used, and whether the clock ran out on it. */
+  at: { x: number; y: number }; elapsed: number; timeUp: boolean;
 }
 export interface ArcadeTheme { paint: string; accent: string; banners: number; crowdA: string; crowdB: string; wood?: { wood: string; wood2: string; grain: string } }
 
@@ -217,7 +226,7 @@ export class Arcade {
   /** The next whole second (5, 4, 3...) that gets a warning tick. */
   private tickAt = 5;
   /** A clock is running in this possession: the shot clock, or the last seconds of a period (in practice only for its own drill). */
-  private get clockOn(): boolean { return !this.ftMode && !this.contest && (!this.practice || this.guide?.clock !== undefined); }
+  private get clockOn(): boolean { return this.contest ? this.contest.kind === 'three' && this.contest.clock !== undefined : !this.ftMode && (!this.practice || this.guide?.clock !== undefined); }
   private periodEnds = false;
   private events: PlayEvent[] = [];
   private highlights: string[] = [];
@@ -293,6 +302,9 @@ export class Arcade {
   private contest: Contest | null = null;
   /** Real seconds this contest attempt has been waiting for him to shoot. */
   private contestT = 0;
+  /** Three-point contest: he has reached the rack and may shoot; the clock ran out on this ball. */
+  private atRack = true;
+  private timeUp = false;
   /** Where the dunker has just been, for the after-images. */
   private trail: { x: number; y: number; lift: number; face: number }[] = [];
   private trailT = 0;
@@ -399,7 +411,12 @@ export class Arcade {
       const me = this.off[0];
       me.x = c.x; me.y = c.y; me.tx = c.x; me.ty = c.y; me.vx = 0; me.vy = 0; me.route = [];
       this.lag = { x: c.x, y: c.y }; this.ball = { x: c.x, y: c.y, z: 8 };
-      if (c.money) this.popup('MONEY BALL: WORTH 2', PAL.yellow, 1, 150);
+      this.timeUp = false;
+      this.atRack = !c.rack || Math.hypot(c.rack.x - c.x, c.rack.y - c.y) < 7;
+      if (c.clock !== undefined) { this.shotClock = c.clock; this.tickAt = Math.min(5, Math.ceil(c.clock) - 1); }
+      if (c.deep) this.popup('FROM THE LOGO: WORTH 3', PAL.yellow, 1, 150);
+      else if (c.money) this.popup('MONEY BALL: WORTH 2', PAL.yellow, 1, 150);
+      else if (!this.atRack) this.popup('RUN TO THE NEXT RACK', PAL.white, 1, 150);
     }
     if (setup.poss.lastShot) this.popup('LAST SHOT!', PAL.yellow, 2);
     else if (setup.poss.clutch) this.popup('CLUTCH TIME', PAL.yellow, 2);
@@ -684,6 +701,7 @@ export class Arcade {
   }
   private startAim(kb: boolean): void {
     if (this.phase !== 'live') return;
+    if (this.contest?.kind === 'three' && !this.atRack) { if (!this.popups.some(p => p.text === 'GET TO THE RACK')) this.popup('GET TO THE RACK', PAL.yellow, 1); return; }
     this.putback = 0;
     const h = this.off[this.handler];
     h.vx = 0; h.vy = 0;
@@ -696,10 +714,6 @@ export class Arcade {
     const sht = h.p.ratings.sht / 100;
     const k = Math.pow(this.chal, 0.9), kw = 1 + 0.3 * (this.chal - 1);
     // wide enough that letting go without looking misses more often than not, slow enough to time
-    if (this.contest?.kind === 'dunk') {
-      const fin = h.p.ratings.fin / 100;
-      return { amp: AMP_FLOOR * 1.05 * (this.contest.amp ?? 1) * (1.55 - 0.7 * fin) * this.diff.aim, w: 4.4 + 1.6 * ((this.contest.amp ?? 1) - 1) };
-    }
     // a Sniper's crosshair swings a fifth less, from anywhere
     const sn = hasBadge(h.p, 'sniper') ? 0.8 : 1;
     if (this.ftMode) return { amp: Math.max(AMP_FLOOR, 11 * (1.45 - 0.85 * sht)) * this.diff.aim * k * sn, w: (3.4 + 2.6 * (1 - sht)) * kw };
@@ -795,7 +809,6 @@ export class Arcade {
     const d = Math.hypot(a.wx, a.wy);
     const q = d <= R_SWISH ? 3 : d <= R_RIM ? 2 : d <= R_IRON ? 1 : 0;
     this.lastQuality = q;
-    if (this.contest?.kind === 'dunk') { this.contestDunk(q); return; }
     let made = q === 3 || (q === 2 && Math.random() < 1 - 0.8 * ((d - R_SWISH) / (R_RIM - R_SWISH)));
     if (q === 3) { sfx.perfect(); this.highlights.push('perfect'); }
     this.popup(['WAY OFF', 'OFF THE MARK', 'ON THE RIM', 'DEAD CENTRE!'][q], [PAL.red, '#ffa04d', PAL.white, PAL.green][q], 1, h.y - 46);
@@ -813,23 +826,6 @@ export class Arcade {
       this.cine = { on: true, t: 0, fx: (h.x + HOOP.x) / 2, fy: TOP + (h.y + HOOP.y - RIM_Z) / 2, label: three ? 'COLD BLOODED' : 'ANKLES BROKEN', ball: true };
       sfx.whoosh();
     }
-  }
-  /** Dunk contest: a well-timed take-off throws down the dunk he chose, on the slam cam. A bad one clangs off the rim. */
-  private contestDunk(q: number): void {
-    const h = this.off[this.handler], c = this.contest!;
-    const made = q >= 2;
-    this.popup(['NO LIFT', 'OFF BALANCE', 'CLEAN TAKE-OFF', 'PERFECT TAKE-OFF!'][q], [PAL.red, '#ffa04d', PAL.white, PAL.green][q], 1, h.y - 46);
-    if (q === 3) sfx.perfect();
-    this.shot.text = '';
-    this.launch(h, made, 'dunk', 2, q, -1, false);
-    this.style = c.style ?? 'twohand';
-    this.shot.dur *= 1.45;
-    this.trail = []; this.trailT = 0;
-    this.cine = { on: true, t: 0, fx: (h.x + HOOP.x) / 2, fy: TOP + (h.y + HOOP.y - RIM_Z) / 2, label: 'DUNK CONTEST', ball: false };
-    sfx.whoosh();
-    const dx = h.x - HOOP.x, dy = h.y - HOOP.y, d = Math.hypot(dx, dy) || 1;
-    h.tx = HOOP.x + (dx / d) * 5; h.ty = Math.max(HOOP.y + 3, HOOP.y + (dy / d) * 6 + 3);
-    this.phase = 'finish';
   }
   /** A pass thrown to a spot: the nearest teammate runs onto it. */
   private startLead(x: number, y: number): void {
@@ -992,7 +988,7 @@ export class Arcade {
       // make it unmistakable: rim flashes, sparks fly, and the points pop up at the basket
       this.rimGlow = 0.5;
       for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; this.sparks.push({ x: HOOP.x, y: HOOP.y - RIM_Z + 2, vx: Math.cos(a) * (18 + Math.random() * 14), vy: Math.sin(a) * 10 - 14, t: 0 }); }
-      if (this.contest?.kind !== 'dunk') this.popups.push({ text: this.contest ? (this.contest.money ? '+2' : '+1') : `+${sh.pts}`, color: PAL.green, t: 0, scale: 2, y: HOOP.y - RIM_Z + 42 });
+      this.popups.push({ text: this.contest ? `+${(this.contest.deep ? 3 : this.contest.money ? 2 : 1) + (this.lastQuality === 3 ? 1 : 0) + (this.contest.hot ? 1 : 0)}` : `+${sh.pts}`, color: PAL.green, t: 0, scale: 2, y: HOOP.y - RIM_Z + 42 });
       if (sh.type === 'dunk') { this.rimShake = 1; this.hang = 0.45; }
       if (sh.type === 'dunk' && this.style) {
         // the signature slam: the rim bends, the arena flashes, everything freezes for a beat
@@ -1115,6 +1111,7 @@ export class Arcade {
         const seconds = clamp(Math.round(this.startClock - this.clock), 2, Math.max(2, Math.round(this.startClock)));
         const r = this.resolve; this.resolve = null;
         r?.({ outcome: { events: this.events, seconds }, highlights: this.highlights, points: this.points, passes: this.passes, moves: this.moves, reached: this.reached, pulls: this.pulls, cancels: this.cancels, beats: this.beats, quality: this.lastQuality,
+          at: { x: this.off[this.handler]?.x ?? 0, y: this.off[this.handler]?.y ?? 0 }, elapsed: this.contestT, timeUp: this.timeUp,
           shots: this.events.filter(e => e.t === 'shot').map(e => ({ by: (e as { by: number }).by, made: (e as { made: boolean }).made })) });
       }
       return;
@@ -1131,7 +1128,13 @@ export class Arcade {
     // a contest keeps moving: wait too long on a ball and it is gone
     if (this.contest && (this.phase === 'live' || this.phase === 'charge')) {
       this.contestT += this.realDt;
-      if (this.contestT > (this.contest.kind === 'three' ? 7 : 14)) { this.aim.on = false; this.slowmo = 1; this.popup('TOO SLOW!', PAL.red, 2); sfx.buzzer(); this.end(0.7); return; }
+      const limit = this.contest.clock ?? 7;
+      if (this.contest.clock !== undefined) {
+        // one clock for the whole contest, shown where the shot clock lives
+        this.shotClock = Math.max(0, limit - this.contestT);
+        if (this.shotClock <= this.tickAt && this.shotClock > 0) { this.tickAt = Math.ceil(this.shotClock) - 1; sfx.tick(this.shotClock <= 3); }
+      }
+      if (this.contestT > limit) { this.timeUp = true; this.aim.on = false; this.slowmo = 1; this.popup(this.contest.clock !== undefined ? 'TIME!' : 'TOO SLOW!', PAL.red, 2); sfx.buzzer(); this.end(0.9); return; }
     }
     this.grace = Math.max(0, this.grace - dt);
     this.dash.cd = Math.max(0, this.dash.cd - dt);
@@ -1153,9 +1156,11 @@ export class Arcade {
         const dx = this.ptr.x - this.ptr.x0, dy = this.ptr.y - this.ptr.y0, d = Math.hypot(dx, dy);
         if (d > 2) { const m = Math.min(1, d / STICK_MAX); mx = (dx / d) * m; my = (dy / d) * m; }
       } else { const k = this.keyVec(); mx = k.x; my = k.y; }
-      if (this.ftMode || this.contest) { mx = 0; my = 0; }
+      // a contest shooter runs from rack to rack and stands still once he is there
+      const running = this.contest?.kind === 'three' && !this.atRack;
+      if (this.ftMode || (this.contest && !running)) { mx = 0; my = 0; }
       this.mv = { x: mx, y: my };
-      let sp = this.speed(h) * (0.8 + 0.2 * h.p.ratings.hnd / 100);
+      let sp = this.speed(h) * (0.8 + 0.2 * h.p.ratings.hnd / 100) * (running ? 1.9 : 1);
       if (h.slow > 0) sp *= 0.45;
       let tvx = mx * sp, tvy = my * sp;
       if (this.dash.t > 0) {
@@ -1169,6 +1174,8 @@ export class Arcade {
       h.y = Math.min(h.y, H - 6);
       const moving = Math.hypot(h.vx, h.vy) > 6;
       if (moving) this.dribbleT += dt;
+      const rk = running ? this.contest!.rack : undefined;
+      if (rk && Math.hypot(h.x - rk.x, h.y - rk.y) < 9) { h.x = rk.x; h.y = rk.y; h.vx = 0; h.vy = 0; this.atRack = true; this.ptr.mode = 'none'; sfx.select(); this.popup('SHOOT!', PAL.green, 1); }
       const tg = this.guide?.target;
       if (tg && !this.reached && Math.hypot(h.x - tg.x, h.y - tg.y) < 12) { this.reached = true; this.popup('THAT IS IT!', PAL.green, 2); sfx.good(); this.end(0.9); return; }
       // bodies
@@ -1674,6 +1681,7 @@ export class Arcade {
         for (let i = 1; i < n; i++) g.fillRect(Math.round(h.x + ((m.x - h.x) * i) / n), Math.round(h.y - 12 + ((m.y - h.y) * i) / n), 1, 1);
       }
       this.drawGuideFloor();
+    this.drawRack();
       if (this.style && (this.phase === 'finish' || this.hang > 0)) this.drawDunkFx(s.offColors);
       let hoopDrawn = false;
       for (const e of ents) {
@@ -1865,6 +1873,33 @@ export class Arcade {
     if (this.phase === 'rebound' && Math.hypot(e.x - this.reb.x1, e.y - this.reb.y1) < 16) return 'shoot';
     if (!e.off && this.def[this.handler] === e && (this.phase === 'live' || this.phase === 'charge') && e.stun <= 0) return 'defend';
     return 'stand';
+  }
+
+  /** Three-point contest: the rack he is shooting from (or running to), with the balls still on it. */
+  private drawRack(): void {
+    const c = this.contest, g = this.g;
+    if (!c || c.kind !== 'three' || !c.rack || this.phase === 'idle') return;
+    const { x, y } = c.rack, side = x < HOOP.x ? -1 : 1;
+    if (!this.atRack) {
+      // where to run: a pulsing ring on the floor and an arrow over it
+      const pulse = 0.5 + 0.5 * Math.sin(this.time * 8), r = 10 + pulse * 3;
+      g.fillStyle = 'rgba(95,211,95,0.25)';
+      for (let yy = -7; yy <= 7; yy++) { const half = Math.floor(Math.sqrt(49 - yy * yy) * 1.4); g.fillRect(Math.round(x - half), Math.round(y + yy * 0.6), half * 2, 1); }
+      g.fillStyle = PAL.green;
+      for (let a = 0; a < 20; a++) { if ((a + Math.floor(this.time * 8)) % 2) continue; g.fillRect(Math.round(x + Math.cos((a / 20) * 6.283) * r * 1.3), Math.round(y + Math.sin((a / 20) * 6.283) * r * 0.6), 2, 1); }
+      const by = y - 30 - Math.round(pulse * 3);
+      g.fillRect(x - 1, by, 2, 6); g.fillRect(x - 3, by + 5, 6, 1); g.fillRect(x - 2, by + 6, 4, 1); g.fillRect(x - 1, by + 7, 2, 1);
+    }
+    // the rack stands just outside him, on the side away from the basket
+    const rx = clamp(x + side * 13, 6, W - 16), ry = y - 6;
+    g.fillStyle = PAL.ink; g.fillRect(rx - 1, ry + 2, 12, 2); g.fillRect(rx, ry + 4, 1, 5); g.fillRect(rx + 9, ry + 4, 1, 5);
+    g.fillStyle = '#8f8ab8'; g.fillRect(rx - 1, ry + 1, 12, 1);
+    const left = Math.max(0, (c.left ?? 1) - (this.phase === 'live' || this.phase === 'charge' ? 0 : 1));
+    for (let i = 0; i < left; i++) {
+      // the last ball on a rack is the money ball
+      g.fillStyle = c.deep ? PAL.red : i === left - 1 ? PAL.yellow : PAL.ball;
+      g.fillRect(rx + i * 4, ry - 2, 3, 3);
+    }
   }
 
   /** Tutorial marks that lie on the floor, under the players. */

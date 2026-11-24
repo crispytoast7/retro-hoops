@@ -25,8 +25,8 @@ export const PAL = {
   ball: '#ff8a3c', ballDark: '#b4521e', white: '#ffffff', ink: '#14121f',
   green: '#5fd35f', yellow: '#ffd23c', red: '#ff4d4d', blue: '#4da6ff',
 };
-const SKIN = ['#f6d3b3', '#e0ac7e', '#c68642', '#8d5524', '#5c3a1e'];
-const HAIR = ['#1a1a1a', '#4a2f1b', '#8a5a2b', '#d6b370', '#b33a2b'];
+export const SKIN = ['#f6d3b3', '#e0ac7e', '#c68642', '#8d5524', '#5c3a1e'];
+export const HAIR = ['#1a1a1a', '#4a2f1b', '#8a5a2b', '#d6b370', '#b33a2b'];
 
 export function isThree(x: number, y: number): boolean {
   const dx = x - HOOP.x, dy = y - HOOP.y;
