@@ -7,7 +7,7 @@ import type {
   GameSetup, LiveGame, PlayEvent, PossessionResult, ShotType, SideInput, SimStep,
   TurnoverKind, UserPossessionOutcome, UserPossessionSetup,
 } from './api';
-import { availablePlayers, pickBackups, resolveLineup, scorerRating, teamRatings } from './team';
+import { availablePlayers, resolveLineup, rotationPlan, scorerRating, teamRatings } from './team';
 
 export { teamRatings };
 
@@ -23,8 +23,7 @@ const END_PERIOD_SLACK = 4;
 /** Shot attempts allowed in one possession (offensive rebounds give more). */
 const MAX_CHANCES = 4;
 
-/** Rotation: each backup plays two stints of this length, staggered slot by slot. */
-const BENCH_STINT_SECONDS = 400;
+/** Rotation: each backup plays two stints, staggered slot by slot. How long they are is in the rotation plan. */
 const BENCH_STINT_STARTS = [500, 1940]; // game seconds elapsed
 const BENCH_STAGGER_SECONDS = 40;
 
@@ -138,6 +137,8 @@ interface Side {
   pool: Player[];
   starters: number[];
   backups: (number | null)[];
+  /** Seconds of each stint, by slot. */
+  stints: number[];
   box: Map<number, BoxLine>;
   seconds: Map<number, number>;
   /** Consecutive offensive possessions with points. */
@@ -172,6 +173,7 @@ function makeSide(input: SideInput, isHome: boolean): Side {
   const starters = resolveLineup(input.team.lineup, pool);
   const box = new Map<number, BoxLine>();
   const seconds = new Map<number, number>();
+  const plan = rotationPlan(pool, starters, { backups: input.team.backups, depth: input.team.depth });
   for (const p of pool) {
     box.set(p.id, { ...emptyStats(), playerId: p.id, starter: starters.includes(p.id) });
     seconds.set(p.id, 0);
@@ -179,7 +181,7 @@ function makeSide(input: SideInput, isHome: boolean): Side {
   return {
     input, id: input.team.id, isHome,
     byId: new Map(pool.map(p => [p.id, p])),
-    pool, starters, backups: pickBackups(pool, starters),
+    pool, starters, backups: plan.map(r => r.backupId), stints: plan.map(r => r.stint),
     box, seconds, streak: 0,
   };
 }
@@ -334,7 +336,7 @@ class Game implements LiveGame {
       if (backup !== null && this.quarter <= QUARTERS) {
         const offset = (slot - 2) * BENCH_STAGGER_SECONDS;
         for (const start of BENCH_STINT_STARTS) {
-          if (elapsed >= start + offset && elapsed < start + offset + BENCH_STINT_SECONDS) id = backup;
+          if (elapsed >= start + offset && elapsed < start + offset + side.stints[slot]) id = backup;
         }
       }
       const p = side.byId.get(id);

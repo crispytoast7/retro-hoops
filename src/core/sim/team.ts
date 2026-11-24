@@ -47,10 +47,13 @@ export function resolveLineup(lineup: number[], pool: Player[]): number[] {
   return valid ? lineup.slice() : autoLineup(pool);
 }
 
-/** One backup per starter slot (null if the bench is too short), best fits first. */
-export function pickBackups(pool: Player[], starters: number[]): (number | null)[] {
+/** One backup per starter slot (null if the bench is too short): the ones the coach named, then the best fits. */
+export function pickBackups(pool: Player[], starters: number[], named?: (number | null)[]): (number | null)[] {
   const out: (number | null)[] = starters.map(() => null);
   const used = new Set<number>(starters);
+  const here = new Set(pool.map(p => p.id));
+  // a named backup counts only while he is available and not starting himself
+  starters.forEach((_, s) => { const id = named?.[s]; if (id !== null && id !== undefined && here.has(id) && !used.has(id)) { out[s] = id; used.add(id); } });
   const cands: { v: number; id: number; s: number }[] = [];
   for (const p of pool) {
     if (used.has(p.id)) continue;
@@ -63,6 +66,42 @@ export function pickBackups(pool: Player[], starters: number[]): (number | null)
     used.add(c.id);
   }
   return out;
+}
+
+export type Depth = 'tight' | 'normal' | 'deep';
+/** Seconds of each of a backup's two stints, before his quality is weighed. */
+const STINT_BASE: Record<Depth, number> = { tight: 280, normal: 400, deep: 520 };
+export const GAME_MINUTES = 48;
+export interface RotationSlot {
+  slot: (typeof POSITIONS)[number];
+  starterId: number;
+  backupId: number | null;
+  /** Seconds of each of the backup's two stints (0: he does not come in). */
+  stint: number;
+  starterMin: number; backupMin: number;
+}
+/**
+ * Who plays how much. Every starter has one backup, who comes in for two stints a game. How long those
+ * stints are depends on how good the backup is next to the man he relieves: a sixth man who could start
+ * plays a lot, a deep reserve only spells him. A tight rotation uses just the two best backups.
+ */
+export function rotationPlan(pool: Player[], starters: number[], opts: { backups?: (number | null)[]; depth?: Depth } = {}): RotationSlot[] {
+  const depth = opts.depth ?? 'normal';
+  const byId = new Map(pool.map(p => [p.id, p]));
+  const backups = pickBackups(pool, starters, opts.backups);
+  const worth = starters.map((sid, s) => {
+    const st = byId.get(sid), b = backups[s] !== null ? byId.get(backups[s]!) : undefined;
+    return { s, b, gap: st && b ? slotValue(st, POSITIONS[s]) - slotValue(b, POSITIONS[s]) : 99, value: b ? slotValue(b, POSITIONS[s]) : -1 };
+  });
+  // in a tight rotation only the two best reserves see the floor
+  const plays = new Set(depth === 'tight' ? worth.filter(w => w.b).sort((a, b) => b.value - a.value).slice(0, 2).map(w => w.s) : worth.filter(w => w.b).map(w => w.s));
+  return worth.map(w => {
+    // a typical reserve (about ten points behind his starter) plays the standard stints; one who could nearly start plays more
+    const k = clamp(1 + (10 - w.gap) * 0.02, 1, 1.2);
+    const stint = plays.has(w.s) ? Math.round((STINT_BASE[depth] * k) / 20) * 20 : 0;
+    const backupMin = Math.round((stint * 2) / 60);
+    return { slot: POSITIONS[w.s], starterId: starters[w.s], backupId: stint > 0 ? backups[w.s] : null, stint, starterMin: GAME_MINUTES - backupMin, backupMin };
+  });
 }
 
 /** Offense, defense and overall (1-100) of a five, for the UI and the AI. */

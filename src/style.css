@@ -402,3 +402,4 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 20px; }
 .rk-note { font-size: 17px; } .rk-hidden { color: var(--line); letter-spacing: 4px; }
 .rk-move { font-family: var(--head); font-size: 9px; padding-top: 4px; } .rk-move.good { color: var(--good); } .rk-move.bad { color: var(--bad); }
 .rk-foot { position: sticky; bottom: 0; }
+.lu-sub { min-height: 0; padding-top: 2px; padding-bottom: 8px; font-size: 18px; border-top: 0; }

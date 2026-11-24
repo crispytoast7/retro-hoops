@@ -130,6 +130,10 @@ export interface Team {
   roster: number[];
   /** Five starter ids in PG, SG, SF, PF, C slot order. */
   lineup: number[];
+  /** The backup the coach has named for each starter slot (null or missing: the best fit is chosen for him). */
+  backups?: (number | null)[];
+  /** How much the bench plays: a tight rotation leans on the starters, a deep one shares the minutes. */
+  depth?: 'tight' | 'normal' | 'deep';
   staff: { oc: StaffMember | null; dc: StaffMember | null };
   facilities: Record<FacilityKey, Facility>;
   picks: DraftPick[];
