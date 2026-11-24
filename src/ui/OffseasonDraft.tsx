@@ -7,7 +7,10 @@ import { capStatus, payroll } from '../core/org/finance';
 import type { Player, Save } from '../core/types';
 import { sfx } from '../audio/sfx';
 import { act, touch } from '../state/store';
-import { Btn, Modal, Panel, confirmDialog, fullName, money, toast } from './kit';
+import { Btn, Modal, Panel, Sprite, Stars, confirmDialog, fullName, money, toast } from './kit';
+import { gradeDraft } from '../core/org/draftlook';
+import { ovr } from '../core/ratings';
+import { heightOf } from '../core/body';
 import { CapTag, PlayerLine, ProspectBoard, ProspectRow, ReleaseModal, dealText } from './OffseasonParts';
 
 const LOTTERY_TEAMS = 8;
@@ -81,12 +84,13 @@ export function DraftStep({ save }: { save: Save }) {
   const slot = off.draftOrder[off.draftIdx];
   const full = me.roster.length >= ROSTER_MAX;
 
+  const [picked, setPicked] = useState<number | null>(null);
   const draft = (id: number) => {
-    const p = save.players[id];
     const err = act((s, rng) => userDraftPick(s, id, rng));
     if (err) { toast(err); return; }
     setSel(null);
-    toast(`You drafted ${p?.name ?? 'your man'}!`, true);
+    // draft night: the name is read out
+    setPicked(id); sfx.fanfare();
   };
   const pass = async () => {
     if (!(await confirmDialog('Pass on this pick? It is gone for good.', 'Pass'))) return;
@@ -102,6 +106,7 @@ export function DraftStep({ save }: { save: Save }) {
     .filter(p => p.draft && p.draft.year === save.year && p.draft.teamId === me.id && p.teamId === me.id)
     .sort((a, b) => (a.draft!.round - b.draft!.round) || (a.draft!.pick - b.draft!.pick));
   const pickPlayer: Player | null = sel !== null ? save.players[sel] ?? null : null;
+  const grade = done ? gradeDraft(save, me.id) : null;
 
   // a team in the lottery watches the balls drop before it sees the board
   const inLottery = off.draftOrder.some(s => s.round === 1 && s.pick <= LOTTERY_TEAMS && s.teamId === me.id);
@@ -155,6 +160,12 @@ export function DraftStep({ save }: { save: Save }) {
               </div>
             </>
           ) : <div class="dim">You did not draft anyone this year.</div>}
+          {grade && (
+            <div class="row" style={{ gap: '10px', marginTop: '8px', alignItems: 'center' }}>
+              <span class={`dr-grade g${grade.grade}`}>{grade.grade}</span>
+              <span class="grow" style={{ fontSize: '18px' }}>Your draft grade. {grade.line}</span>
+            </div>
+          )}
           <div class="dim" style={{ fontSize: '18px', marginTop: '6px' }}>Undrafted prospects join the free-agent pool. Continue to free agency.</div>
         </Panel>
       )}
@@ -207,6 +218,22 @@ export function DraftStep({ save }: { save: Save }) {
           </div>
         </Modal>
       )}
+      {picked !== null && save.players[picked]?.draft && (() => {
+        const p = save.players[picked], d = p.draft!, n = (d.round - 1) * NUM_TEAMS + d.pick;
+        return (
+          <Modal onClose={() => setPicked(null)}>
+            <div class="center dim head">WITH THE #{n} PICK IN THE SEASON {save.year} DRAFT</div>
+            <div class="center head gold" style={{ fontSize: '12px' }}>THE {me.city.toUpperCase()} {me.name.toUpperCase()} SELECT</div>
+            <div class="row" style={{ justifyContent: 'center', margin: '6px 0' }}><Sprite player={p} team={me} scale={5} /></div>
+            <h2 class="center">{p.name.toUpperCase()}</h2>
+            <div class="row" style={{ justifyContent: 'center', gap: '8px' }}><span class="tag pos">{p.pos}</span><span class="dim">Age {p.age}</span><span class="dim">{heightOf(p)}</span></div>
+            {p.origin && <div class="center dim">{p.origin}</div>}
+            <div class="row between"><span class="dim">Now</span><Stars v={ovr(p)} /></div>
+            <div class="row between"><span class="dim">Ceiling</span><Stars v={p.potential} /></div>
+            <Btn kind="primary big" onClick={() => setPicked(null)}>Welcome aboard</Btn>
+          </Modal>
+        );
+      })()}
       {releasing && <ReleaseModal save={save} onClose={() => setReleasing(false)} text={`Roster ${me.roster.length}/${ROSTER_MAX}. Releasing in the offseason costs no dead money.`} />}
     </>
   );

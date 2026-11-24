@@ -19,6 +19,7 @@ import type { OffseasonStep, Player, PlayoffSeries, Save, SeasonHistory, StatLin
 import { grantXp } from '../org/xp';
 import { startChallenge } from '../org/progress';
 import { publishGoatList } from '../org/goat';
+import { draftLookback } from '../org/draftlook';
 
 const STEPS: OffseasonStep[] = ['awards', 'retirements', 'contracts', 'draft', 'freeAgency', 'camp', 'done'];
 const per = (s: StatLine, k: keyof StatLine): number => (s.gp ? s[k] / s.gp : 0);
@@ -484,6 +485,8 @@ export function startNewSeason(save: Save, rng: Rng): void {
   save.scoutPoints = scoutPointsPerSeason(save);
   setOwnerGoals(save);
   pushNews(save, 'league', `Season ${save.year} tips off.`);
+  // and the papers look back at old drafts
+  draftLookback(save);
 }
 
 /** First-time setup after the user picks a franchise. */

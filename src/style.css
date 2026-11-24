@@ -420,3 +420,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 20px; }
 .tc-p { min-width: 0; }
 .tc-arrow { font-family: var(--head); color: var(--gold); padding-top: 18px; }
 .tc-verdict { flex-wrap: wrap; gap: 6px; font-size: 18px; }
+
+/* a draft grade, like a report card */
+.dr-grade { font-family: var(--head); font-size: 22px; padding: 8px 12px; background: var(--edge); border: 3px solid var(--line); min-width: 52px; text-align: center; }
+.dr-grade.gA { color: var(--good); border-color: var(--good); } .dr-grade.gB { color: #9fe59f; } .dr-grade.gC { color: var(--gold); } .dr-grade.gD { color: #ffa04d; } .dr-grade.gF { color: var(--bad); border-color: var(--bad); }

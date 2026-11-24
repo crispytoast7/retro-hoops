@@ -3,7 +3,7 @@ import { heightOf } from '../core/body';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { DEAD_CAP_RATE, HARD_LIMIT, ROSTER_MIN, SALARY_CAP } from '../core/constants';
-import { scoutProspect, scoutedRating } from '../core/org/economy';
+import { scoutProspect, scoutedRating, prospectCeiling } from '../core/org/economy';
 import { statusOf } from '../core/org/finance';
 import type { CapStatus, SigningVia } from '../core/org/finance';
 import { releaseDeadCap, releasePlayer } from '../core/org/roster';
@@ -112,7 +112,7 @@ export function ProspectRow(p: { save: Save; player: Player; onClick?: () => voi
           <span class="nowrap">{heightOf(pl)}</span>
           <span class="nowrap">Age {pl.age}</span>
           <span class="row" style={{ gap: '4px' }}>{v.known ? 'Now' : 'Est.'} <Stars v={v.est} /></span>
-          {v.known && <span class="row" style={{ gap: '4px' }}>Ceiling <Stars v={pl.potential} /></span>}
+          {(() => { const c = prospectCeiling(p.save, pl); return <span class="row" style={{ gap: '4px' }}>Ceiling {c.known ? <Stars v={c.hi} /> : <StarRange lo={c.lo} hi={c.hi} />}</span>; })()}
         </div>
         {pl.origin && <div class="dim" style={{ fontSize: '16px' }}>{pl.origin}</div>}
         <div class="ox-rgrid">

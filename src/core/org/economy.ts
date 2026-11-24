@@ -178,6 +178,15 @@ export function ceilingView(save: Save, p: Player): { known: boolean; lo: number
   const mid = cap + ((h % 1000) / 1000 - 0.5) * spread;
   return { known: false, lo: Math.round(clamp(Math.max(o, mid - spread / 2), 1, 99)), hi: Math.round(clamp(mid + spread / 2, o, 99)) };
 }
+/** A draft prospect's ceiling as the user sees it: exact once scouted, a range before (narrower with a better scouting office). */
+export function prospectCeiling(save: Save, p: Player): { known: boolean; lo: number; hi: number } {
+  const o = overallOf(p.ratings, p.pos);
+  if (p.scouted !== false) return { known: true, lo: p.potential, hi: p.potential };
+  const spread = 26 - effLevel(save.teams[save.userTeamId].facilities.scouting) * 3.5;
+  let h = (p.id * 2246822519 + 3266489917) >>> 0; h = (h ^ (h >>> 13)) * 1274126177 >>> 0;
+  const mid = p.potential + ((h % 1000) / 1000 - 0.5) * spread * 0.8;
+  return { known: false, lo: Math.round(clamp(Math.max(o, mid - spread / 2), 1, 99)), hi: Math.round(clamp(mid + spread / 2, o + 1, 99)) };
+}
 /** Spend a scouting report (or a credit) to learn exactly how good a young player could become. */
 export function scoutCeiling(save: Save, playerId: number): string | null {
   const p = save.players[playerId];

@@ -121,8 +121,14 @@ export function genProspects(save: Save, rng: Rng): number[] {
     const tier = i / PROSPECTS;
     const target = Math.round(70 - tier * 22 + rng.gauss() * 4);
     const p = genPlayer(save, rng, pos, target, rng.int(19, 22));
-    // most prospects top out as role players; a few each year have star ceilings
-    p.potential = clamp(overallOf(p.ratings, pos) + 3 + Math.round(Math.abs(rng.gauss()) * 8 * (1 - tier * 0.4)), overallOf(p.ratings, pos), 99);
+    // ceilings are hard limits, so the draft is where stars come from: the top of every class has star
+    // upside, the middle has starters, and a few sleepers hide deep in it for whoever scouts them
+    const g = Math.abs(rng.gauss()), o = overallOf(p.ratings, pos);
+    let room = i < 6 ? 10 + g * 6 : i < 16 ? 5 + g * 5 : 2 + g * 4;
+    // (keyed on this league's own seed: player numbers repeat from league to league)
+    let h = Math.imul((p.id ^ salt) >>> 0, 2654435761) >>> 0; h = Math.imul(h ^ (h >>> 15), 2246822519) >>> 0; h = (h ^ (h >>> 13)) >>> 0;
+    if (i >= 16 && h % 100 < 9) room += 12 + (h >>> 8) % 9;
+    p.potential = clamp(Math.round(o + room), o, 99);
     p.scouted = false;
     const src = rng.next();
     p.origin = src < 0.68 ? rng.pick(COLLEGES) : src < 0.92 ? rng.pick(CLUBS) : rng.pick(DEV_TEAMS);
